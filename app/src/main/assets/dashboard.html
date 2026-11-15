@@ -795,6 +795,12 @@
     .heat-note { font-size:10.5px; line-height:1.6; color:var(--text-faint); margin-top:10px; }
     .heat-refresh { border:0; background:transparent; color:var(--primary); font:inherit; font-size:11.5px; padding:6px 0 6px 8px; cursor:pointer; }
 
+    .model-list-tools { display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;margin:8px 0;min-width:0; }
+    .model-list-tools input[type="search"],.model-list-tools select { flex:1 1 180px;min-width:0;max-width:100%;padding:8px 10px;border:1px solid var(--card-border);border-radius:8px;background:var(--bg-card);color:var(--text);font-size:12px; }
+    .model-list-tools label { display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted); }
+    .model-list-note,.model-list-pager { font-size:12px;color:var(--text-muted);line-height:1.7;overflow-wrap:anywhere; }
+    .model-list-pager { display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0; }
+    .model-list-pager button:disabled,.model-list-tools button:disabled { opacity:.4;cursor:default; }
     /* ---------- 模型白名单 ---------- */
     .exp-prov { padding: 9px 0; border-bottom: 1px solid var(--input-border); }
     .exp-prov:last-child { border-bottom: 0; }
@@ -1385,12 +1391,15 @@
             style="width:100%;padding:11px 14px;background:#0d0f17;color:#fff;border:1px solid var(--card-border);border-radius:9px;font-size:0.82rem;">
           </select>
 
+          <div class="model-list-tools"><label><input id="ping-models-all" type="checkbox" onchange="pingModelPage=0;renderPingProviders(true)">查看全部（含未暴露模型）</label></div>
           <div id="ping-model-block" style="display:none;margin-top:16px;">
+            <div class="model-list-tools"><input id="ping-model-search" type="search" aria-label="搜索测试模型" placeholder="搜索模型名称或 ID" oninput="onPingModelFilterChange()"></div>
+            <div class="model-list-pager"><span id="ping-model-pager"></span><button id="ping-model-prev" type="button" class="exp-mini" onclick="changePingModelPage(-1)">上一页</button><button id="ping-model-next" type="button" class="exp-mini" onclick="changePingModelPage(1)">下一页</button></div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
               <span style="font-size:0.72rem;color:var(--text-muted);letter-spacing:0.04em;">② 选择模型测试</span>
               <button id="btn-ping-all" class="btn btn-outline"
                 style="font-size:0.68rem;padding:3px 10px;border-radius:10px;color:#38bdf8;border-color:rgba(56,189,248,0.3);white-space:nowrap;"
-                onclick="pingAllModels()">逐个测试</button>
+                onclick="pingAllModels()">测试本页</button>
             </div>
             <div class="ping-model-actions">
               <select id="ping-model-select" onchange="onPingModelChange(this.value)"
@@ -1620,8 +1629,9 @@
       </div>
       <div class="card access-model-card">
         <div class="access-section-heading"><div><h2>可接入模型</h2><p>复制完整 ID，填入 Agent 的「模型 / Model」字段。</p></div><button id="access-copy-all" class="btn btn-outline" onclick="copyGatewayModelIds()" disabled>复制全部 ID</button></div>
-        <div class="access-search-row"><label class="sr-only" for="access-model-search">搜索模型 ID 或供应商</label><input id="access-model-search" type="search" placeholder="搜索模型 ID 或供应商…" oninput="renderGatewayModels()"><label class="sr-only" for="access-provider-filter">筛选供应商</label><select id="access-provider-filter" onchange="renderGatewayModels()"><option value="">全部供应商</option></select></div>
+        <div class="access-search-row"><label class="sr-only" for="access-model-search">搜索模型 ID 或供应商</label><input id="access-model-search" type="search" placeholder="搜索模型 ID 或供应商…" oninput="gatewayAccessPage=0;renderGatewayModels()"><label class="sr-only" for="access-provider-filter">筛选供应商</label><select id="access-provider-filter" onchange="gatewayAccessPage=0;renderGatewayModels()"><option value="">全部供应商</option></select></div>
         <p id="access-model-summary" class="access-note"></p>
+        <div id="access-model-pager" class="model-list-pager"></div>
         <div id="access-model-list"><div class="access-empty">正在读取已入池模型…</div></div>
         <p class="access-note">仅列出当前启用凭据与模型目录匹配、且允许对外展示的模型；未入池的供应商不会列出。此处按账号池与路由条件筛选，不会逐条发送推理请求。上游额度、网络或临时限流仍会影响实际调用。</p>
       </div>
@@ -2110,6 +2120,8 @@
           <b>近期用量优先</b>：优先选择近期可信用量与在途负载较低的目标，失败仍按原规则回退
         </div>
 
+        <div class="model-list-tools"><input id="group-model-search" type="search" aria-label="搜索路由目标模型" placeholder="搜索模型名称或 ID" oninput="onGroupModelFilterChange()"><select id="group-model-provider" aria-label="筛选路由目标供应商" onchange="onGroupModelFilterChange()"><option value="">全部供应商</option></select><label><input id="group-models-all" type="checkbox" onchange="onGroupModelFilterChange()">查看全部（含未暴露模型）</label></div>
+        <p class="model-list-note">默认跟随已保存的模型白名单；查看全部仅改变候选列表，不改白名单，也不删除已有目标。</p>
         <div id="groups-container"></div>
       </div>
     </section>
@@ -3902,17 +3914,24 @@
      * 不用 getBoundingClientRect —— 那既怕测量时机，也会和 padding 重复计算。
      */
     // ==================== 模型白名单 ====================
+    let exposedSaving = false;
+    let exposedReadSequence = 0, exposedEditSequence = 0;
     let exposedData = null;          // GET /api/exposed 的结果
     let exposedSel = new Set();      // 已勾选的 provider/model 或 group/<id>
+    const exposedViews = new Map();
     const exposedOpen = new Set();   // 当前页面的展开状态
 
     async function loadExposed() {
+      if (exposedSaving) return;
+      const request = ++exposedReadSequence, edit = exposedEditSequence;
       const state = document.getElementById('exposed-state');
       if (state) state.innerText = '正在读取…';
       try {
         const res = await fetch(API_BASE + '/api/exposed');
         const d = await res.json();
         if (!d.ok) throw new Error(d.error || '读取失败');
+        if (request !== exposedReadSequence || exposedSaving) return;
+        if (edit !== exposedEditSequence) { if (state) state.innerText = '本地选择已更改，尚未保存'; return; }
         exposedData = d;
         exposedSel = new Set(Array.isArray(d.items) ? d.items : []);
         const cb = document.getElementById('exposed-enabled');
@@ -3925,10 +3944,11 @@
     }
 
     function onExposedToggle() {
-      renderExposed();
+      exposedEditSequence++; renderExposed();
     }
 
     function toggleExposed(id) {
+      exposedEditSequence++;
       if (exposedSel.has(id)) exposedSel.delete(id);
       else exposedSel.add(id);
       renderExposed();
@@ -3936,6 +3956,7 @@
 
     /** 整组勾选 / 清空 */
     function setExposedGroup(providerId, on) {
+      exposedEditSequence++;
       if (!exposedData) return;
       const p = (exposedData.providers || []).find(x => x.id === providerId);
       if (!p) return;
@@ -4013,8 +4034,16 @@
             if (isGroup) setExposedGroupAll(on); else setExposedGroup(key.slice(2), on);
           }), JSON.stringify([key, 'action', on]))));
           wrap.appendChild(actions);
+          const view = exposedViews.get(key) || {query:'',page:0}; exposedViews.set(key,view);
+          const found = entries.filter(e => (e.id + ' ' + e.name).toLowerCase().includes(view.query.toLowerCase()));
+          const pages = Math.max(1,Math.ceil(found.length / 60)); view.page = Math.max(0,Math.min(pages-1,view.page));
+          const tools = element('div','model-list-tools');
+          const search = focusable(element('input',''),JSON.stringify([key,'search'])); search.type='search'; search.value=view.query; search.placeholder='搜索模型名称或 ID'; search.setAttribute('aria-label',name+'白名单模型搜索');
+          search.addEventListener('input',()=>{view.query=search.value;view.page=0;renderExposed();}); tools.appendChild(search);
+          tools.appendChild(element('span','model-list-note','匹配 '+found.length+' 个 · 第 '+(view.page+1)+'/'+pages+' 页'));
+          [-1,1].forEach(step=>{const btn=button('exp-mini',step<0?'上一页':'下一页',()=>{view.page+=step;renderExposed();});btn.disabled=step<0?!view.page:view.page+1>=pages;tools.appendChild(btn);});wrap.appendChild(tools);
           const chips = element('div', 'exp-chips');
-          entries.forEach(entry => chips.appendChild(focusable(button('exp-chip' + (exposedSel.has(entry.id) ? ' on' : ''), entry.name, () => toggleExposed(entry.id)), JSON.stringify([key, 'chip', entry.id]))));
+          found.slice(view.page*60,(view.page+1)*60).forEach(entry => chips.appendChild(focusable(button('exp-chip' + (exposedSel.has(entry.id) ? ' on' : ''), entry.name, () => toggleExposed(entry.id)), JSON.stringify([key, 'chip', entry.id]))));
           wrap.appendChild(chips);
         }
         box.appendChild(wrap);
@@ -4026,11 +4055,12 @@
         if (models.length) section('p:' + p.id, p.name || p.id, models.map(m => ({ id: p.id + '/' + m, name: m })), !!p.live, false);
       });
       if (!box.children.length) box.appendChild(element('div', 'exp-empty', '还没有可选的模型，先去供应商页登录并同步模型'));
-      if (focusTarget) focusTarget.focus({ preventScroll: true });
+      if (focusTarget) { const caret = active && active.selectionStart; focusTarget.focus({ preventScroll: true }); if (caret != null && typeof focusTarget.setSelectionRange === 'function') focusTarget.setSelectionRange(caret,caret); }
     }
 
     // 路由组的整组操作（groups 不带 models 列表，单独处理）
     function setExposedGroupAll(on) {
+      exposedEditSequence++;
       if (!exposedData) return;
       (exposedData.groups || []).forEach(g => {
         if (on) exposedSel.add(g.id); else exposedSel.delete(g.id);
@@ -4039,15 +4069,18 @@
     }
 
     async function saveExposed() {
+      if (exposedSaving) { showToast('白名单正在保存，请稍候'); return; }
+      exposedSaving = true; exposedReadSequence++;
       const state = document.getElementById('exposed-state');
       const cb = document.getElementById('exposed-enabled');
       const enabled = !!(cb && cb.checked);
+      const savedPolicy = {enabled,items:Array.from(exposedSel)};
       if (state) state.innerText = '正在保存…';
       try {
         const res = await fetch(API_BASE + '/api/exposed', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: enabled, items: Array.from(exposedSel) })
+          body: JSON.stringify(savedPolicy)
         });
         const d = await res.json();
         if (!d.ok) throw new Error(d.error || '保存失败');
@@ -4056,11 +4089,19 @@
             ? '已保存：客户端只会看到 ' + d.count + ' 个模型'
             : '已保存：白名单关闭，客户端会看到全部已配置模型';
         }
+        if (typeof appConfig !== 'undefined' && appConfig) {
+          appConfig.exposed = savedPolicy;
+          if (typeof gatewayAccessPolicyChanged === 'function') gatewayAccessPolicyChanged();
+          if (typeof providerWriteRevision !== 'undefined') providerWriteRevision++;
+          if (typeof renderGroups === 'function') renderGroups(true,true);
+          if (typeof renderPingProviders === 'function') renderPingProviders(true);
+          if (typeof loadConfig === 'function') loadConfig();
+        }
         showToast(enabled ? '白名单已生效（' + d.count + ' 个）' : '白名单已关闭');
       } catch (e) {
         if (state) state.innerText = '保存失败：' + e.message;
         showToast('保存失败：' + e.message);
-      }
+      } finally { exposedSaving = false; }
     }
 
     // ==================== 主题（三态：跟随系统 / 白天 / 夜间） ====================
@@ -4766,6 +4807,9 @@
     let gatewayAccessRows = [], gatewayAccessReady = false, gatewayAccessBusy = false;
     let gatewayAccessRevision = 0, gatewayAccessLast = 0, gatewayAccessSyncing = false;
     let gatewayAccessRefreshPending = false;
+    let gatewayAccessPolicyVersion = 0, gatewayAccessReadPending = false;
+    let gatewayAccessPage = 0;
+    let gatewayAccessFilterSig = '';
     let gatewayAccessRenderSignature = null, gatewayAccessProviderSignature = null, gatewayAccessSyncFailures = 0;
     function gatewayAccessVisible() {
       const page = document.getElementById('tab-gateway');
@@ -4791,7 +4835,7 @@
         return;
       }
       if (!syncUpstream && Date.now() - gatewayAccessLast < GATEWAY_ACCESS_POLL_MS) return;
-      const revision = ++gatewayAccessRevision;
+      const revision = ++gatewayAccessRevision, policy = gatewayAccessPolicyVersion;
       gatewayAccessLast = Date.now(); // Throttle failed automatic reads as well.
       gatewayAccessBusy = true;
       gatewayAccessSyncing = !!syncUpstream;
@@ -4827,7 +4871,7 @@
           await Promise.all(Array.from({length:Math.min(3,tasks.length)}, async () => { while (next < tasks.length) { const task = tasks[next++]; await task(); } }));
         }
         const data = await gatewayAccessRead('/api/gateway-access');
-        if (revision !== gatewayAccessRevision) return;
+        if (revision !== gatewayAccessRevision || policy !== gatewayAccessPolicyVersion) return;
         if (!Array.isArray(data.models) || !data.models.every(m => m && typeof m.id === 'string' && m.id.includes('/') && typeof m.provider === 'string' && typeof m.providerName === 'string' && typeof m.name === 'string' && ['model','group'].includes(m.kind))) throw Error('invalid inventory');
         const seen = new Set(); gatewayAccessRows = data.models.filter(m => !seen.has(m.id) && seen.add(m.id));
         gatewayAccessReady = true; gatewayAccessLast = Date.now();
@@ -4845,14 +4889,16 @@
         if (syncUpstream) gatewayAccessSyncFailures = failures;
         if (note) note.textContent = '已更新 · ' + new Date(data.observedAt || Date.now()).toLocaleTimeString() + (gatewayAccessSyncFailures ? ' · ' + gatewayAccessSyncFailures + ' 项上游目录同步失败，按现有已入池目录筛选' : '') + (data.unconfirmedCatalogs ? ' · 部分账号目录暂未确认，未列出' : '');
       } catch (_) {
-        if (revision !== gatewayAccessRevision) return;
+        if (revision !== gatewayAccessRevision || policy !== gatewayAccessPolicyVersion) return;
         gatewayAccessReady = false; gatewayAccessRows = []; renderGatewayModels();
         if (note) note.textContent = '刷新失败，当前模型列表已清空。请检查网关连接后重试。';
       } finally {
         if (revision === gatewayAccessRevision) {
           gatewayAccessBusy = false; gatewayAccessSyncing = false;
           if (showProgress && button) { button.disabled = false; button.textContent = '↻ 刷新'; }
+          if (gatewayAccessReadPending && !gatewayAccessRefreshPending) { gatewayAccessReadPending = false; gatewayAccessLast = 0; refreshGatewayAccess(false); }
           if (gatewayAccessRefreshPending) {
+            gatewayAccessReadPending = false;
             gatewayAccessRefreshPending = false;
             refreshGatewayAccess(true);
           }
@@ -4865,13 +4911,24 @@
       const query = search ? search.value.trim().toLowerCase() : '', provider = select ? select.value : '';
       return gatewayAccessRows.filter(m => (!provider || m.provider === provider) && (!query || [m.id,m.name,m.providerName].join(' ').toLowerCase().includes(query)));
     }
+    function gatewayAccessPolicyChanged() {
+      gatewayAccessPolicyVersion++; gatewayAccessReady = false; gatewayAccessRows = []; gatewayAccessLast = 0; renderGatewayModels();
+      if (gatewayAccessBusy) gatewayAccessReadPending = true; else refreshGatewayAccess(false);
+    }
+    function modelFilterValueSafe(id) { const el=document.getElementById(id); return el && typeof el.value==='string' ? el.value : ''; }
     function renderGatewayModels() {
       const list = document.getElementById('access-model-list'); if (!list) return;
       const visible = gatewayVisibleModels(), groups = new Map();
-      const signature = JSON.stringify([gatewayAccessReady, gatewayAccessRows, visible]);
+      const filterSig = JSON.stringify([modelFilterValueSafe('access-model-search'),modelFilterValueSafe('access-provider-filter')]);
+      if (filterSig !== gatewayAccessFilterSig) { gatewayAccessPage=0;gatewayAccessFilterSig=filterSig; }
+      const pages=Math.max(1,Math.ceil(visible.length/60));gatewayAccessPage=Math.max(0,Math.min(pages-1,gatewayAccessPage));
+      const shown=visible.slice(gatewayAccessPage*60,(gatewayAccessPage+1)*60);
+      const pager=document.getElementById('access-model-pager');
+      if(pager){pager.replaceChildren();const note=document.createElement('span');note.textContent='匹配 '+visible.length+' 个 · 第 '+(gatewayAccessPage+1)+'/'+pages+' 页';pager.appendChild(note);[-1,1].forEach(step=>{const btn=document.createElement('button');btn.type='button';btn.className='exp-mini';btn.textContent=step<0?'上一页':'下一页';btn.disabled=step<0?!gatewayAccessPage:gatewayAccessPage+1>=pages;if(btn.addEventListener)btn.addEventListener('click',()=>{gatewayAccessPage+=step;renderGatewayModels();});pager.appendChild(btn);});} 
+      const signature = JSON.stringify([gatewayAccessReady, gatewayAccessPage, gatewayAccessRows, visible]);
       if (signature === gatewayAccessRenderSignature) return;
       gatewayAccessRenderSignature = signature;
-      visible.forEach(m => { if (!groups.has(m.provider)) groups.set(m.provider,[]); groups.get(m.provider).push(m); });
+      shown.forEach(m => { if (!groups.has(m.provider)) groups.set(m.provider,[]); groups.get(m.provider).push(m); });
       list.replaceChildren();
       ['model','provider','group'].forEach(kind => {
         const el = document.getElementById('access-' + kind + '-count'); if (!el) return;
@@ -5621,7 +5678,7 @@
       const hasCard = cards && Array.from(cards.children).some(x => !x.hidden), hasCommercial = details && !details.hidden;
       if (!hasCard && !hasCommercial && p.id === 'loomy') { const sync = document.createElement('button'); sync.className = 'btn btn-outline'; sync.textContent = '🔄 同步官方模型'; sync.onclick = () => syncUniversalModels('loomy'); info.appendChild(sync); }
       if (!hasCard && !hasCommercial && ['loomy','workbuddy-ai'].includes(p.id) && String(p.status || '').toLowerCase() !== 'placeholder') { const probe = document.createElement('div'); probe.innerHTML = endpointProbeControls(p.id); info.appendChild(probe); hydrateEndpointProbe(p.id); }
-      if (!hasCard && !hasCommercial && Array.isArray(p.models)) { const models = document.createElement('p'); models.textContent = '模型：' + p.models.map(m => typeof m === 'string' ? m : (m && (m.name || m.id)) || '').filter(Boolean).join('、'); info.appendChild(models); }
+      if (!hasCard && !hasCommercial && Array.isArray(p.models)) { const models = document.createElement('p'); models.textContent = '模型：' + p.models.slice(0,60).map(m => typeof m === 'string' ? m : (m && (m.name || m.id)) || '').filter(Boolean).join('、') + (p.models.length>60 ? ' …（共'+p.models.length+'个，摘要仅显示前60个）' : ''); info.appendChild(models); }
       if (!hasCard && !hasCommercial && ACCOUNT_FILE_PROVIDERS.has(p.id)) ensureAccountFileButtons(info, p.id);
       if (!hasCard && !hasCommercial && !ACCOUNT_FILE_PROVIDERS.has(p.id)) { const note = document.createElement('p'); note.textContent = '当前未提供该类型配置入口'; info.appendChild(note); }
     }
@@ -6056,14 +6113,15 @@
 
     /** 供应商是否已有可用凭据（账号或 key）；没有就等于没登录，模型列表不该显示 */
     function providerHasCredential(prov) {
-      if (!prov) return false;
+      if (!prov || prov.enabled === false || String(prov.status || '').toLowerCase() === 'placeholder') return false;
       const accs = Array.isArray(prov.accounts) ? prov.accounts : [];
-      if (accs.some(a => a && String(a.token || '').trim())) return true;
+      if (accs.some(a => a && a.enabled !== false && ['token','access','refresh','jwt'].some(k => typeof a[k] === 'string' && a[k].trim()))) return true;
       const keys = Array.isArray(prov.keys) ? prov.keys : [];
-      return keys.some(k => String(k || '').trim());
+      return keys.some(k => typeof k === 'string' ? !!k.trim() : k && k.enabled !== false && !k.off && typeof k.key === 'string' && !!k.key.trim());
     }
 
     function renderAllModelsTags() {
+      const catalogActive = document.activeElement;
       if (!appConfig || !Array.isArray(appConfig.providers)) return;
       const pids = PROVIDER_CARD_IDS;
       pids.forEach(pid => {
@@ -6086,12 +6144,7 @@
           if (models.length === 0) {
             c.innerHTML += '<span style="font-size: 0.72rem; color: var(--text-muted);">暂无模型数据，可点击「同步官方模型」</span>';
           } else {
-            models.forEach(m => {
-              try { c.appendChild(buildModelTag(pid, m, meta[m] || {})); }
-              catch (e) {
-                const s = document.createElement('span'); s.className = 'model-tag'; s.innerText = m; c.appendChild(s);
-              }
-            });
+            renderPagedProviderModels(pid, c, models, meta, catalogActive);
           }
           return;
         }
@@ -6117,17 +6170,7 @@
           return;
         }
         c.innerHTML = '';
-        models.forEach(m => {
-          try {
-            c.appendChild(buildModelTag(pid, m, meta[m]));
-          } catch (err) {
-            const s = document.createElement('span');
-            s.className = 'model-tag';
-            s.innerText = m;
-            s.onclick = () => executeModelPingTest(pid + '/' + m);
-            c.appendChild(s);
-          }
-        });
+        renderPagedProviderModels(pid, c, models, meta, catalogActive);
       });
     }
 
@@ -6342,6 +6385,86 @@
     let groupDraft = null;         // 编辑中的组副本
     let groupsSig = '';            // 数据指纹，避免每 3 秒重建 DOM 丢点击
 
+    // Model selection is a view, never a rewrite of catalogs or existing group targets.
+    const groupModelPages = new Map();
+    const providerCatalogViews = new Map();
+    let groupsServerSig = null;
+    function modelFilterValue(id) {
+      const el = document.getElementById(id);
+      return el && typeof el.value === 'string' ? el.value.trim().toLowerCase() : '';
+    }
+    function modelShowAll(scope) {
+      const el = document.getElementById(scope + '-models-all');
+      return !!(el && el.checked === true);
+    }
+    function modelRefAllowed(ref, scope) {
+      const exposed = appConfig && appConfig.exposed;
+      return modelShowAll(scope) || !exposed || !exposed.enabled || (Array.isArray(exposed.items) && exposed.items.includes(ref));
+    }
+    function modelMatches(ref, prov, query) {
+      if (!query) return true;
+      const raw = ref.startsWith(prov.id + '/') ? ref.slice(prov.id.length + 1) : ref;
+      const meta = prov.modelMeta && prov.modelMeta[raw];
+      const label = typeof modelDisplayName === 'function' ? modelDisplayName(raw, meta) : raw;
+      return [ref, prov.name || prov.id, label].some(v => String(v).toLowerCase().includes(query));
+    }
+    function selectionModelsOf(prov, scope, query) {
+      if (!providerHasCredential(prov)) return [];
+      const refs = new Set();
+      pingModelsOf(prov).forEach(m => {
+        if (typeof m !== 'string' || !m.trim()) return;
+        const ref = m.startsWith(prov.id + '/') ? m : prov.id + '/' + m;
+        if (modelRefAllowed(ref, scope) && modelMatches(ref, prov, query || '')) refs.add(ref);
+      });
+      return Array.from(refs);
+    }
+    function modelPage(items, requested) {
+      const pages = Math.max(1, Math.ceil(items.length / 60));
+      const page = Math.max(0, Math.min(pages - 1, Number(requested) || 0));
+      return {items:items.slice(page * 60, (page + 1) * 60), page, pages, total:items.length, from:items.length ? page * 60 + 1 : 0};
+    }
+    function renderGroupModelFilters() {
+      const select = document.getElementById('group-model-provider');
+      if (!select || select.tagName !== 'SELECT') return;
+      const provs = visibleProviders(appConfig && appConfig.providers).filter(p => selectionModelsOf(p, 'group').length);
+      const sig = JSON.stringify(provs.map(p => [p.id,p.name]));
+      if (select.modelFilterSig === sig) return;
+      select.modelFilterSig = sig;
+      const keep = select.value;
+      select.replaceChildren();
+      const all = document.createElement('option'); all.value = ''; all.textContent = '全部供应商'; select.appendChild(all);
+      provs.forEach(p => { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name || p.id; select.appendChild(o); });
+      select.value = provs.some(p => p.id === keep) ? keep : '';
+    }
+    function onGroupModelFilterChange() {
+      groupModelPages.clear();
+      renderGroups(true, true);
+    }
+    function renderPagedProviderModels(pid, container, models, meta, activeInput) {
+      const view = providerCatalogViews.get(pid) || {query:'',page:0};
+      providerCatalogViews.set(pid, view);
+      const prov = ((appConfig && appConfig.providers) || []).find(p => p.id === pid) || {id:pid};
+      const found = models.filter(m => typeof m === 'string' && modelMatches(pid + '/' + m, prov, view.query.toLowerCase()));
+      const page = modelPage(found, view.page); view.page = page.page;
+      const active = activeInput || document.activeElement, focused = active && active.catalogProvider === pid;
+      const caret = focused ? active.selectionStart : null;
+      const tools = document.createElement('div'); tools.className = 'model-list-tools';
+      const search = document.createElement('input'); search.type = 'search'; search.placeholder = '搜索模型名称或 ID'; search.value = view.query;
+      search.setAttribute('aria-label', (prov.name || pid) + '模型搜索'); search.catalogProvider = pid;
+      search.addEventListener('input', () => { view.query = search.value; view.page = 0; renderAllModelsTags(); });
+      tools.appendChild(search);
+      const note = document.createElement('span'); note.className = 'model-list-note'; note.textContent = '目录 ' + models.length + ' 个 · 匹配 ' + page.total + ' 个 · 第 ' + (page.page + 1) + '/' + page.pages + ' 页'; tools.appendChild(note);
+      [-1,1].forEach(step => {
+        const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'exp-mini'; btn.textContent = step < 0 ? '上一页' : '下一页'; btn.disabled = step < 0 ? !page.page : page.page + 1 >= page.pages;
+        btn.addEventListener('click', () => { view.page += step; renderAllModelsTags(); }); tools.appendChild(btn);
+      });
+      container.appendChild(tools);
+      page.items.forEach(m => container.appendChild(buildModelTag(pid, m, meta[m] || {})));
+      if (!found.length) { const empty = document.createElement('span'); empty.textContent = '没有匹配的模型'; container.appendChild(empty); }
+      if (focused && typeof search.focus === 'function') { search.focus(); if (caret != null && typeof search.setSelectionRange === 'function') search.setSelectionRange(caret,caret); }
+    }
+
+
     /**
      * 路由组卡片的唯一转义入口（目标 / 组名 / 组 ID / 供应商名 / 模型 ID）。
      *
@@ -6361,11 +6484,9 @@
     }
 
     function groupsFingerprint() {
-      try {
-        return JSON.stringify((appConfig && appConfig.groups) || []);
-      } catch (e) {
-        return '';
-      }
+      try { return JSON.stringify([(appConfig && appConfig.groups) || [], (appConfig && appConfig.exposed) || null,
+        visibleProviders(appConfig && appConfig.providers).map(p => [p.id,p.name,providerHasCredential(p),pingModelsOf(p)])]); }
+      catch (e) { return ''; }
     }
 
     /** 从后端数据同步一份可编辑副本 */
@@ -6382,18 +6503,12 @@
 
     /** 已入池且已同步模型的供应商 → 可选目标列表 */
     function selectableModels() {
+      const query = modelFilterValue('group-model-search'), filter = modelFilterValue('group-model-provider');
       const out = [];
-      const provs = visibleProviders(appConfig && appConfig.providers);
-      provs.forEach(p => {
-        if (p.status === 'placeholder') return;
-        if (!providerHasCredential(p)) return;
-        const models = pingModelsOf(p);
-        if (models.length === 0) return;
-        out.push({
-          id: p.id,
-          name: p.name || p.id,
-          models: models.map(m => (p.id + '/' + m))
-        });
+      visibleProviders(appConfig && appConfig.providers).forEach(p => {
+        if (filter && p.id.toLowerCase() !== filter) return;
+        const models = selectionModelsOf(p, 'group', query);
+        if (models.length) out.push({id:p.id, name:p.name || p.id, models});
       });
       return out;
     }
@@ -6416,7 +6531,10 @@
       // 编辑期间（用户刚改过还提交完）或数据没变，不重建
       if (!force && fp === groupsSig && groupDraft) return;
       groupsSig = fp;
-      if (!keepDraft) syncGroupDraft();
+      const serverSig = JSON.stringify((appConfig && appConfig.groups) || []);
+      if (!keepDraft && (!groupDraft || groupsServerSig !== serverSig)) syncGroupDraft();
+      groupsServerSig = serverSig;
+      renderGroupModelFilters();
 
       c.innerHTML = '';
       if (!groupDraft || groupDraft.length === 0) {
@@ -6469,11 +6587,14 @@
             + '</div>';
         });
 
+        const remaining = options.flatMap(o => o.models).filter(m => !g.targets.includes(m));
+        const page = modelPage(remaining, groupModelPages.get(g.id)); groupModelPages.set(g.id, page.page);
+        const pageSet = new Set(page.items);
         let opts = '<option value="">+ 添加目标…</option>';
         options.forEach(o => {
           let inner = '';
           o.models.forEach(m => {
-            if (g.targets.indexOf(m) >= 0) return;   // 已经在组里就不重复列
+            if (!pageSet.has(m)) return;   // Only this page; keep existing targets intact.
             inner += '<option value="' + groupEsc(m) + '">' + groupEsc(m) + '</option>';
           });
           if (inner) opts += '<optgroup label="' + groupEsc(o.name) + '">' + inner + '</optgroup>';
@@ -6503,7 +6624,10 @@
           + '<select data-action="add" data-g="' + gi + '" '
           + 'style="width:100%;margin-top:8px;padding:8px 10px;background:#0d0f17;color:#38bdf8;'
           + 'border:1px dashed rgba(56,189,248,0.35);border-radius:8px;font-size:0.74rem;">'
-          + opts + '</select>';
+          + opts + '</select>'
+          + '<div class="model-list-pager"><span>匹配 ' + page.total + ' 个 · 第 ' + (page.page + 1) + '/' + page.pages + ' 页（每页最多60个）</span>'
+          + '<button type="button" class="exp-mini" data-action="model-prev" data-g="' + gi + '"' + (!page.page ? ' disabled' : '') + '>上一页</button>'
+          + '<button type="button" class="exp-mini" data-action="model-next" data-g="' + gi + '"' + (page.page + 1 >= page.pages ? ' disabled' : '') + '>下一页</button></div>';
 
         c.appendChild(card);
       });
@@ -6511,7 +6635,7 @@
       if (options.length === 0) {
         const hint = document.createElement('div');
         hint.style.cssText = 'font-size:0.74rem;color:#fbbf24;margin-top:8px;';
-        hint.innerText = '还没有可选的模型：请先在「供应商与Key池」登录账号并同步模型。';
+        hint.innerText = '没有匹配的候选模型：可调整搜索、供应商筛选，或勾选「查看全部」；也请确认账号已启用并同步目录。已有路由目标不受白名单影响。';
         c.appendChild(hint);
       }
     }
@@ -6577,7 +6701,10 @@
         const g = groupDraft[gi];
         if (!g) return;
 
-        if (action === 'up' && ti > 0) {
+        if (action === 'model-prev' || action === 'model-next') {
+          groupModelPages.set(g.id, (groupModelPages.get(g.id) || 0) + (action === 'model-prev' ? -1 : 1));
+          renderGroups(true, true);
+        } else if (action === 'up' && ti > 0) {
           const t = g.targets[ti - 1];
           g.targets[ti - 1] = g.targets[ti];
           g.targets[ti] = t;
@@ -7811,6 +7938,8 @@
 
     let pingSelectedProvider = null;   // 当前选中的供应商/路由组 id
     let pingProvidersSig = '';         // 上一次渲染的数据指纹
+    let pingModelPage = 0;
+    let pingModelViewSig = '';
     let pingCurrentModels = [];        // 当前供应商可测的模型（完整 modelRef）
 
     /** "provider/model" 的供应商是否已登录 */
@@ -7849,7 +7978,8 @@
       const entries = [];
       const groups = (appConfig && Array.isArray(appConfig.groups)) ? appConfig.groups : [];
       groups.forEach(g => {
-        const targets = Array.isArray(g.targets) ? g.targets.filter(t => isModelRefLiveSafe(t)) : [];
+        if (!modelRefAllowed('group/' + g.id, 'ping')) return;
+        const targets = Array.isArray(g.targets) ? g.targets.filter(t => isModelRefLiveSafe(t) && modelRefAllowed(t, 'ping')) : [];
         entries.push({
           id: 'group/' + g.id, name: g.name || g.id,
           models: targets, ready: targets.length > 0,
@@ -7860,8 +7990,9 @@
       const provs = visibleProviders(appConfig && appConfig.providers);
       provs.forEach(p => {
         if (p.status === 'placeholder') return;
-        const models = pingModelsOf(p);
+        const models = selectionModelsOf(p, 'ping');
         const hasCred = providerHasCredential(p);
+        if (hasCred && !models.length && appConfig.exposed && appConfig.exposed.enabled && !modelShowAll('ping')) return;
         entries.push({
           id: p.id, name: p.name || p.id,
           models: models, ready: hasCred && models.length > 0,
@@ -7884,12 +8015,14 @@
         hint.innerText = entries.filter(e => e.ready).length + ' / ' + entries.length + ' 家可用';
       }
       if (entries.length === 0) {
-        sel.innerHTML = '<option value="">暂无可用供应商，先去上面登录</option>';
+        sel.innerHTML = '<option value="">没有符合白名单的模型，可查看全部</option>';
+        pingSelectedProvider = null; pingCurrentModels = [];
+        const block = document.getElementById('ping-model-block'); if (block) block.style.display = 'none';
         return;
       }
 
       // loadConfig 每 3 秒跑一次，数据没变就不重建（否则选中项会被重置）
-      const sig = JSON.stringify(entries.map(e => [e.id, e.ready, e.models.length]))
+      const sig = JSON.stringify(entries.map(e => [e.id, e.ready, e.models]))
         + '|' + (pingSelectedProvider || '');
       if (!force && sig === pingProvidersSig) return;
       pingProvidersSig = sig;
@@ -7931,22 +8064,33 @@
       if (pid && pid.indexOf('group/') === 0) {
         const gid = pid.slice(6);
         const g = ((appConfig && appConfig.groups) || []).find(x => x.id === gid);
-        models = g ? (g.targets || []).filter(t => isModelRefLiveSafe(t)) : [];
+        models = g ? (g.targets || []).filter(t => isModelRefLiveSafe(t) && modelRefAllowed(t, 'ping')) : [];
       } else if (pid) {
         const p = ((appConfig && appConfig.providers) || []).find(x => x.id === pid);
-        models = pingModelsOf(p);
+        models = selectionModelsOf(p, 'ping');
       }
-
-      pingCurrentModels = models;
+      const query = modelFilterValue('ping-model-search');
+      models = models.filter(ref => {
+        const prov = ((appConfig && appConfig.providers) || []).find(p => p.id === ref.slice(0,ref.indexOf('/'))) || {id:pid};
+        return modelMatches(ref,prov,query);
+      });
+      const viewSig = JSON.stringify([pid,query,modelShowAll('ping'),models]);
+      if (viewSig !== pingModelViewSig) { pingModelPage = 0; pingModelViewSig = viewSig; }
+      const page = modelPage(models,pingModelPage); pingModelPage = page.page;
+      pingCurrentModels = page.items;
+      const pager = document.getElementById('ping-model-pager');
+      if (pager) pager.textContent = '匹配 ' + models.length + ' 个 · 第 ' + (page.page + 1) + '/' + page.pages + ' 页（每页最多60个）';
+      const prev = document.getElementById('ping-model-prev'), next = document.getElementById('ping-model-next');
+      if (prev) prev.disabled = !page.page; if (next) next.disabled = page.page + 1 >= page.pages;
 
       if (models.length === 0) {
-        block.style.display = 'none';
-        if (status) status.innerText = '';
+        block.style.display = 'block'; sel.innerHTML = '<option value="">没有匹配的模型</option>';
+        if (status) status.innerText = '调整搜索或查看全部；不会自动发起测试。';
         return;
       }
 
       let html = '';
-      models.forEach(m => {
+      page.items.forEach(m => {
         const short = (pid.indexOf('group/') === 0)
           ? m
           : (m.indexOf(pid + '/') === 0 ? m.slice(pid.length + 1) : m);
@@ -7960,10 +8104,13 @@
         html += '<option value="' + escapeHtml(m) + '">' + escapeHtml(shown) + (isGift ? '  🎁赠送额度' : '') + '</option>';
       });
       sel.innerHTML = html;
-      if (silent && models.includes(previousModel)) sel.value = previousModel;
+      sel.value = silent && page.items.includes(previousModel) ? previousModel : (page.items[0] || '');
       block.style.display = 'block';
       if (status) status.innerText = '共 ' + models.length + ' 个模型 · 点右侧「⚡ 测试」开始';
     }
+
+    function onPingModelFilterChange() { pingModelPage = 0; onPingVendorChange(pingSelectedProvider || '', true); }
+    function changePingModelPage(step) { pingModelPage += step; onPingVendorChange(pingSelectedProvider || '', true); }
 
     /** 测当前下拉选中的模型（只有一个模型时 onchange 不会触发，必须留这个入口） */
     function pingCurrentModel() {
@@ -7994,7 +8141,7 @@
         if (r) ok++; else bad++;
         await new Promise(res => setTimeout(res, 250));
       }
-      if (btn) { btn.disabled = false; btn.innerText = '逐个测试'; }
+      if (btn) { btn.disabled = false; btn.innerText = '测试本页'; }
       showToast('本组测试完成：✅ ' + ok + ' 通过，❌ ' + bad + ' 失败');
     }
 

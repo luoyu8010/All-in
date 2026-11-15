@@ -6,6 +6,7 @@ const card=html.slice(start,html.indexOf('<!--',start+1));
 const view=html.slice(html.indexOf('    function applyProviderView()'),html.indexOf('    const providerBillingCache'));
 const sync=html.slice(html.indexOf('    async function syncUniversalModels('),html.indexOf('    // 把倍率数字'));
 const models=html.slice(html.indexOf('    // 把倍率数字'),html.indexOf('    function updateProviderKeys('));
+const modelViews=html.slice(html.indexOf('    const groupModelPages = new Map();'),html.lastIndexOf('    /**',html.indexOf('    function groupEsc(')));
 const ping=html.slice(html.indexOf('    async function executeModelPingTest('),html.indexOf('    const WB_17_MODELS'));
 const ids=html.slice(html.indexOf('    const PROVIDER_CARD_IDS ='),html.indexOf('    function permRow('));
 const page=`<!doctype html><div id="provider-list-view"></div><div id="provider-subview"></div><div id="provider-catalog"><div id="provider-catalog-heading"></div><div id="all-providers-cards-container">${card}</div></div><div id="provider-detail-info"></div><pre id="result">WAIT</pre><script>
@@ -14,6 +15,7 @@ function providerConfigured(){return true} function providerCounts(p){return {ac
 const providerBillingCache={}, zcodeGiftModels=[]; function escapeHtml(x){return String(x)} function modelPingFailureText(){return 'failed'}
 async function fetch(url,opts){calls.push({url,opts});return {json:async()=>url==='/api/test-model'?{ok:true,latencyMs:1,reply:'fixture'}:result}} async function loadConfig(){events.push('load');appConfig.providers[0].models=['new'];appConfig.providers[0].modelMeta={new:{name:'New Model',billing:{kind:'multiplier',scope:'model',value:3}}}}
 ${ids}
+${modelViews}
 ${models}
 ${ping}
 ${fileTransferCode}

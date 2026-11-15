@@ -173,11 +173,14 @@ public class ZCodeAuth {
         } catch (Exception ignored) {
         }
 
+        ZCodeCatalogRefresh.Lookup catalogLookup = ZCodeCatalogRefresh.currentLookup();
+        if (catalogLookup != null) catalogLookup.check();
         HttpURLConnection conn = NetworkPolicy.openHttp(url);
         try {
+        if (catalogLookup != null) catalogLookup.attach(conn);
         conn.setRequestMethod(method);
-        conn.setConnectTimeout(15000);
-        conn.setReadTimeout(timeoutMs);
+        conn.setConnectTimeout(catalogLookup == null ? 15000 : catalogLookup.timeout(15000));
+        conn.setReadTimeout(catalogLookup == null ? timeoutMs : catalogLookup.timeout(timeoutMs));
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setRequestProperty("Accept", "application/json");
         conn.setRequestProperty("User-Agent", UA);
@@ -214,7 +217,8 @@ public class ZCodeAuth {
         } catch (Exception netErr) {
             // 连接层面失败时才诊断 DNS：代理正常工作的情况下 fake-ip 也能连通，
             // 所以不能提前拦截，只能在真失败后给一个可读的原因。
-            String hint = dnsHint(host);
+            if (catalogLookup != null) catalogLookup.check();
+            String hint = catalogLookup == null ? dnsHint(host) : null;
             throw new Exception(hint != null ? hint : (netErr.getMessage() == null ? "网络错误" : netErr.getMessage()));
         }
 
@@ -251,7 +255,7 @@ public class ZCodeAuth {
                         parseRetryAfter(conn.getHeaderField("Retry-After"), System.currentTimeMillis()));
         }
         return env;
-        } finally { conn.disconnect(); }
+        } finally { if (catalogLookup != null) catalogLookup.detach(conn); conn.disconnect(); }
     }
 
     /**

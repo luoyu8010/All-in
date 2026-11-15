@@ -97,6 +97,7 @@ function readFunction(src, name) {
 // 这样同一份 harness 也能跑在修复前的基线上（基线会因为没有它而报结构性问题）。
 const WANTED = ['esc', 'jsAttr', 'fmtDupTime', 'visibleProviders', 'providerHasCredential',
   'selectableModels', 'groupEsc', 'renderGroups', 'showDupAccountModal',
+  'renderGroupModelFilters', 'selectionModelsOf', 'modelRefAllowed', 'modelShowAll', 'modelMatches', 'modelFilterValue', 'modelPage',
   'codexOAuthLogin', 'pollCodexFlow', 'submitCodexCode', 'checkCodexUsage'];
 const OPTIONAL = new Set(['groupEsc']);
 const fnSources = {};
@@ -361,6 +362,7 @@ function buildContext(extra) {
     __queue: (list) => { fetchQueue = list.slice(); },
   };
   sandboxes.push(sandbox);
+  sandbox.groupModelPages = new Map(); sandbox.groupsServerSig = null;
   const ctx = vm.createContext(sandbox);
   const present = WANTED.filter(n => fnSources[n]);
   const program = present.map(n => fnSources[n]).join('\n\n')

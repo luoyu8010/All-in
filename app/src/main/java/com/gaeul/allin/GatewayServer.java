@@ -161,6 +161,7 @@ public class GatewayServer extends NanoHTTPD {
         GatewayQuirksBridge bridge=quirksBridge; if(bridge!=null) bridge.close();
         if(outboundLimiter!=null) outboundLimiter.stop();
         if(heldWorkers!=null) heldWorkers.shutdownNow();
+        if(catalogRefresh!=null) catalogRefresh.close();
         for(RequestContext r:requests) r.cancel("service stopped");
         if(getListeningPort()>0) super.stop();
     }
@@ -2259,7 +2260,7 @@ public class GatewayServer extends NanoHTTPD {
         if (minimaxLifecycle == null) minimaxLifecycle = new MiniMaxLifecycle(System::currentTimeMillis);
         return minimaxLifecycle;
     }
-    synchronized void retireForRestore() { backupRetired=true; minimaxLifecycle().retire(); closeTrae(); affinityEpoch++; affinity().clear(); }
+    synchronized void retireForRestore() { backupRetired=true; if(catalogRefresh!=null)catalogRefresh.close(); minimaxLifecycle().retire(); closeTrae(); affinityEpoch++; affinity().clear(); }
 
     private static JSONObject miniAccount(JSONObject config, String id) {
         JSONArray providers=config.optJSONArray("providers"); JSONObject provider=null;
@@ -8127,6 +8128,7 @@ public class GatewayServer extends NanoHTTPD {
                 res.put("object", "list");
                 JSONArray arr = new JSONArray();
                 JSONArray skipped = new JSONArray();   // 被隐藏的供应商，便于排查
+                JSONArray unconfirmed = new JSONArray();
 
                 // 用户挑过的白名单：开了就只暴露勾选的 provider/model（group 也按 group/<id> 匹配）
                 JSONObject exposedCfg = configJson.optJSONObject("exposed");
@@ -8174,13 +8176,14 @@ public class GatewayServer extends NanoHTTPD {
                         if ("zcode".equals(pid)) {
                             JSONObject zacc = zcodeSessionAccount();
                             if (zacc != null && zacc.optString("plan", "").isEmpty()) {
-                                java.util.List<String> allowed = ZCodeGift.allowedModels(
-                                        currentGift(zacc.optString("jwt", ""), zacc.optString("device", "")));
-                                if (!allowed.isEmpty()) {
-                                    JSONArray only = new JSONArray();
-                                    for (String am : allowed) only.put(am);
-                                    models = only;
-                                }
+                                JSONObject gift = catalogGift(zacc);
+                                if (gift == null) unconfirmed.put(pid);
+                                java.util.List<String> allowed = ZCodeGift.allowedModels(gift);
+                                JSONArray only = new JSONArray();
+                                for (String am : allowed) only.put(am);
+                                // Unknown is not an empty balance and not permission to advertise
+                                // paid-only models. A later list includes the confirmed gift models.
+                                models = only;
                             }
                         }
                         if (models != null) {
@@ -8210,6 +8213,10 @@ public class GatewayServer extends NanoHTTPD {
                 if (!listAll) {
                     res.put("total_available", arr.length());
                     res.put("hidden_unconfigured", skipped);
+                }
+                if (unconfirmed.length() > 0) {
+                    res.put("catalog_complete", false);
+                    res.put("unconfirmed_providers", unconfirmed);
                 }
                 if (onlyListed) res.put("exposed_only", true);
                 return jsonResponse(res);
@@ -13544,6 +13551,32 @@ public class GatewayServer extends NanoHTTPD {
             if (a != null && (!requireEnabled || a.optBoolean("enabled", true)) && !a.optString("jwt", "").trim().isEmpty()) return a;
         }
         return null;
+    }
+
+    private ZCodeCatalogRefresh catalogRefresh;
+    private synchronized ZCodeCatalogRefresh catalogRefresh() {
+        if(stopping || backupRetired)return null;
+        if(catalogRefresh==null)catalogRefresh=new ZCodeCatalogRefresh();
+        return catalogRefresh;
+    }
+    /** Listing is a local/cache read; an upstream outage must not hold the whole directory. */
+    private JSONObject catalogGift(JSONObject account) {
+        final String jwt=account.optString("jwt", ""), device=account.optString("device", "");
+        final String identity=account.optString("id", "");
+        JSONObject cached=ZCodeGiftControl.peekSummary(jwt,device);
+        if(cached==null) {
+            ZCodeCatalogRefresh refresh=catalogRefresh();
+            if(refresh!=null)refresh.request(jwt,device,NetworkPolicy.capture(),() -> {
+                synchronized(GatewayServer.this) {
+                    if(stopping || backupRetired)return false;
+                    JSONObject current=zcodeSessionAccount();
+                    return current!=null && identity.equals(current.optString("id", ""))
+                            && jwt.equals(current.optString("jwt", ""))
+                            && device.equals(current.optString("device", ""));
+                }
+            });
+        }
+        return cached;
     }
 
     private JSONObject currentGift(String jwt,String device) {return ZCodeGiftControl.summary(jwt,device);}

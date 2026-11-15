@@ -1,6 +1,6 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/dashboard.html'), 'utf8');
-const code = html.slice(html.indexOf('    let exposedData = null;'), html.indexOf('    // ==================== 主题', html.indexOf('    let exposedData = null;')));
+const code = html.slice(html.indexOf('    let exposedSaving = false;'), html.indexOf('    // ==================== 主题', html.indexOf('    let exposedSaving = false;')));
 class Element {
   constructor(tag='div') { this.tag=tag; this.tagName=tag.toUpperCase(); this.children=[]; this.style={}; this.dataset={}; this.attrs={}; this.textContent=''; this.parentElement=null; }
   appendChild(child) { child.parentElement=this; this.children.push(child); return child; }
