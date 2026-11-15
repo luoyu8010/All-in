@@ -3,5 +3,6 @@
     <application>
         <!-- Debug-only SAF integration host. It refuses any non-isolated application id. -->
         <activity android:name=".AccountTransferFixtureActivity" android:exported="true" android:label="Account file integration fixture" />
+        <activity android:name=".AppUpdatePreviewActivity" android:exported="true" android:label="All In 更新隔离演示" />
     </application>
 </manifest>

@@ -168,10 +168,9 @@ public final class TokenPersistenceGatewayOfflineTest {
                         case "delete": p.put("accounts", new JSONArray()); break;
                         case "disableAccount": live.put("enabled", false); break;
                         case "disableProvider": p.put("enabled", false); break;
-                        case "replace": p.getJSONArray("accounts").put(0, account(provider).put("name", "replacement")); break;
-                        case "replaceIdentical": p.getJSONArray("accounts").put(0, copy(live)); break;
+                        case "replace": p.getJSONArray("accounts").put(0, account(provider).put("uid", "replacement-owner")); break;
                         case "changedRefresh": live.put("refresh", "changed"); break;
-                        case "epoch": field(f.server, "affinityEpoch", 1L); break;
+                        case "stopped": field(f.server, "stopping", true); break;
                         case "retired": field(f.server, "backupRetired", true); break;
                         case "disk": field(f.server, "configFile", f.dir.resolve("missing").resolve("config.json").toFile()); break;
                         default: break;
@@ -194,12 +193,35 @@ public final class TokenPersistenceGatewayOfflineTest {
             if ("disk".equals(change)) check(current(f.server, provider).toString().equals(stale.toString()), "disk failure leaves memory old");
         }
     }
+    /** Copying identical data, changing a nickname, or invalidating route affinity is not re-login. */
+    private static void unrelatedChange(String provider, String change) throws Exception {
+        try (Fixture f = new Fixture()) {
+            JSONObject stale=copy(current(f.server,provider));
+            f.server.setTokenRefreshForTests((snapshot,force)->{
+                synchronized(f.server) {
+                    JSONObject p=lookup(f.config,provider), live=p.getJSONArray("accounts").getJSONObject(0);
+                    if ("copy".equals(change)) p.getJSONArray("accounts").put(0,copy(live));
+                    if ("name".equals(change)) live.put("name","renamed, same owner");
+                    if ("affinity".equals(change)) field(f.server,"affinityEpoch",1L);
+                }
+                return candidate(snapshot,1);
+            });
+            JSONObject result=ensure(f.server,provider,stale,null);
+            check((provider+"-new-1").equals(result.optString("access")),change+" permits same-account refresh");
+            check(result.optString("access").equals(disk(f.file,provider).optString("access")),"success is durable");
+            if("name".equals(change)) check("renamed, same owner".equals(result.optString("name")),"nickname not rolled back");
+        }
+    }
     public static void main(String[] args) throws Exception {
         int failures = 0;
         for (String provider : PROVIDERS) {
             try { concurrency(provider); }
             catch (Throwable t) { failures++; System.err.println(provider + " concurrency: " + t); }
-            for (String change : new String[]{"delete", "disableAccount", "disableProvider", "replace", "replaceIdentical", "changedRefresh", "epoch", "retired", "disk", "candidateId", "candidateName"}) {
+            for (String change : new String[]{"copy","name","affinity"}) {
+                try { unrelatedChange(provider,change); }
+                catch (Throwable t) { failures++; System.err.println(provider + " unrelated " + change + ": " + t); }
+            }
+            for (String change : new String[]{"delete", "disableAccount", "disableProvider", "replace", "changedRefresh", "stopped", "retired", "disk", "candidateId", "candidateName"}) {
                 try { rejection(provider, change); }
                 catch (Throwable t) { failures++; System.err.println(provider + " " + change + ": " + t); }
             }

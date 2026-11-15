@@ -81,12 +81,11 @@ final class AccountPoolPolicy {
             if(account==null)continue;
             for(String field:new String[]{"token","access"}) {String token=value(account,field);if(!token.isEmpty())owned.add(token);}
             String token=value(account,"access");if(token.isEmpty())token=value(account,"token");
-            if(account.optBoolean("enabled",true) && !token.isEmpty())result.add(account);
+            if(AccountGenerations.enabled(account) && !token.isEmpty())result.add(account);
         }
         JSONArray keys=provider.optJSONArray("keys");
-        for(int i=0;keys!=null && i<keys.length();i++) {
-            Object raw=keys.opt(i); if(!(raw instanceof String))continue;
-            String token=((String)raw).trim();
+        for(CommercialKeyPool.Credential key : CommercialKeyPool.list(keys)) {
+            String token=key.secret();
             if(token.isEmpty() || !owned.add(token))continue;
             String providerId=provider.optString("id","");
             String id="legacy-key_"+UUID.nameUUIDFromBytes((providerId+"\u0000"+token).getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -128,7 +127,10 @@ final class AccountPoolPolicy {
             if (key instanceof String) {
                 String text=((String)key).trim();
                 if (!text.isEmpty() && !previouslyOwned.contains(text) && seen.add(text)) keys.put(key);
-            } else if (key instanceof JSONObject) keys.put(key);
+            } else if (key instanceof JSONObject) {
+                Object raw=((JSONObject)key).opt("key");
+                if (raw instanceof String && !previouslyOwned.contains(((String)raw).trim())) keys.put(key);
+            }
         }
         JSONArray accounts=provider.optJSONArray("accounts");
         for (int i=0;accounts!=null && i<accounts.length();i++) {

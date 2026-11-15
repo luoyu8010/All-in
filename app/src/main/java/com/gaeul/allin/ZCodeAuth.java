@@ -86,13 +86,7 @@ public class ZCodeAuth {
     // ===================== 基础 HTTP =====================
 
     private static String readAll(InputStream is) throws Exception {
-        if (is == null) return "";
-        BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = br.readLine()) != null) sb.append(line);
-        br.close();
-        return sb.toString();
+        return BoundedResponse.readUtf8(is, BoundedResponse.MAX_BYTES, 60000);
     }
 
     public static final long MAX_RETRY_AFTER_MS = 6L * 60 * 60 * 1000;
@@ -180,6 +174,7 @@ public class ZCodeAuth {
         }
 
         HttpURLConnection conn = NetworkPolicy.openHttp(url);
+        try {
         conn.setRequestMethod(method);
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(timeoutMs);
@@ -214,6 +209,7 @@ public class ZCodeAuth {
         try {
             code = conn.getResponseCode();
             is = (code >= 200 && code < 400) ? conn.getInputStream() : conn.getErrorStream();
+            if (conn.getContentLengthLong() > BoundedResponse.MAX_BYTES) throw new java.io.IOException("response body too large");
             text = readAll(is);
         } catch (Exception netErr) {
             // 连接层面失败时才诊断 DNS：代理正常工作的情况下 fake-ip 也能连通，
@@ -255,6 +251,7 @@ public class ZCodeAuth {
                         parseRetryAfter(conn.getHeaderField("Retry-After"), System.currentTimeMillis()));
         }
         return env;
+        } finally { conn.disconnect(); }
     }
 
     /**
@@ -1036,6 +1033,7 @@ public class ZCodeAuth {
     /** 列表接口的 data 是数组时，用这个方法取 */
     private static JSONArray fetchArray(String method, String url, String auth, JSONObject body) throws Exception {
         HttpURLConnection conn = NetworkPolicy.openHttp(url);
+        try {
         conn.setRequestMethod(method);
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(20000);
@@ -1045,6 +1043,7 @@ public class ZCodeAuth {
         if (auth != null && !auth.isEmpty()) conn.setRequestProperty("Authorization", auth);
         int code = conn.getResponseCode();
         InputStream is = (code >= 200 && code < 400) ? conn.getInputStream() : conn.getErrorStream();
+        if (conn.getContentLengthLong() > BoundedResponse.MAX_BYTES) throw new java.io.IOException("response body too large");
         String text = readAll(is);
         try {
             JSONObject env = new JSONObject(text);
@@ -1061,6 +1060,7 @@ public class ZCodeAuth {
                 return null;
             }
         }
+        } finally { conn.disconnect(); }
     }
 
     private static JSONObject postForData(String url, String auth, JSONObject body) throws Exception {

@@ -11,6 +11,7 @@ public final class TraeControl implements AutoCloseable {
     public interface Host {
         default Object lock() { return this; }
         default long epoch() { return 0; }
+        default long accountEpoch(String id) { return epoch(); }
         JSONObject config();
         boolean save(JSONObject config);
         boolean retired();
@@ -71,7 +72,7 @@ public final class TraeControl implements AutoCloseable {
             synchronized(host.lock()) {
                 live(); JSONObject p=provider(host.config()); if(!p.optBoolean("enabled",true)) return null;
                 int i=accountIndex(p,id); JSONObject a=i<0?null:p.optJSONArray("accounts").optJSONObject(i);
-                return a==null || !a.optBoolean("enabled",true)?null:copy(a).put("_traeEpoch",host.epoch());
+                return a==null || !a.optBoolean("enabled",true)?null:copy(a).put("_traeEpoch",host.accountEpoch(id));
             }
         }
         public void replace(String id,JSONObject expected,JSONObject next) throws Exception {
@@ -79,11 +80,11 @@ public final class TraeControl implements AutoCloseable {
                 live(); JSONObject p=provider(host.config()); if(!p.optBoolean("enabled",true)) throw new IOException("provider disabled");
                 int i=accountIndex(p,id); JSONObject a=i<0?null:p.optJSONArray("accounts").optJSONObject(i);
                 JSONObject compare=copy(expected);long epoch=compare.optLong("_traeEpoch",0);compare.remove("_traeEpoch");
-                if(a==null || !a.optBoolean("enabled",true) || host.epoch()!=epoch || !a.toString().equals(compare.toString()) || !id.equals(next.optString("id"))) throw new IOException("account changed");
+                if(a==null || !a.optBoolean("enabled",true) || host.accountEpoch(id)!=epoch || !a.similar(compare) || !id.equals(next.optString("id"))) throw new IOException("account changed");
                 JSONObject cloned=copy(host.config()); JSONObject target=provider(cloned);
                 JSONObject clean=copy(next);clean.remove("_traeEpoch");target.getJSONArray("accounts").put(i,clean); rebuild(target); live();
                 if(!host.save(cloned)) throw new IOException("account save failed");
-                next.put("_traeEpoch",host.epoch());
+                next.put("_traeEpoch",host.accountEpoch(id));
             }
         }
     };

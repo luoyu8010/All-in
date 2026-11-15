@@ -51,7 +51,7 @@ public final class ProviderKeysOfflineTest {
                 .getJSONObject("providerStateTokens").getString("alpha");
         check(post(s,payload("alpha",new JSONArray().put("other-client")))==200,"legacy other client update");
         String staleRequest = new JSONObject(valid).put("expectedStateToken",stale).toString();
-        check(post(s,staleRequest)==409 && alpha.getJSONArray("keys").getString(0).equals("other-client"),"stale keys cannot overwrite other client");
+        check(post(s,staleRequest)==409 && ProviderEnabledOfflineTest.live(s,"alpha").getJSONArray("keys").getString(0).equals("other-client"),"stale keys cannot overwrite other client");
         NanoHTTPD.Response currentConfig = s.serve(RoutingSetupOfflineTest.request("127.0.0.1","/api/config","GET","",null));
         String current = new JSONObject(new String(currentConfig.getData().readAllBytes(),StandardCharsets.UTF_8))
                 .getJSONObject("providerStateTokens").getString("alpha");
@@ -63,9 +63,9 @@ public final class ProviderKeysOfflineTest {
         check(r.getStatus().getRequestStatus()==200,"save");
         JSONObject response = new JSONObject(new String(r.getData().readAllBytes(),StandardCharsets.UTF_8));
         check(response.length()==4 && response.getBoolean("ok") && response.getString("providerId").equals("alpha") && response.getInt("keyCount")==3,"safe response");
-        JSONArray updated = alpha.getJSONArray("keys");
+        JSONArray updated = ProviderEnabledOfflineTest.live(s,"alpha").getJSONArray("keys");
         check(updated.getString(0).equals("test-fixture") && updated.getJSONObject(1).getString("key").equals("object-fixture") && updated.getJSONObject(1).getJSONObject("meta").getInt("n")==2 && updated.getString(2).isEmpty(),"normalization metadata");
-        check(!alpha.getBoolean("enabled") && cfg.getJSONObject("guard")==guard && subscription.getJSONArray("accounts").getJSONObject(0)==account && account.getString("token").equals("fixture-refreshed"),"other fields and account identity preserved");
+        check(!ProviderEnabledOfflineTest.live(s,"alpha").getBoolean("enabled") && ResponsesGatewayOfflineTest.config(s).getJSONObject("guard").similar(guard) && ProviderEnabledOfflineTest.live(s,"subscription").getJSONArray("accounts").getJSONObject(0).similar(account) && account.getString("token").equals("fixture-refreshed"),"other fields and account identity preserved");
         check(CommercialKeyPool.list(updated).size()==1,"disabled and empty keys filtered");
         JSONObject persisted = new JSONObject(new String(Files.readAllBytes(disk.toPath()),StandardCharsets.UTF_8));
         check(persisted.getJSONArray("providers").getJSONObject(0).getJSONArray("keys").length()==3,"persisted");
@@ -82,12 +82,13 @@ public final class ProviderKeysOfflineTest {
                 check(ps.getJSONObject(0).getBoolean("enabled") && ps.getJSONObject(0).getJSONArray("keys").length()==1 && ps.getJSONObject(1).getJSONArray("keys").length()==1,"concurrent preserved on disk");
             }
         } finally { executor.shutdownNow(); }
-        check(post(s,payload("alpha",new JSONArray()))==200 && alpha.getJSONArray("keys").length()==0,"clear");
+        check(post(s,payload("alpha",new JSONArray()))==200 && ProviderEnabledOfflineTest.live(s,"alpha").getJSONArray("keys").length()==0,"clear");
+        JSONObject failureBaseline=new JSONObject(ResponsesGatewayOfflineTest.config(s).toString());
+        failureBaseline.getJSONArray("providers").getJSONObject(0).put("keys",new JSONArray(oldKeys.toString()));
+        failureBaseline.getJSONArray("providers").getJSONObject(1).remove("keys");ProviderEnabledOfflineTest.persist(s,failureBaseline);
         RoutingAuditOfflineTest.file(s,new File(new File(dir,"missing"),"config.json"));
-        alpha.put("keys",oldKeys);
-        check(post(s,payload("alpha",new JSONArray()))==500 && alpha.getJSONArray("keys")==oldKeys && alpha.getJSONArray("keys").getJSONObject(0)==keyObj,"rollback identity");
-        beta.remove("keys");
-        check(post(s,payload("beta",new JSONArray()))==500 && !beta.has("keys"),"rollback absence");
+        check(post(s,payload("alpha",new JSONArray()))==500 && ProviderEnabledOfflineTest.live(s,"alpha").getJSONArray("keys").similar(oldKeys) && ProviderEnabledOfflineTest.live(s,"alpha").getJSONArray("keys").getJSONObject(0).similar(keyObj),"rollback retains key and metadata contents");
+        check(post(s,payload("beta",new JSONArray()))==500 && !ProviderEnabledOfflineTest.live(s,"beta").has("keys"),"rollback absence");
         System.out.println("ProviderKeysOfflineTest OK");
     }
 }

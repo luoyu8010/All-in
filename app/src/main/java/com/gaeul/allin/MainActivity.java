@@ -25,6 +25,28 @@ public class MainActivity extends Activity {
     private static final int GATEWAY_PORT = 3425;
 
     private WebView webView;
+    private final BridgeStreamOwner bridgeStreams = new BridgeStreamOwner();
+    private java.util.Set<LocalBridge.Call> bridgeCalls;
+    private volatile boolean bridgeDestroyed;
+    private volatile long bridgePageGeneration;
+    private synchronized boolean ownBridgeCall(LocalBridge.Call call, long expectedGeneration) {
+        if (bridgeDestroyed || bridgePageGeneration != expectedGeneration) { call.cancel(); return false; }
+        if (bridgeCalls == null) bridgeCalls = new java.util.HashSet<>();
+        bridgeCalls.add(call); return true;
+    }
+    private synchronized void releaseBridgeCall(LocalBridge.Call call) {
+        if (bridgeCalls != null) bridgeCalls.remove(call);
+    }
+    private void cancelBridgeCalls() {
+        java.util.List<LocalBridge.Call> calls;
+        synchronized (this) {
+            bridgePageGeneration++;
+            calls = bridgeCalls == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(bridgeCalls);
+            if (bridgeCalls != null) bridgeCalls.clear();
+        }
+        for (LocalBridge.Call call : calls) call.cancel();
+    }
+
     private BackupActivityController backupController;
     private AccountTransferController accountTransferController;
     /** 当前 WebView 正在显示的页面地址；原生桥只认面板自己的页面 */
@@ -35,6 +57,7 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         applySystemBarsInternal(isSystemDark());
+        AppUpdateManager.schedule(this);
 
         // 按用户上次的开关选择决定是否自动启动网关（默认开启）
         if (isGatewayEnabledPref()) {
@@ -220,7 +243,11 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
-                currentPageUrl = url == null ? "" : url;
+                synchronized (MainActivity.this) {
+                    currentPageUrl = url == null ? "" : url;
+                    bridgeStreams.cancelAll();
+                    cancelBridgeCalls();
+                }
             }
 
             @Override
@@ -467,6 +494,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean bridgeAllowed() {
+        if (bridgeDestroyed) return false;
         try {
             Uri uri = Uri.parse(currentPageUrl);
             if (uri.getUserInfo() != null || uri.getQuery() != null) return false;
@@ -482,6 +510,27 @@ public class MainActivity extends Activity {
      * 返回 {"status":200,"body":"..."} 的 JSON 字符串。
      */
     private class NativeBridge {
+        private void updateResult(final android.webkit.WebView view, final long generation, final com.gaeul.allin.json.JSONObject result) {
+            if(view==null)return;
+            view.post(()->{if(bridgeAllowed()&&view==webView&&generation==bridgePageGeneration)try{view.evaluateJavascript("window.onAppUpdateState&&window.onAppUpdateState("+result.toString()+")",null);}catch(RuntimeException ignored){}});
+        }
+        @android.webkit.JavascriptInterface
+        public void checkAppUpdate(boolean manual) {
+            if(!bridgeAllowed())return;final long generation=bridgePageGeneration;final android.webkit.WebView view=webView;
+            AppUpdateManager.check(MainActivity.this,manual,result->updateResult(view,generation,result));
+        }
+        @android.webkit.JavascriptInterface
+        public void dismissAppUpdate(String key) {
+            if(!bridgeAllowed()||key==null||key.length()>256)return;
+            updateResult(webView,bridgePageGeneration,AppUpdateManager.core(MainActivity.this).dismiss(key));
+        }
+        @android.webkit.JavascriptInterface
+        public boolean openAppUpdatePage() {
+            if(!bridgeAllowed())return false;
+            runOnUiThread(()->{if(!bridgeAllowed())return;if(!AppUpdateManager.openBrowser(MainActivity.this))evalJs(webView,"window.onAppUpdateOpenError&&window.onAppUpdateOpenError()");});
+            return true;
+        }
+
         @android.webkit.JavascriptInterface
         public boolean configureBackgroundKeepAlive(String option, boolean enabled) {
             if (!bridgeAllowed() || !("overlay".equals(option) || "audio".equals(option))) return false;
@@ -536,10 +585,11 @@ public class MainActivity extends Activity {
         /** 同步调用（保留兼容，短请求用；长请求请用 requestAsync 避免卡住 JS 线程） */
         @android.webkit.JavascriptInterface
         public String request(String method, String pathAndQuery, String body) {
+            final long generation = bridgePageGeneration;
             if (!bridgeAllowed()) {
                 return "{\"status\":403,\"body\":\"bridge blocked: 非面板页面\"}";
             }
-            return doRequest(method, pathAndQuery, body);
+            return doRequest(method, pathAndQuery, body, generation);
         }
 
         /**
@@ -666,34 +716,48 @@ public class MainActivity extends Activity {
                                 + rejected.getMessage()) + ")");
                 return;
             }
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    final WebView view = webView;
-                    LocalBridge.stream(request.method, request.pathAndQuery, body, 180000,
+            final BridgeStreamOwner.Ticket ticket = bridgeStreams.begin(reqId, 180000);
+            if (ticket == null) {
+                if (!bridgeStreams.activeId(reqId)) evalJs(webView, "window.__allInStreamEnd && window.__allInStreamEnd("
+                        + com.gaeul.allin.json.JSONObject.quote(reqId) + ",409,\"已有流式测试正在运行\")");
+                return;
+            }
+            final WebView view = webView;
+            Thread worker = new Thread(() -> {
+                try {
+                    LocalBridge.stream(request.method, request.pathAndQuery, body, ticket.call,
                             new LocalBridge.StreamCallback() {
-                                @Override
                                 public boolean onLine(String line) {
+                                    if (!bridgeStreams.accepts(ticket)) return false;
                                     evalJs(view, "window.__allInStreamChunk && window.__allInStreamChunk("
                                             + com.gaeul.allin.json.JSONObject.quote(reqId) + ","
-                                            + com.gaeul.allin.json.JSONObject.quote(line) + ")");
-                                    return true;
+                                            + com.gaeul.allin.json.JSONObject.quote(line) + ")", ticket);
+                                    return bridgeStreams.accepts(ticket);
                                 }
-
-                                @Override
                                 public void onDone(int status, String error) {
                                     evalJs(view, "window.__allInStreamEnd && window.__allInStreamEnd("
-                                            + com.gaeul.allin.json.JSONObject.quote(reqId) + ","
-                                            + status + ","
-                                            + com.gaeul.allin.json.JSONObject.quote(error == null ? "" : error) + ")");
+                                            + com.gaeul.allin.json.JSONObject.quote(reqId) + "," + status + ","
+                                            + com.gaeul.allin.json.JSONObject.quote(error == null ? "" : error) + ")", ticket);
                                 }
                             });
-                }
-            }, "AllIn-Stream").start();
+                } finally { ticket.call.close(); bridgeStreams.finished(ticket); }
+            }, "AllIn-Stream");
+            try { worker.start(); }
+            catch (RuntimeException cannotStart) {
+                ticket.call.close(); bridgeStreams.finished(ticket);
+                evalJs(view, "window.__allInStreamEnd && window.__allInStreamEnd("
+                        + com.gaeul.allin.json.JSONObject.quote(reqId) + ",0,\"无法启动流式测试\")", ticket);
+            }
         }
 
-        private void evalJs(final WebView view, final String script) {
-            if (view == null) return;
+        @android.webkit.JavascriptInterface
+        public void cancelStream(String reqId) {
+            if (bridgeAllowed() && reqId != null) bridgeStreams.cancel(reqId);
+        }
+
+        private void evalJs(final WebView view, final String script) { evalJs(view, script, null); }
+        private void evalJs(final WebView view, final String script, final BridgeStreamOwner.Ticket ticket) {
+            if (view == null || (ticket != null && !bridgeStreams.accepts(ticket))) return;
             view.post(new Runnable() {
                 @Override
                 public void run() {
@@ -701,7 +765,7 @@ public class MainActivity extends Activity {
                         java.lang.reflect.Method m = WebView.class
                                 .getMethod("evaluateJavascript", String.class,
                                         Class.forName("android.webkit.ValueCallback"));
-                        if(bridgeAllowed()) m.invoke(view, script, null);
+                        if(bridgeAllowed() && (ticket == null || bridgeStreams.accepts(ticket))) m.invoke(view, script, null);
                     } catch (Throwable ignored) {
                     }
                 }
@@ -716,10 +780,11 @@ public class MainActivity extends Activity {
         @android.webkit.JavascriptInterface
         public void requestAsync(final String reqId, final String method, final String pathAndQuery, final String body) {
             if (reqId == null || !bridgeAllowed()) return;
+            final long pageGeneration = bridgePageGeneration;
             new Thread(new Runnable() {
                 @Override
                 public void run() {
-                    String result = doRequest(method, pathAndQuery, body);
+                    String result = doRequest(method, pathAndQuery, body, pageGeneration);
                     final String script = "__allInBridgeDone("
                             + com.gaeul.allin.json.JSONObject.quote(reqId) + ","
                             + com.gaeul.allin.json.JSONObject.quote(result) + ")";
@@ -733,14 +798,14 @@ public class MainActivity extends Activity {
                                     // 走反射调用，运行时在真机上正常链接。
                                     java.lang.reflect.Method m = WebView.class
                                             .getMethod("evaluateJavascript", String.class, Class.forName("android.webkit.ValueCallback"));
-                                    if(bridgeAllowed()) m.invoke(view, script, null);
+                                    if(bridgeAllowed() && pageGeneration == bridgePageGeneration && view == webView) m.invoke(view, script, null);
                                 } catch (Throwable ignored) {
                                 }
                             }
                         });
                     }
                 }
-            }).start();
+            }, "AllIn-BridgeRequest").start();
         }
 
         /** 请求行被校验器拒绝时回给面板的固定结构；此时不会建立 socket，也不会碰网关。 */
@@ -757,6 +822,10 @@ public class MainActivity extends Activity {
         }
 
         private String doRequest(String method, String pathAndQuery, String body) {
+            return doRequest(method, pathAndQuery, body, bridgePageGeneration);
+        }
+
+        private String doRequest(String method, String pathAndQuery, String body, long expectedGeneration) {
             final BridgeRequestValidator.Request request;
             try {
                 // 面板可控的 method/path 在拼请求行之前必须过校验：拦住 CRLF、控制字符、
@@ -765,120 +834,17 @@ public class MainActivity extends Activity {
             } catch (IllegalArgumentException rejected) {
                 return bridgeRejected(rejected.getMessage());
             }
-            java.net.Socket socket = null;
+            String m = request.method;
+            String path = request.pathAndQuery;
+            LocalBridge.Call call = new LocalBridge.Call(90000);
             try {
-                String m = request.method;
-                String path = request.pathAndQuery;
-                byte[] payload = (body == null) ? new byte[0] : body.getBytes("UTF-8");
-
-                socket = new java.net.Socket();
-                socket.connect(new java.net.InetSocketAddress("127.0.0.1", 3425), 3000);
-                socket.setSoTimeout(90000);
-
-                StringBuilder head = new StringBuilder();
-                head.append(m).append(' ').append(path).append(" HTTP/1.1\r\n");
-                head.append("Host: 127.0.0.1:3425\r\n");
-                head.append("Origin: null\r\n");
-                head.append("Connection: close\r\n");
-                head.append("X-All-In-Bridge: 1\r\n");
-                // 关键：网关对 /api/* 的本机回路放行，但 /v1/* 必须带口令。
-                // 这里原来没带，面板里任何打 /v1/* 的请求都会 401。
-                String management = GatewayManagementCredential.get();
-                if (!management.isEmpty()) head.append("X-All-In-Management: ").append(management).append("\r\n");
-                String gwKey = GatewayAuthKeyHolder.get();
-                if (gwKey != null && !gwKey.isEmpty()) {
-                    head.append("Authorization: Bearer ").append(gwKey).append("\r\n");
-                }
-                if (payload.length > 0) {
-                    head.append("Content-Type: application/json; charset=utf-8\r\n");
-                }
-                head.append("Content-Length: ").append(payload.length).append("\r\n\r\n");
-
-                java.io.OutputStream os = socket.getOutputStream();
-                os.write(head.toString().getBytes("UTF-8"));
-                if (payload.length > 0) os.write(payload);
-                os.flush();
-
-                java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-                java.io.InputStream is = socket.getInputStream();
-                byte[] tmp = new byte[8192];
-                int n;
-                while ((n = is.read(tmp)) > 0) {
-                    buf.write(tmp, 0, n);
-                }
-                byte[] all = buf.toByteArray();
-
-                String raw = new String(all, "ISO-8859-1");
-                int split = raw.indexOf("\r\n\r\n");
-                if (split < 0) {
-                    throw new java.io.IOException("bad response");
-                }
-                String headerPart = raw.substring(0, split);
-                int status = 200;
-                try {
-                    int sp = headerPart.indexOf(' ');
-                    if (sp > 0) status = Integer.parseInt(headerPart.substring(sp + 1, sp + 4).trim());
-                } catch (Exception ignored) {
-                }
-                boolean chunked = headerPart.toLowerCase().contains("transfer-encoding: chunked");
-                byte[] bodyBytes = java.util.Arrays.copyOfRange(all, split + 4, all.length);
-
-                String text;
-                if (chunked) {
-                    java.io.ByteArrayOutputStream dec = new java.io.ByteArrayOutputStream();
-                    int pos = 0;
-                    while (pos < bodyBytes.length) {
-                        int nl = indexOfCrLf(bodyBytes, pos);
-                        if (nl < 0) break;
-                        String sizeStr = new String(bodyBytes, pos, nl - pos, "ISO-8859-1").trim();
-                        int semi = sizeStr.indexOf(';');
-                        if (semi > 0) sizeStr = sizeStr.substring(0, semi);
-                        int size;
-                        try {
-                            size = Integer.parseInt(sizeStr, 16);
-                        } catch (Exception e) {
-                            break;
-                        }
-                        if (size <= 0) break;
-                        pos = nl + 2;
-                        int end = Math.min(pos + size, bodyBytes.length);
-                        dec.write(bodyBytes, pos, end - pos);
-                        pos = end + 2;
-                    }
-                    text = new String(dec.toByteArray(), "UTF-8");
-                } else {
-                    text = new String(bodyBytes, "UTF-8");
-                }
-
+                if (!ownBridgeCall(call, expectedGeneration)) return "{\"status\":0,\"body\":\"\",\"error\":\"cancelled\"}";
+                LocalBridge.Result result = LocalBridge.requestResult(m, path, body, call);
                 com.gaeul.allin.json.JSONObject ret = new com.gaeul.allin.json.JSONObject();
-                ret.put("status", status);
-                ret.put("body", text);
+                ret.put("status", result.status); ret.put("body", result.body);
+                if (!result.transportError.isEmpty()) ret.put("error", result.transportError);
                 return ret.toString();
-            } catch (Throwable t) {
-                try {
-                    com.gaeul.allin.json.JSONObject ret = new com.gaeul.allin.json.JSONObject();
-                    ret.put("status", 0);
-                    ret.put("body", "");
-                    ret.put("error", String.valueOf(t));
-                    return ret.toString();
-                } catch (Exception ignored) {
-                    return "{\"status\":0,\"body\":\"\"}";
-                }
-            } finally {
-                if (socket != null) {
-                    try {
-                        socket.close();
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
-        }
-
-        private int indexOfCrLf(byte[] data, int from) {
-            for (int i = from; i + 1 < data.length; i++) {
-                if (data[i] == '\r' && data[i + 1] == '\n') return i;
-            }
-            return -1;
+            } finally { call.close(); releaseBridgeCall(call); }
         }
     }
 
@@ -997,6 +963,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     pushGatewayStateToWeb();
+                    webView.loadUrl("javascript:window.appUpdateResume&&window.appUpdateResume()");
                     if (GatewayService.isRunning()) {
                         webView.loadUrl("javascript:if(typeof loadConfig==='function'){loadConfig();}");
                     }
@@ -1118,10 +1085,14 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        bridgeDestroyed = true;
+        bridgeStreams.close();
+        cancelBridgeCalls();
         if (accountTransferController != null) accountTransferController.destroy();
         if (backupController != null) backupController.destroy();
         if (webView != null) {
             webView.destroy();
+            webView = null;
         }
         super.onDestroy();
     }

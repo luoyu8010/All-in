@@ -44,7 +44,7 @@ public final class NetworkSettingsOfflineTest {
         check(post(s,"{\"mode\":\"direct\",\"expectedStateToken\":null}")==400,"invalid expected token");
         JSONObject saved=new JSONObject(Files.readString(file.toPath()));
         check(saved.getJSONObject("server").getString("authKey").equals("fixture-auth") && saved.getJSONArray("providers").getJSONObject(0).getJSONArray("keys").getString(0).equals("fixture-key"),"other data preserved");
-        JSONObject stale=new JSONObject(saved.toString()).put("network",new JSONObject().put("mode","direct")).put("providerStateTokens",new JSONObject());
+        JSONObject stale=json(request(s,"127.0.0.1","/api/config","GET","",null)).put("network",new JSONObject().put("mode","direct")).put("providerStateTokens",new JSONObject());
         check(request(s,"127.0.0.1","/api/config","POST",stale.toString(),null).getStatus().getRequestStatus()==200,"legacy update");
         saved=new JSONObject(Files.readString(file.toPath()));
         check(saved.getJSONObject("network").getString("mode").equals("http_proxy") && !saved.has("providerStateTokens"),"legacy network protected");

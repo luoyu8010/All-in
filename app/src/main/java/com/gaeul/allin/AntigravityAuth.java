@@ -146,7 +146,7 @@ public class AntigravityAuth {
                 return readAll(body);
             } catch (Exception e) {
                 return "";
-            }
+            } finally { close(); }
         }
 
         public void close() {
@@ -2139,13 +2139,7 @@ public class AntigravityAuth {
     // ---------------------------------------------------------------- 小工具
 
     static String readAll(InputStream is) throws Exception {
-        if (is == null) return "";
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-        is.close();
-        return bos.toString("UTF-8");
+        return BoundedResponse.readUtf8(is, BoundedResponse.MAX_BYTES, 60000);
     }
 
     static String shortErr(String text) {

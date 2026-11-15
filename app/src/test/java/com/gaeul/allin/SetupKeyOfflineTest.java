@@ -5,6 +5,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.InputStream;
 import fi.iki.elonen.NanoHTTPD;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -112,6 +113,10 @@ public final class SetupKeyOfflineTest {
             for (java.nio.file.Path path : pathsToDelete) Files.deleteIfExists(path);
         }
     }
+    static JSONObject configView(GatewayServer server) throws Exception {
+        NanoHTTPD.Response response=server.serve(RoutingSetupOfflineTest.request("127.0.0.1","/api/config","GET","",null));
+        try(InputStream in=response.getData()){return new JSONObject(new String(in.readAllBytes(),StandardCharsets.UTF_8));}
+    }
     public static void main(String[] args) throws Exception {
         if (args.length == 2 && "--http-fixture".equals(args[0])) { httpFixture(new File(args[1])); return; }
         if (args.length == 2 && "--http-test".equals(args[0])) { httpTest(new File(args[1])); return; }
@@ -130,7 +135,8 @@ public final class SetupKeyOfflineTest {
         GatewayAuthKeyHolder.init(dir);
         GatewayServer s = RoutingSetupOfflineTest.server(new JSONObject(stale));
         RoutingAuditOfflineTest.file(s,config);
-        check(post(s,"/api/config","{\"server\":{\"authKey\":\"fixture-attacker\"},\"setup\":{\"done\":true},\"providers\":[]}")==200,"security fields ignored on config");
+        JSONObject attempted=configView(s);attempted.getJSONObject("server").put("authKey","fixture-attacker");attempted.put("setup",new JSONObject().put("done",true));
+        check(post(s,"/api/config",attempted.toString())==200,"security fields ignored on a current revision config");
         check(!disk(dir).getJSONObject("setup").optBoolean("done"),"config cannot complete setup");
         check(GatewayAuthKeyHolder.get().equals("magpie"),"config cannot change key");
         check(post(s,"/api/server-key","{\"authKey\":\"fixture-new-key\"}")==200,"first step");
@@ -142,7 +148,9 @@ public final class SetupKeyOfflineTest {
         GatewayServer restarted = RoutingSetupOfflineTest.server(disk(dir));
         RoutingAuditOfflineTest.file(restarted,config);
         check(remote(restarted,"magpie")==401 && remote(restarted,GatewayManagementCredential.get())==200 && remote(restarted,"fixture-new-key")==401,"restart authorization");
-        check(post(restarted,"/api/config",stale)==200,"stale config accepted");
+        check(post(restarted,"/api/config",stale)==409,"stale/unversioned config rejected");
+        JSONObject fresh=configView(restarted);fresh.getJSONObject("server").put("authKey","magpie");fresh.put("setup",new JSONObject().put("done",false));
+        check(post(restarted,"/api/config",fresh.toString())==200,"current config still cannot overwrite dedicated security fields");
         check(disk(dir).getJSONObject("setup").optBoolean("done"),"setup protected");
         check(disk(dir).getJSONObject("server").getString("authKey").equals("fixture-new-key"),"key protected");
         check(disk(dir).getJSONObject("server").getInt("maxBodyBytes")==65536,"ordinary server field retained");

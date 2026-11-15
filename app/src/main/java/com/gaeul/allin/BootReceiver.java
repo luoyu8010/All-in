@@ -20,6 +20,7 @@ public class BootReceiver extends BroadcastReceiver {
                 if (um == null || !um.isUserUnlocked()) return;
             } catch (Throwable t) { return; }
         }
+        AppUpdateManager.schedule(context);
         if (!GatewayService.isGatewayEnabled(context)) { KeepAliveScheduler.cancel(context); return; }
         KeepAliveScheduler.schedule(context);
         GatewayService.requestHealthCheck(context, "boot");

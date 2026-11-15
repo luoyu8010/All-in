@@ -1237,6 +1237,20 @@
       } catch (e) { }
     })();
   </script>
+<style>
+.app-update-card{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid var(--card-border);background:linear-gradient(120deg,var(--card-bg),var(--primary-weak));padding:19px 20px}
+.app-update-icon{width:42px;height:42px;flex:0 0 42px;display:grid;place-items:center;background:var(--primary-weak);color:var(--primary);border-radius:14px}.app-update-icon svg{width:23px;height:23px}
+.app-update-copy{flex:1;min-width:140px}.app-update-copy h3{font-size:.94rem;letter-spacing:-.02em;margin:0 0 5px}.app-update-copy p{font-size:.72rem;color:var(--text-muted);line-height:1.65;margin:0;overflow-wrap:anywhere}
+.app-update-badge{font-size:.65rem;color:var(--accent);background:var(--accent-weak);border-radius:20px;padding:3px 8px;margin-left:7px;font-weight:600}
+.app-update-check{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--primary-weak);color:var(--primary);border:1px solid var(--card-border);border-radius:13px;min-height:42px;padding:10px 14px;font-size:.78rem;font-weight:650}.app-update-check:disabled{opacity:.6;cursor:wait}
+.app-update-backdrop{position:fixed;inset:0;z-index:150000;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(9,13,23,.48);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}.app-update-backdrop[hidden]{display:none!important}
+.app-update-dialog{width:min(100%,380px);max-height:85vh;overflow:auto;background:var(--card-bg);color:var(--text);border:1px solid var(--card-border);border-radius:26px;box-shadow:0 24px 90px rgba(0,0,0,.2);padding:26px;animation:update-rise .18s ease-out}
+.app-update-dialog .app-update-icon{width:48px;height:48px;border-radius:16px;margin-bottom:18px;background:var(--accent-weak);color:var(--accent)}.app-update-dialog h2{font-size:1.23rem;font-weight:700;letter-spacing:-.045em;margin:0 0 9px}.app-update-dialog p{font-size:.8rem;color:var(--text-muted);line-height:1.8;margin:0}.app-update-version{color:var(--primary)!important;font-size:.85rem!important;font-weight:600;margin-bottom:15px!important}.app-update-summary{white-space:pre-line;overflow-wrap:anywhere;padding:13px 15px;border-radius:14px;background:var(--fill-3);font-size:.77rem!important;margin-top:16px!important;max-height:190px;overflow:auto}
+.app-update-actions{display:flex;gap:10px;margin-top:24px}.app-update-actions button{flex:1;min-height:45px;border-radius:13px;font-size:.8rem;font-weight:650;border:1px solid var(--card-border);padding:10px 12px}.app-update-later{background:var(--fill);color:var(--text-muted)}.app-update-now{background:var(--primary);color:white;border-color:transparent!important}.app-update-dialog small{display:block;text-align:center;color:var(--text-faint);font-size:.66rem;margin-top:13px}
+@media(max-width:380px){.app-update-check{width:100%}.app-update-dialog{padding:22px}.app-update-backdrop{padding:18px}}
+@media(prefers-reduced-motion:reduce){.app-update-dialog{animation:none}}
+@keyframes update-rise{from{opacity:0;transform:translateY(9px) scale(.98)}to{opacity:1;transform:none}}
+</style>
 </head>
 <body>
   <header>
@@ -1277,7 +1291,7 @@
             <span class="project-info-text"><span class="project-info-kicker">开源项目</span><span class="project-info-meta">github.com/xunianooo/All-in</span></span><span class="project-info-arrow" aria-hidden="true">↗</span>
           </a>
       </div>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.41-test</p>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.42-test</p>
       <div id="setup-anchor"></div>
       <div class="card checkin-entry" id="checkin-home-entry">
         <div><span class="checkin-kicker">DAILY CHECK-IN</span><h2>每日签到</h2><p id="checkin-home-summary">账号奖励，一处管理</p></div>
@@ -1386,12 +1400,13 @@
                 style="flex-shrink:0;padding:11px 18px;border-radius:9px;background:rgba(99,102,241,0.18);border:1px solid rgba(99,102,241,0.45);color:#c7d2fe;font-size:0.8rem;white-space:nowrap;">
                 ⚡ 测试
               </button>
-              <button class="btn" onclick="streamPingCurrentModel()"
+              <button id="btn-stream-ping" class="btn" onclick="streamPingCurrentModel()"
                 title="真正走 SSE，逐字打印，看首字延迟与到达节奏"
                 style="flex-shrink:0;padding:11px 14px;border-radius:9px;background:rgba(16,185,129,0.16);border:1px solid rgba(16,185,129,0.45);color:#6ee7b7;font-size:0.8rem;white-space:nowrap;">
                 🌊 流式
               </button>
             </div>
+            <button id="btn-stream-cancel" class="btn btn-outline" onclick="cancelStreamPing()" style="display:none;margin-top:8px;">取消流式测试</button>
             <div id="ping-model-status" style="font-size:0.72rem;color:var(--text-muted);margin-top:8px;min-height:18px;"></div>
           </div>
         </div>
@@ -1432,6 +1447,12 @@
         <p>日常使用无需调整。请求限速、额外等待和会话账号偏好等可选策略，仅在有明确需求时设置。</p>
         <button class="btn btn-outline" onclick="showGatewayAdvanced(true)">进入高级设置 →</button>
       </div>
+<section class="card app-update-card" id="app-update-card" aria-label="软件版本与更新">
+  <span class="app-update-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.7-1L20 9M4 15l2.2 3A7 7 0 0 0 18 17"/></svg></span>
+  <div class="app-update-copy"><h3>软件更新<span id="app-update-badge" class="app-update-badge" hidden>有新版本</span></h3><p id="app-update-version">读取当前版本…</p><p id="app-update-status" role="status" aria-live="polite">每 9 小时自动检查，也可手动检查</p></div>
+  <button type="button" id="app-update-check" class="app-update-check" onclick="requestAppUpdate(true)" aria-label="检查软件更新"><span aria-hidden="true">↻</span><span id="app-update-button-label">检查更新</span></button>
+</section>
+
       </div>
       <section id="checkin-center-view" class="checkin-page" hidden aria-label="每日签到中心">
         <button type="button" class="btn checkin-back" onclick="showCheckinCenter(false)">← 返回首页</button>
@@ -4698,6 +4719,7 @@
     }
 
     function switchTab(tabId, el, preserveScroll) {
+      if (typeof cancelStreamPing === 'function') cancelStreamPing('已切换操作，旧流式测试已取消');
       if(typeof checkinVisible === 'function' && checkinVisible())showCheckinCenter(false,true);
       const advanced = document.getElementById('gateway-advanced-view');
       if (advanced && !advanced.hidden) showGatewayAdvanced(false);
@@ -7897,12 +7919,14 @@
 
     /** 第二级：切供应商后填模型下拉 */
     function onPingVendorChange(pid, silent) {
+      if (typeof cancelStreamPing === 'function' && (!silent || pid !== pingSelectedProvider)) cancelStreamPing('已切换供应商，旧流式测试已取消');
       pingSelectedProvider = pid;
       const block = document.getElementById('ping-model-block');
       const sel = document.getElementById('ping-model-select');
       const status = document.getElementById('ping-model-status');
       if (!block || !sel) return;
 
+      const previousModel = sel.value;
       let models = [];
       if (pid && pid.indexOf('group/') === 0) {
         const gid = pid.slice(6);
@@ -7936,12 +7960,14 @@
         html += '<option value="' + escapeHtml(m) + '">' + escapeHtml(shown) + (isGift ? '  🎁赠送额度' : '') + '</option>';
       });
       sel.innerHTML = html;
+      if (silent && models.includes(previousModel)) sel.value = previousModel;
       block.style.display = 'block';
       if (status) status.innerText = '共 ' + models.length + ' 个模型 · 点右侧「⚡ 测试」开始';
     }
 
     /** 测当前下拉选中的模型（只有一个模型时 onchange 不会触发，必须留这个入口） */
     function pingCurrentModel() {
+      if (typeof cancelStreamPing === 'function') cancelStreamPing('已切换操作，旧流式测试已取消');
       const sel = document.getElementById('ping-model-select');
       const m = sel ? sel.value : '';
       if (!m) { showToast('先选一个模型'); return; }
@@ -7950,12 +7976,14 @@
 
     /** 选模型 → 直接测 */
     function onPingModelChange(model) {
+      if (typeof cancelStreamPing === 'function') cancelStreamPing('已切换操作，旧流式测试已取消');
       if (!model) return;
       executeModelPingTest(model);
     }
 
     /** 逐个测完当前供应商的所有模型（串行，避免同时打爆上游） */
     async function pingAllModels() {
+      if (typeof cancelStreamPing === 'function') cancelStreamPing('已切换操作，旧流式测试已取消');
       const models = pingCurrentModels.slice();
       if (models.length === 0) return;
       const btn = document.getElementById('btn-ping-all');
@@ -7988,12 +8016,27 @@
      * （window.AllInNative.startStream → __allInStreamChunk 逐行回调），
      * 只有在电脑浏览器里打开面板时才退回 fetch 流式。
      */
+    function cancelStreamPing(note) {
+      const active = window.__allInStreamSession;
+      if (active && typeof active.cancel === 'function') active.cancel(note || '已取消流式测试');
+    }
+
     function streamPingCurrentModel() {
+      if (window.__allInStreamSession) { showToast('已有流式测试正在运行，请先取消或等它结束'); return; }
       const model = document.getElementById('ping-model-select')?.value;
       const out = document.getElementById('ping-test-output');
       const status = document.getElementById('ping-model-status');
       if (!model) { showToast('先选一个模型'); return; }
 
+      const session = { ended: false, cancel: null, model };
+      window.__allInStreamSession = session;
+      const button = document.getElementById('btn-stream-ping');
+      const cancelButton = document.getElementById('btn-stream-cancel');
+      const originalLabel = button ? button.innerText : '🌊 流式';
+      if (button) { button.disabled = true; button.innerText = '测试中…'; }
+      if (cancelButton) cancelButton.style.display = 'inline-block';
+      let timer = null, reader = null, controller = null;
+      const requestId = 'st' + Date.now() + Math.floor(Math.random() * 1000000);
       const t0 = performance.now();
       let firstAt = null, lastAt = null, chunks = 0, text = '', streamError = '', sawFinish = false, sawDone = false;
 
@@ -8022,6 +8065,7 @@
       });
 
       const onLine = (line) => {
+        if (session.ended || window.__allInStreamSession !== session) return;
         if (!line || !line.startsWith('data:')) return;
         const payload = line.slice(5).trim();
         if (payload === '[DONE]') { sawDone = true; return; }
@@ -8047,6 +8091,12 @@
       };
 
       const finish = (err) => {
+        if (session.ended || window.__allInStreamSession !== session) return;
+        session.ended = true;
+        window.__allInStreamSession = null;
+        if (timer !== null) clearTimeout(timer);
+        if (button) { button.disabled = false; button.innerText = originalLabel; }
+        if (cancelButton) cancelButton.style.display = 'none';
         err = streamError || err;
         const total = Math.round(performance.now() - t0);
         if (!err && (!sawFinish || !sawDone)) err = '缺少完整流式结束标记';
@@ -8069,21 +8119,34 @@
       const bridge = (typeof window.AllInNative !== 'undefined' && window.AllInNative
                       && typeof window.AllInNative.startStream === 'function') ? window.AllInNative : null;
 
+      session.cancel = (reason) => {
+        if (session.ended) return;
+        try { if (bridge && typeof bridge.cancelStream === 'function') bridge.cancelStream(requestId); } catch (e) { }
+        if (controller) controller.abort();
+        if (reader) { try { Promise.resolve(reader.cancel()).catch(() => {}); } catch (e) { } }
+        finish(reason || '已取消流式测试');
+      };
+      if (typeof setTimeout === 'function') timer = setTimeout(() => session.cancel('测试已超时，连接已取消'), 180000);
+      if (typeof window.addEventListener === 'function' && !window.__allInStreamPageHook) {
+        window.__allInStreamPageHook = true;
+        window.addEventListener('pagehide', () => cancelStreamPing('页面已离开，测试已取消'));
+      }
+
       if (bridge) {
         // 走原生桥的流式通道
-        const id = 'st' + Date.now() + Math.floor(Math.random() * 1000);
+        const id = requestId;
         window.__allInStreamChunk = function (rid, line) {
           if (rid === id) onLine(line);
         };
         window.__allInStreamEnd = function (rid, st, err) {
           if (rid !== id) return;
-          if (st >= 400) { finish('HTTP ' + st); return; }
+          if (st < 200 || st >= 300) { finish(err || ('HTTP ' + st)); return; }
           finish(err ? err : '');
         };
         try {
           bridge.startStream(id, 'POST', '/v1/chat/completions', body);
         } catch (e) {
-          finish(e.message);
+          session.cancel(e.message);
         }
         return;
       }
@@ -8091,20 +8154,31 @@
       // 电脑浏览器：直接 fetch 流式
       (async () => {
         try {
+          controller = new AbortController();
           const res = await fetch(API_BASE + '/v1/chat/completions', {
             method: 'POST',
+            signal: controller.signal,
             headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
             body
           });
-          if (!res.ok) { finish('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 200)); return; }
+          if (!res.ok) {
+            let detail = '';
+            if (res.body && res.body.getReader) {
+              reader = res.body.getReader();
+              const part = await reader.read();
+              if (part.value) detail = new TextDecoder('utf-8').decode(part.value.subarray(0, 1024)).slice(0, 200);
+            }
+            finish('HTTP ' + res.status + ' ' + detail); return;
+          }
           if (!res.body || !res.body.getReader) { finish('当前环境不支持流式读取'); return; }
-          const reader = res.body.getReader();
+          reader = res.body.getReader();
           const dec = new TextDecoder('utf-8');
           let buf = '';
-          while (true) {
+          while (!session.ended) {
             const { done, value } = await reader.read();
             if (done) break;
             buf += dec.decode(value, { stream: true });
+            if (buf.length > 8 * 1024 * 1024) throw new Error('流式单行超过安全上限');
             let i;
             while ((i = buf.indexOf('\n')) >= 0) {
               const line = buf.slice(0, i).trim();
@@ -8117,6 +8191,8 @@
           finish('');
         } catch (e) {
           finish(e.message);
+        } finally {
+          if (reader) { try { await reader.cancel(); } catch (e) { } try { reader.releaseLock(); } catch (e) { } }
         }
       })();
     }
@@ -9303,6 +9379,39 @@
       </div>
     </div>
   </div>
+
+<div id="app-update-modal" class="app-update-backdrop" hidden onclick="if(event.target===this)dismissAppUpdate()">
+ <section class="app-update-dialog" role="dialog" aria-modal="true" aria-labelledby="app-update-title" aria-describedby="app-update-description" tabindex="-1">
+  <div class="app-update-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m-4 4 4-4 4 4M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg></div>
+  <h2 id="app-update-title">发现新版本</h2><p id="app-update-modal-version" class="app-update-version"></p>
+  <p id="app-update-description">新版本已经准备好，可前往官方发行页查看和下载。</p><p id="app-update-summary" class="app-update-summary" hidden></p>
+  <div class="app-update-actions"><button type="button" class="app-update-later" id="app-update-later" onclick="dismissAppUpdate()">暂不更新</button><button type="button" class="app-update-now" id="app-update-now" onclick="openAppUpdatePage()">立即更新</button></div>
+  <small>将打开浏览器 · 不会自动安装或改动账号</small>
+ </section>
+</div>
+
+<script>
+    // App update UI: public metadata uses textContent, never HTML or caller-supplied navigation.
+    const appUpdateUI={state:null,manual:false,lastShown:'',lastCheckedSeen:0,lastSequence:0,cycleTimer:null,timer:null,polls:0,previousOverflow:'',focus:null};
+    function appUpdateText(id,text){const el=document.getElementById(id);if(el)el.textContent=text;}
+    function appUpdateError(code){return ({current_version_unknown:'无法读取当前版本，请重新打开软件后重试',rate_limited:'GitHub 暂时限制了请求，请稍后再试',storage_error:'更新状态保存失败，请稍后重试',invalid_manifest:'发行版更新信息无效，请到官方发行页核对',invalid_release:'暂未获得有效的正式发行信息',invalid_cache:'更新缓存不可用，请重试',manifest_unavailable:'更新信息暂不可用，请稍后再试',github_unavailable:'暂时无法读取 GitHub 正式发行版',network_error:'检查失败，请检查网络后重试'})[code]||'检查暂未完成，请稍后重试';}
+    function appUpdateClose(){const modal=document.getElementById('app-update-modal');if(!modal||modal.hidden)return;modal.hidden=true;document.body.style.overflow=appUpdateUI.previousOverflow;if(appUpdateUI.focus&&typeof appUpdateUI.focus.focus==='function')appUpdateUI.focus.focus();}
+    function maybeShowAppUpdate(){const s=appUpdateUI.state,modal=document.getElementById('app-update-modal'),home=document.getElementById('tab-overview'),overview=document.getElementById('overview-main'),wizard=document.getElementById('setup-wizard');if(!s||!s.showPrompt||!s.updateAvailable||s.error||s.busy||!modal||document.hidden||appUpdateUI.lastShown===s.releaseKey)return;if(home&&home.classList&&!home.classList.contains('active'))return;const card=document.getElementById('app-update-card');if(card&&typeof card.getBoundingClientRect==='function'&&card.getBoundingClientRect().width===0)return;if(overview&&overview.hidden)return;if(wizard&&wizard.style.display!=='none'&&wizard.style.display!=='')return;
+      appUpdateUI.lastShown=s.releaseKey;if(modal.hidden){appUpdateUI.focus=document.activeElement;appUpdateUI.previousOverflow=document.body.style.overflow;}document.body.style.overflow='hidden';appUpdateText('app-update-modal-version',String(s.currentVersion||'')+' → '+String(s.latestVersion||''));appUpdateText('app-update-summary',String(s.summary||''));const summary=document.getElementById('app-update-summary');if(summary)summary.hidden=!s.summary;modal.hidden=false;const later=document.getElementById('app-update-later');if(later&&later.focus)later.focus();}
+    function onAppUpdateState(s){if(!s||typeof s!=='object')return;if(Number.isFinite(s.sequence)){if(s.sequence<appUpdateUI.lastSequence)return;appUpdateUI.lastSequence=s.sequence;}appUpdateUI.state=s;if(Number.isFinite(s.lastChecked)&&s.lastChecked>appUpdateUI.lastCheckedSeen){if(appUpdateUI.lastCheckedSeen)appUpdateUI.lastShown='';appUpdateUI.lastCheckedSeen=s.lastChecked;}appUpdateText('app-update-version','当前版本 '+String(s.currentVersion||'未知'));const b=document.getElementById('app-update-check'),badge=document.getElementById('app-update-badge');if(b)b.disabled=!!s.busy;if(badge)badge.hidden=!s.updateAvailable;appUpdateText('app-update-button-label',s.busy?'检查中…':'检查更新');
+      if(s.busy){appUpdateText('app-update-status','正在读取官方发行信息…');if(appUpdateUI.polls++<15){clearTimeout(appUpdateUI.timer);appUpdateUI.timer=setTimeout(()=>requestAppUpdate(false),2000);}else{if(b)b.disabled=false;appUpdateText('app-update-status','检查用时较长，可稍后再试');}return;}
+      clearTimeout(appUpdateUI.timer);appUpdateUI.polls=0;scheduleAppUpdateCycle(s);const manual=appUpdateUI.manual||s.manual;appUpdateUI.manual=false;
+      if(!s.updateAvailable||s.error)appUpdateClose();if(s.error){appUpdateText('app-update-status',appUpdateError(s.error));if(manual&&typeof showToast==='function')showToast(appUpdateError(s.error));return;}
+      appUpdateText('app-update-status',s.updateAvailable?'新版 '+s.latestVersion+' 已发布':s.aheadOfRelease?'当前版本高于公开发行版':s.latestVersion?'已是最新正式发行版':'每 9 小时自动检查，也可手动检查');if(manual&&!s.updateAvailable&&typeof showToast==='function')showToast(s.aheadOfRelease?'当前版本高于公开发行版':'没有发现新版本');if(manual&&s.updateAvailable)appUpdateUI.lastShown='';maybeShowAppUpdate();}
+    function scheduleAppUpdateCycle(s){clearTimeout(appUpdateUI.cycleTimer);const now=Date.now(),interval=9*60*60*1000;let next=s.lastChecked>0&&s.lastChecked<=now?s.lastChecked+interval:now+(s.error?15*60*1000:interval);if(s.lastChecked>now)next=now+1000;if(s.retryAfter>now&&s.retryAfter-now<=24*60*60*1000)next=Math.max(next,s.retryAfter);appUpdateUI.cycleTimer=setTimeout(()=>{if(!document.hidden)requestAppUpdate(false);},Math.max(1000,Math.min(24*60*60*1000,next-now)));}
+    function requestAppUpdate(manual){const bridge=window.AllInNative;if(!bridge||typeof bridge.checkAppUpdate!=='function'){appUpdateText('app-update-status','请在 All In 软件内检查更新');if(manual&&typeof showToast==='function')showToast('请在 All In 软件内检查更新');return;}if(manual)appUpdateUI.manual=true;appUpdateText('app-update-status','正在检查更新…');const b=document.getElementById('app-update-check');if(b)b.disabled=true;try{bridge.checkAppUpdate(!!manual);}catch(e){onAppUpdateState({error:'network_error',manual:!!manual});}}
+    function dismissAppUpdate(){const s=appUpdateUI.state;appUpdateClose();if(s&&s.releaseKey&&window.AllInNative&&typeof window.AllInNative.dismissAppUpdate==='function')window.AllInNative.dismissAppUpdate(s.releaseKey);}
+    function openAppUpdatePage(){const bridge=window.AllInNative;if(!bridge||typeof bridge.openAppUpdatePage!=='function'||!bridge.openAppUpdatePage()){onAppUpdateOpenError();return;}appUpdateClose();}
+    function onAppUpdateOpenError(){if(typeof showToast==='function')showToast('无法打开浏览器，请确认已安装浏览器');}
+    window.onAppUpdateState=onAppUpdateState;window.onAppUpdateOpenError=onAppUpdateOpenError;window.appUpdateResume=()=>requestAppUpdate(false);
+    document.addEventListener('keydown',e=>{const modal=document.getElementById('app-update-modal');if(!modal||modal.hidden)return;if(e.key==='Escape')dismissAppUpdate();if(e.key==='Tab'){const first=document.getElementById('app-update-later'),last=document.getElementById('app-update-now');if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}});
+    window.addEventListener('DOMContentLoaded',()=>{requestAppUpdate(false);const home=document.getElementById('tab-overview');if(home&&typeof MutationObserver!=='undefined')new MutationObserver(maybeShowAppUpdate).observe(home,{attributes:true,attributeFilter:['class']});});
+</script>
 
 </body>
 </html>

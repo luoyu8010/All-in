@@ -460,7 +460,7 @@ public class GatewayServer extends NanoHTTPD {
                         throw refreshPersistFailed(RaccoonRefreshService.PROVIDER);
                     }
                     settleRefreshFence(RaccoonRefreshService.PROVIDER,expected.optString("refresh",""),raccoonRotated);
-                    configJson=copy; configChangedAffinity();
+                    publishConfig(copy); configChangedAffinity();
                     return new JSONObject(destination.toString());
                 }
             }
@@ -703,6 +703,30 @@ public class GatewayServer extends NanoHTTPD {
     private synchronized SessionAffinity affinity() { if(affinity==null) affinity=new SessionAffinity(); return affinity; }
     private volatile long affinityEpoch;
 
+    private AccountGenerations accountGenerations;
+    private String configRevisionEpoch;
+    private java.math.BigInteger configRevision = java.math.BigInteger.ZERO;
+    private synchronized long accountRevision(String provider, String identity) {
+        if (accountGenerations == null) accountGenerations = new AccountGenerations();
+        accountGenerations.observe(configJson);
+        return accountGenerations.revision(provider, identity);
+    }
+    private synchronized long accountIncarnation(String provider, String identity) {
+        accountRevision(provider, identity);
+        return accountGenerations.incarnation(provider, identity);
+    }
+    /** All writers call this under the same monitor, after their durable write succeeds. */
+    private synchronized void publishConfig(JSONObject next) {
+        if (accountGenerations != null) accountGenerations.observe(next);
+        configJson = next;
+        configRevision = (configRevision == null ? java.math.BigInteger.ZERO : configRevision).add(java.math.BigInteger.ONE);
+    }
+    private synchronized String configRevision() {
+        if (configRevisionEpoch == null) configRevisionEpoch = java.util.UUID.randomUUID().toString();
+        return configRevisionEpoch + ":" + (configRevision == null ? java.math.BigInteger.ZERO : configRevision).toString(36);
+    }
+
+
     private volatile AccountTokenCoordinator perGatewayAccountTokenCoordinator;
     private volatile AccountTokenCoordinator.Refresher tokenRefreshForTests;
     void setTokenRefreshForTests(AccountTokenCoordinator.Refresher refresher) {
@@ -735,7 +759,7 @@ public class GatewayServer extends NanoHTTPD {
                 foundProvider = p;
             }
         }
-        if (foundProvider == null || !foundProvider.optBoolean("enabled", true)) return null;
+        if (!AccountGenerations.enabled(foundProvider)) return null;
         JSONArray accounts = foundProvider.optJSONArray("accounts");
         JSONObject found = null;
         for (int i = 0; accounts != null && i < accounts.length(); i++) {
@@ -745,7 +769,7 @@ public class GatewayServer extends NanoHTTPD {
                 found = a;
             }
         }
-        return found != null && found.optBoolean("enabled", true) ? found : null;
+        return AccountGenerations.enabled(found) ? found : null;
     }
     private static JSONObject tokenNonCredentials(JSONObject a) throws Exception {
         JSONObject c = new JSONObject(a.toString());
@@ -1382,16 +1406,15 @@ public class GatewayServer extends NanoHTTPD {
             throw new IllegalArgumentException("unsupported token provider");
         if (("workbuddy".equals(provider) || "workbuddy-ai".equals(provider)) && !"oauth".equals(account.optString("type")))
             return new JSONObject(account.toString());
-        final long epoch = affinityEpoch;
-        final JSONObject[] readObject=new JSONObject[1];
+        final long[] generation = new long[1];
         final String id = storedTokenIdentity(account);
         if (id == null) throw new IOException("Account has no stable identity");
         AccountTokenCoordinator.Store store = new AccountTokenCoordinator.Store() {
             public JSONObject read(String p, String key) throws Exception {
                 synchronized (GatewayServer.this) {
-                    if (backupRetired || epoch != affinityEpoch) throw new IOException("Account configuration changed");
+                    if (backupRetired || stopping) throw new IOException("Account configuration changed");
                     JSONObject a = storedTokenAccount(configJson, p, key);
-                    readObject[0]=a;
+                    generation[0] = accountRevision(p, key);
                     return a == null ? null : new JSONObject(a.toString());
                 }
             }
@@ -1400,8 +1423,8 @@ public class GatewayServer extends NanoHTTPD {
                     JSONObject current = storedTokenAccount(configJson, p, key);
                     String commitValue = expected.optString("refresh", "");
                     boolean rotated = refreshValueRotated(p, commitValue, candidate.optString("refresh", ""));
-                    if (backupRetired || epoch != affinityEpoch || current == null || current!=readObject[0]
-                            || storedAccess(candidate).isEmpty() || !jsonEquivalent(current,expected)
+                    if (backupRetired || stopping || current == null || generation[0] != accountRevision(p, key)
+                            || storedAccess(candidate).isEmpty() || !AccountGenerations.sameState(current,expected)
                             || !key.equals(storedTokenIdentity(candidate))
                             || !jsonEquivalent(tokenNonCredentials(p,expected),tokenNonCredentials(p,candidate))) {
                         // The exchange happened; only a known rotation is settled as spent.
@@ -1441,7 +1464,8 @@ public class GatewayServer extends NanoHTTPD {
                     }
                     settleRefreshFence(p, commitValue, rotated);
                     forgetPendingRotation(p, key);
-                    configJson = copy;
+                    publishConfig(copy);
+                    generation[0] = accountRevision(p, key);
                     return new JSONObject(dest.toString());
                 }
             }
@@ -1488,8 +1512,8 @@ public class GatewayServer extends NanoHTTPD {
         JSONObject result = tokenCoordinator().ensure(provider, id, "github-copilot".equals(provider)?300000L:("workbuddy".equals(provider) || "workbuddy-ai".equals(provider)?60000L:180000L), failedAccess, store, refresh);
         synchronized (this) {
             JSONObject current=storedTokenAccount(configJson,provider,id);
-            if (backupRetired || epoch != affinityEpoch || current==null || result==null
-                    || !jsonEquivalent(current,result)) throw new IOException("Account configuration changed");
+            if (backupRetired || stopping || current==null || result==null || generation[0] != accountRevision(provider, id)
+                    || !AccountGenerations.sameState(current,result)) throw new IOException("Account configuration changed");
         }
         return result;
     }
@@ -1528,7 +1552,7 @@ public class GatewayServer extends NanoHTTPD {
             JSONObject copy=new JSONObject(configJson.toString());
             JSONObject target=storedTokenAccount(copy,"antigravity",identity);
             target.put("project",project);
-            AtomicConfigFile.write(configFile,copy.toString(2));configJson=copy;
+            AtomicConfigFile.write(configFile,copy.toString(2));publishConfig(copy);
             return new JSONObject(target.toString());
         }
     }
@@ -1601,7 +1625,7 @@ public class GatewayServer extends NanoHTTPD {
             throw refreshOutcomeUnknown("qoder_cn");
         }
         settleRefreshFence("qoder_cn",qoderSpent,qoderRotated);
-        configJson=copy;
+        publishConfig(copy);
         return new JSONObject(dst.toString());
     }
     private QoderAuth.Catalog qoderRead(QoderAuth.SignIn s) throws Exception {
@@ -1866,7 +1890,7 @@ public class GatewayServer extends NanoHTTPD {
                 if(applied.size()!=updated.size()) return errorResponse(409,"Qoder 账号已变化");
                 if(models.length()==0) return errorResponse(502,"Qoder 目录不可用，保留原目录");
                 cp.put("models",models); cp.put("modelMeta",meta);
-                try { AtomicConfigFile.write(configFile,copy.toString(2)); configJson=copy; } catch(Exception e) { return errorResponse(409,"Qoder 目录保存失败"); }
+                try { AtomicConfigFile.write(configFile,copy.toString(2)); publishConfig(copy); } catch(Exception e) { return errorResponse(409,"Qoder 目录保存失败"); }
                 String message=partial?"部分账号同步失败，保留原目录":disabledListing.length()>0?"上游列出 "+discoveredKeys.size()+" 个模型，当前凭据启用 "+models.length()+" 个；其余由上游禁用，可重新授权后再同步":"同步成功";
                 if (signInRequired) message += "；" + (blockedHint.isEmpty()
                         ? "部分账号的一次性刷新凭据可能已被消费且未能保存，需重新登录后才能恢复" : blockedHint);
@@ -1892,7 +1916,7 @@ public class GatewayServer extends NanoHTTPD {
                 found.put("token",si.access); found.put("refresh",si.refresh); found.put("deviceToken",si.deviceToken);
                 found.put("deviceRefresh",si.deviceRefresh); found.put("deviceChat",si.deviceChat); found.put("expiresAt",si.expiresAt);
                 found.put("machineId",si.machineId); found.remove("catalogRenewedAt");
-                AtomicConfigFile.write(configFile,copy.toString(2)); configJson=copy; return true;
+                AtomicConfigFile.write(configFile,copy.toString(2)); publishConfig(copy); return true;
             }
         }
     }
@@ -1930,7 +1954,7 @@ public class GatewayServer extends NanoHTTPD {
         target.put("models",new JSONArray(models.toString()));target.put("modelMeta",normalizedMetadata);
         target.put("accessCatalogPool",GatewayAccessCatalog.poolFingerprint(expectedProvider));
         if(GatewayAccessCatalog.hasAccountCatalog(expectedProvider.optJSONArray("accounts"))) target.put("accessAccountCatalogScoped",true);
-        AtomicConfigFile.write(configFile,copy.toString(2));configJson=copy;
+        AtomicConfigFile.write(configFile,copy.toString(2));publishConfig(copy);
     }
 
     synchronized byte[] backupDurableConfig() throws IOException {
@@ -1977,7 +2001,7 @@ public class GatewayServer extends NanoHTTPD {
                 Runnable hook=configWriteHookForTests;if(hook!=null)hook.run();
                 AtomicConfigFile.write(configFile,result.config.toString(2));
             } catch(Exception failure) {throw new IOException("账号保存失败，原有配置保留，请重试");}
-            configJson=result.config;traeConfigEpoch++;runPostCommitEffects();
+            publishConfig(result.config);traeConfigEpoch++;runPostCommitEffects();
         }
         if(!lastConfigPostCommitError.isEmpty())result.summary.put("runtimeWarning",true);
         return result.summary;
@@ -1988,6 +2012,7 @@ public class GatewayServer extends NanoHTTPD {
         if (traeControl==null) traeControl=new TraeControl(new TraeControl.Host() {
             public Object lock() { return GatewayServer.this; }
             public long epoch() { return traeConfigEpoch; }
+            public long accountEpoch(String id) { return accountRevision("trae-cn", "id:" + id); }
             public JSONObject config() { return configJson; }
             public boolean save(JSONObject next) { return saveConfig(next); }
             public boolean retired() { return backupRetired || stopping; }
@@ -2123,7 +2148,7 @@ public class GatewayServer extends NanoHTTPD {
                 found = a;
             }
         }
-        return found != null && found.optBoolean("enabled", true) ? found : null;
+        return AccountGenerations.enabled(found) ? found : null;
     }
 
     /** The access token a request could still use without touching the fenced refresh value. */
@@ -2147,7 +2172,7 @@ public class GatewayServer extends NanoHTTPD {
                 if ("api".equals(current.optString("type", "oauth"))) return current;
                 long expires = current.optLong("expires", 0L);
                 if (expires <= 0 || expires > System.currentTimeMillis() + 300000L) return current;
-                epoch = affinityEpoch;
+                epoch = accountRevision("cline", "id:" + id);
                 try { snapshot = new JSONObject(current.toString()); }
                 catch (Exception e) { throw new IOException("Cline account snapshot failed", e); }
             }
@@ -2180,7 +2205,7 @@ public class GatewayServer extends NanoHTTPD {
                     && refreshValueRotated("cline", clineOneUse, candidate.next.refresh);
             synchronized (this) {
                 JSONObject current = clineCurrentAccount(configJson, id);
-                if (backupRetired || affinityEpoch != epoch || current == null || !candidate.matches(current)
+                if (backupRetired || stopping || accountRevision("cline", "id:" + id) != epoch || current == null || !candidate.matches(current)
                         || "api".equals(current.optString("type", "oauth"))) {
                     settleRefreshFence("cline", clineOneUse, clineRotated);
                     throw new IOException("Cline account changed");
@@ -2209,7 +2234,7 @@ public class GatewayServer extends NanoHTTPD {
                     throw refreshOutcomeUnknown("cline");
                 }
                 settleRefreshFence("cline", clineOneUse, clineRotated);
-                configJson = copy;
+                publishConfig(copy);
                 return target;
             }
         }
@@ -3097,10 +3122,11 @@ public class GatewayServer extends NanoHTTPD {
                     if (pick == null || pick.equals(cur)) return;
 
                     synchronized (GatewayServer.this) {
-                        JSONObject now = getProviderById("zcode");
-                        if (now != null) {
+                        JSONObject staged = new JSONObject(configJson.toString());
+                        JSONObject now = findProviderById(staged.optJSONArray("providers"), "zcode");
+                        if (now != null && cur.equals(now.optString("baseUrl", ""))) {
                             now.put("baseUrl", pick);
-                            saveConfig(configJson);
+                            saveConfig(staged);
                         }
                     }
                     android.util.Log.d("Magpie", "zcode baseUrl 自动校正: " + cur + " -> " + pick);
@@ -3318,7 +3344,7 @@ public class GatewayServer extends NanoHTTPD {
                 enterConfigRecovery(new IllegalArgumentException("unexpected configuration shape"));
                 return;
             }
-            configJson = loaded;
+            publishConfig(loaded);
             try { mergeDefaultProviders(); } catch (Throwable ignored) { }
             try { migrateProviders(); } catch (Throwable ignored) { }
             try { migrateDeepSeekWeb(); } catch (Throwable ignored) { }
@@ -3331,7 +3357,7 @@ public class GatewayServer extends NanoHTTPD {
             is.read(bytes);
             is.close();
             String str = new String(bytes, "UTF-8");
-            configJson = new JSONObject(str);
+            publishConfig(new JSONObject(str));
             configJson.put("schemaVersion", 4);
             // 安装包里的 server.authKey 是公开占位值：新装机一律换成本机随机口令。
             if (applyFirstRunAuthKey(configJson, authKeyRandom())) {
@@ -3354,7 +3380,7 @@ public class GatewayServer extends NanoHTTPD {
                 minimal.put("server", new JSONObject());
                 applyFirstRunAuthKey(minimal, authKeyRandom());
             } catch (Throwable ignored) { }
-            configJson = minimal;
+            publishConfig(minimal);
             try { android.util.Log.w("Magpie", "内置默认配置不可用，使用最小内存配置等待首次设置"); }
             catch (Throwable ignored) { }
         }
@@ -3393,7 +3419,7 @@ public class GatewayServer extends NanoHTTPD {
         configRecoveryRescueError = "";
         // 坏配置先另存一份，用户还能手工救回来；不要静默留个空配置等着被覆盖
         boolean rescued = ensureRescueCopy();
-        if (!keepMemory) configJson = new JSONObject();
+        if (!keepMemory) publishConfig(new JSONObject());
         try {
             android.util.Log.e("Magpie", "配置读取失败，已进入恢复态（不会覆盖原文件）: "
                     + (cause == null ? "" : cause.getClass().getSimpleName()));
@@ -3639,16 +3665,18 @@ public class GatewayServer extends NanoHTTPD {
      * 一次性迁移：把老配置升级到「供应商带 status/plugin」的新形态，并修正几处已知错误的默认值。
      * 只动默认值，绝不动用户已入池的账号与 Key。
      */
-    private void migrateDeepSeekWeb() {
-        JSONArray tp=configJson.optJSONArray("providers");
+    private synchronized void migrateDeepSeekWeb() {
+        JSONObject staged = new JSONObject(configJson.toString());
+        boolean changed = false;
+        JSONArray tp=staged.optJSONArray("providers");
         for(int i=0;tp!=null && i<tp.length();i++) { JSONObject t=tp.optJSONObject(i);
             if(t!=null && "trae-cn".equals(t.optString("id")) && "placeholder".equals(t.optString("status"))) try {
                 t.put("status","ported"); t.put("protocol","trae");
                 t.put("baseUrl",TraeAuth.MODEL_HOST); t.put("note","Trae CN 个人账号；设备绑定登录、账号模型同步、工具与图片协议，签到由用户主动领取");
-                saveConfig(configJson);
+                changed = true;
             } catch(Exception ignored) { }
         }
-        JSONArray providers = configJson.optJSONArray("providers");
+        JSONArray providers = staged.optJSONArray("providers");
         for (int i=0; providers!=null && i<providers.length(); i++) {
             JSONObject p=providers.optJSONObject(i);
             if (p==null || !"deepseek_web".equals(p.optString("id"))) continue;
@@ -3664,13 +3692,15 @@ public class GatewayServer extends NanoHTTPD {
                     p.put("models", models);
                 }
                 p.put("note", "社区 DeepSeek 网页模式；网页登录自动入池，支持文本与提示词工具桥，不支持图片；客户端输出限额不保证强制执行");
-                saveConfig(configJson);
+                changed = true;
             } catch (Exception ignored) { }
         }
+        if (changed) saveConfig(staged);
     }
 
-    private void migrateProviders() {
-        if (configJson.optInt("schemaVersion", 1) >= 4) return;
+    private synchronized void migrateProviders() {
+        JSONObject staged = new JSONObject(configJson.toString());
+        if (staged.optInt("schemaVersion", 1) >= 4) return;
         try {
             InputStream is = context.getAssets().open("default_config.json");
             byte[] bytes = new byte[is.available()];
@@ -3678,7 +3708,7 @@ public class GatewayServer extends NanoHTTPD {
             is.close();
             JSONObject defaults = new JSONObject(new String(bytes, "UTF-8"));
             JSONArray defaultProvs = defaults.optJSONArray("providers");
-            JSONArray cur = configJson.optJSONArray("providers");
+            JSONArray cur = staged.optJSONArray("providers");
             if (defaultProvs == null || cur == null) return;
 
             // 默认表里每家能提供 status / plugin / note
@@ -3766,15 +3796,16 @@ public class GatewayServer extends NanoHTTPD {
                 }
             }
 
-            configJson.put("schemaVersion", 4);
-            if (changed) saveConfig(configJson);
+            staged.put("schemaVersion", 4);
+            saveConfig(staged);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     // 启动时自动合并内置默认供应商：补齐老版本配置中缺失的全部 Provider（绝不清空用户已有账号与密钥）
-    private void mergeDefaultProviders() {
+    private synchronized void mergeDefaultProviders() {
+        JSONObject staged = new JSONObject(configJson.toString());
         try {
             InputStream is = context.getAssets().open("default_config.json");
             byte[] bytes = new byte[is.available()];
@@ -3784,10 +3815,10 @@ public class GatewayServer extends NanoHTTPD {
             JSONArray defaultProvs = defaults.optJSONArray("providers");
             if (defaultProvs == null) return;
 
-            JSONArray currentProvs = configJson.optJSONArray("providers");
+            JSONArray currentProvs = staged.optJSONArray("providers");
             if (currentProvs == null) {
                 currentProvs = new JSONArray();
-                configJson.put("providers", currentProvs);
+                staged.put("providers", currentProvs);
             }
 
             boolean changed = false;
@@ -3815,7 +3846,7 @@ public class GatewayServer extends NanoHTTPD {
             }
 
             if (changed) {
-                saveConfig(configJson);
+                saveConfig(staged);
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -3908,7 +3939,7 @@ public class GatewayServer extends NanoHTTPD {
         // Persisted and fsynced. Everything below is bookkeeping over the new durable state:
         // a failure here is reported as a degraded side effect, never as a failed save, and
         // never triggers a rollback of the configuration that is already on disk.
-        configJson = newConfig;
+        publishConfig(newConfig);
         traeConfigEpoch++;
         runPostCommitEffects();
         return true;
@@ -4066,7 +4097,7 @@ public class GatewayServer extends NanoHTTPD {
         JSONObject report = reconcileAfterFailedSave(durable, attempted);
         if (alsoAttempted != null && alsoAttempted != attempted)
             appendMissingEntries(durable, alsoAttempted, report);
-        configJson = durable;
+        publishConfig(durable);
         traeConfigEpoch++;
         GatewayAuthKeyHolder.invalidate();
         configChangedAffinity();
@@ -5323,7 +5354,8 @@ public class GatewayServer extends NanoHTTPD {
                     JSONObject req = (rawBody == null || rawBody.isEmpty())
                             ? new JSONObject() : new JSONObject(rawBody);
                     JSONObject patch = req.optJSONObject("privacy");
-                    if (patch != null) {
+                    if (patch != null) synchronized (this) {
+                        JSONObject staged = new JSONObject(configJson.toString());
                         PrivacyMasker.Config base = PrivacyMasker.Config.fromJson(configJson.optJSONObject("privacy"));
                         JSONObject merged = base.toJson();
                         java.util.Iterator<String> it = patch.keys();
@@ -5331,8 +5363,8 @@ public class GatewayServer extends NanoHTTPD {
                             String k = it.next();
                             if (patch.opt(k) != null) merged.put(k, patch.opt(k));
                         }
-                        configJson.put("privacy", PrivacyMasker.Config.fromJson(merged).toJson());
-                        if (!saveConfig(configJson)) return errorResponse(500, "隐私设置保存失败，未生效");
+                        staged.put("privacy", PrivacyMasker.Config.fromJson(merged).toJson());
+                        if (!saveConfig(staged)) return errorResponse(500, "隐私设置保存失败，未生效");
                     }
                 }
                 PrivacyMasker.Config cfg = PrivacyMasker.Config.fromJson(configJson.optJSONObject("privacy"));
@@ -5594,8 +5626,10 @@ public class GatewayServer extends NanoHTTPD {
                 if ("POST".equalsIgnoreCase(method)) {
                     String postData = rawBody;
                     JSONObject req = (postData != null && !postData.isEmpty()) ? new JSONObject(postData) : new JSONObject();
-                    configJson.put("middleware", req);
-                    if (!saveConfig(configJson)) return errorResponse(500, "中间件配置保存失败，未生效");
+                    synchronized (this) {
+                        JSONObject staged = new JSONObject(configJson.toString()).put("middleware", req);
+                        if (!saveConfig(staged)) return errorResponse(500, "中间件配置保存失败，未生效");
+                    }
                     JSONObject ret = new JSONObject();
                     ret.put("ok", true);
                     ret.put("middleware", req);
@@ -5779,6 +5813,11 @@ public class GatewayServer extends NanoHTTPD {
                         return errorResponse(400, "配置缺少 providers 数组，已拒绝写入");
                     }
                     synchronized (this) {
+                    Object expected = newConf.has("expectedRevision") ? newConf.opt("expectedRevision") : newConf.opt("revision");
+                    if (!(expected instanceof String) || !configRevision().equals(expected)
+                            || (newConf.has("revision") && !expected.equals(newConf.opt("revision"))))
+                        return errorResponse(409,"配置已变化或缺少版本，请重新读取配置后再保存");
+                    newConf.remove("revision"); newConf.remove("expectedRevision");
                     try { newConf = ConfigurationView.restore(newConf, configJson, GatewayManagementCredential.get()); }
                     catch (IllegalArgumentException invalidReference) { return errorResponse(409,"配置凭据引用已失效，请刷新后重试"); }
                     newConf.remove("providerStateTokens");
@@ -5818,6 +5857,7 @@ public class GatewayServer extends NanoHTTPD {
                     catch(IOException e) { return errorResponse(500,"配置保存失败"); }
                     JSONObject ret = new JSONObject();
                     ret.put("ok", true);
+                    ret.put("revision", configRevision());
                     return jsonResponse(ret);
                     }
                 } else {
@@ -5831,6 +5871,7 @@ public class GatewayServer extends NanoHTTPD {
                                 tokens.put(provider.getString("id"), providerStateToken(provider));
                         }
                         snapshot.put("providerStateTokens", tokens);
+                        snapshot.put("revision", configRevision());
                         return jsonResponse(snapshot);
                     }
                 }
@@ -5859,6 +5900,8 @@ public class GatewayServer extends NanoHTTPD {
                     } catch (Exception e) {
                         return errorResponse(400, "请求体不是合法 JSON");
                     }
+                    synchronized (this) {
+                    JSONObject staged = new JSONObject(configJson.toString());
                     JSONArray items = req.optJSONArray("items");
                     // 校验：只接受配置里真实存在的 provider/model 或 group/<id>
                     java.util.Set<String> known = new java.util.HashSet<String>();
@@ -5890,8 +5933,8 @@ public class GatewayServer extends NanoHTTPD {
                     cfg.put("enabled", req.optBoolean("enabled", true));
                     cfg.put("items", clean);
                     cfg.put("updatedAt", System.currentTimeMillis());
-                    configJson.put("exposed", cfg);
-                    if (!saveConfig(configJson)) return errorResponse(500, "模型暴露设置保存失败，未生效");
+                    staged.put("exposed", cfg);
+                    if (!saveConfig(staged)) return errorResponse(500, "模型暴露设置保存失败，未生效");
 
                     JSONObject ret = new JSONObject();
                     ret.put("ok", true);
@@ -5899,6 +5942,7 @@ public class GatewayServer extends NanoHTTPD {
                     ret.put("count", clean.length());
                     ret.put("items", clean);
                     return jsonResponse(ret);
+                    }
                 }
 
                 // GET：返回当前设置 + 所有可选项（带是否已配置凭据）
@@ -5949,14 +5993,13 @@ public class GatewayServer extends NanoHTTPD {
                         return errorResponse(400, "请求体不是合法 JSON");
                     }
                     synchronized (this) {
-                        Object previous = configJson.opt("routing");
+                        JSONObject staged = new JSONObject(configJson.toString());
                         JSONObject oldRouting = configJson.optJSONObject("routing");
                         JSONObject routing = oldRouting == null ? new JSONObject() : new JSONObject(oldRouting.toString());
                         if (req.has("enabled")) routing.put("groupsEnabled", req.optBoolean("enabled", false));
                         if (req.has("bareModelFallback")) routing.put("bareModelFallback", req.optBoolean("bareModelFallback", false));
-                        configJson.put("routing", routing);
-                        if (!saveConfig(configJson)) {
-                            if (previous == null) configJson.remove("routing"); else configJson.put("routing", previous);
+                        staged.put("routing", routing);
+                        if (!saveConfig(staged)) {
                             return errorResponse(500, "保存路由配置失败");
                         }
                     }
@@ -5980,7 +6023,8 @@ public class GatewayServer extends NanoHTTPD {
                     }
                     JSONArray in = req.optJSONArray("groups");
                     if (in == null) return errorResponse(400, "缺少 groups 数组");
-
+                    synchronized (this) {
+                    JSONObject staged = new JSONObject(configJson.toString());
                     JSONArray out = new JSONArray();
                     java.util.Set<String> seenIds = new java.util.HashSet<String>();
                     for (int i = 0; i < in.length(); i++) {
@@ -6033,13 +6077,14 @@ public class GatewayServer extends NanoHTTPD {
                         out.put(o);
                     }
 
-                    configJson.put("groups", out);
-                    if (!saveConfig(configJson)) return errorResponse(500, "路由组保存失败，未生效");
+                    staged.put("groups", out);
+                    if (!saveConfig(staged)) return errorResponse(500, "路由组保存失败，未生效");
                     JSONObject ret = new JSONObject();
                     ret.put("ok", true);
                     ret.put("count", out.length());
                     ret.put("groups", out);
                     return jsonResponse(ret);
+                    }
                 }
                 JSONObject ret = new JSONObject();
                 ret.put("ok", true);
@@ -6717,8 +6762,9 @@ public class GatewayServer extends NanoHTTPD {
             if ("/api/antigravity/probe".equals(uri)) {
                 JSONObject ret = AntigravityAuth.probeAll();
                 try {
-                    if (ret.optBoolean("ok", false) && !"down".equals(ret.optString("verdict", ""))) {
-                        JSONObject ag = getProviderById("antigravity");
+                    if (ret.optBoolean("ok", false) && !"down".equals(ret.optString("verdict", ""))) synchronized (this) {
+                        JSONObject staged = new JSONObject(configJson.toString());
+                        JSONObject ag = findProviderById(staged.optJSONArray("providers"), "antigravity");
                         if (ag == null) {
                             ag = new JSONObject();
                             ag.put("id", "antigravity");
@@ -6730,10 +6776,10 @@ public class GatewayServer extends NanoHTTPD {
                             ag.put("models", new JSONArray());
                             ag.put("keys", new JSONArray());
                             ag.put("accounts", new JSONArray());
-                            JSONArray provs = configJson.optJSONArray("providers");
+                            JSONArray provs = staged.optJSONArray("providers");
                             if (provs == null) {
                                 provs = new JSONArray();
-                                configJson.put("providers", provs);
+                                staged.put("providers", provs);
                             }
                             provs.put(ag);
                         }
@@ -6742,7 +6788,7 @@ public class GatewayServer extends NanoHTTPD {
                         ag.put("probeLoadBase", AntigravityAuth.loadBase);
                         ag.put("probeAt", System.currentTimeMillis());
                         ag.put("probeVerdict", ret.optString("verdict", ""));
-                        saveConfig(configJson);
+                        ret.put("saved", saveConfig(staged));
                         AntigravityAuth.applyBases(AntigravityAuth.chatBase, AntigravityAuth.loadBase);
                     }
                 } catch (Throwable ignored) {
@@ -7319,7 +7365,8 @@ public class GatewayServer extends NanoHTTPD {
                 }
                 String providerId = ((String) rawId).trim();
                 synchronized (this) {
-                    JSONArray providers = configJson.optJSONArray("providers");
+                    JSONObject staged = new JSONObject(configJson.toString());
+                    JSONArray providers = staged.optJSONArray("providers");
                     JSONObject target = null;
                     for (int i = 0; providers != null && i < providers.length(); i++) {
                         JSONObject p = providers.optJSONObject(i);
@@ -7336,11 +7383,8 @@ public class GatewayServer extends NanoHTTPD {
                         JSONObject restored=ConfigurationView.restore(incomingConfig,configJson,GatewayManagementCredential.get());
                         keys=restored.getJSONArray("providers").getJSONObject(0).getJSONArray("keys");
                     } catch(IllegalArgumentException invalidReference) { return errorResponse(409,"密钥引用已失效，请刷新后重试"); }
-                    boolean hadKeys = target.has("keys");
-                    Object previous = target.opt("keys");
                     target.put("keys", keys);
-                    if (!saveConfig(configJson)) {
-                        if (hadKeys) target.put("keys", previous); else target.remove("keys");
+                    if (!saveConfig(staged)) {
                         return errorResponse(500, "保存供应商密钥失败");
                     }
                     advanceProviderStateRevision(providerId);
@@ -7363,7 +7407,8 @@ public class GatewayServer extends NanoHTTPD {
                 }
                 String providerId = ((String) rawId).trim();
                 synchronized (this) {
-                    JSONArray providers = configJson.optJSONArray("providers");
+                    JSONObject staged = new JSONObject(configJson.toString());
+                    JSONArray providers = staged.optJSONArray("providers");
                     JSONObject target = null;
                     for (int i = 0; providers != null && i < providers.length(); i++) {
                         JSONObject p = providers.optJSONObject(i);
@@ -7374,11 +7419,8 @@ public class GatewayServer extends NanoHTTPD {
                     }
                     if (target == null) return errorResponse(404, "供应商不存在");
                     if (!providerStateMatches(req, target)) return errorResponse(409, "供应商状态已变化，请刷新后重试");
-                    boolean hadEnabled = target.has("enabled");
-                    Object previous = target.opt("enabled");
                     target.put("enabled", rawEnabled);
-                    if (!saveConfig(configJson)) {
-                        if (hadEnabled) target.put("enabled", previous); else target.remove("enabled");
+                    if (!saveConfig(staged)) {
                         return errorResponse(500, "保存供应商状态失败");
                     }
                     advanceProviderStateRevision(providerId);
@@ -7633,8 +7675,13 @@ public class GatewayServer extends NanoHTTPD {
                 if ("deepseek-web".equals(prov.optString("protocol"))) {
                     if (!providerHasCredential(prov)) return errorResponse(401,"请先添加网页账号");
                     JSONArray modes=new JSONArray(); for(String m:DeepSeekWeb.MODELS) modes.put(m);
-                    prov.put("models",modes);
-                    if(!saveConfig(configJson)) return errorResponse(500,"网页模型别名保存失败，未生效");
+                    synchronized (this) {
+                        JSONObject staged = new JSONObject(configJson.toString());
+                        JSONObject current = findProviderById(staged.optJSONArray("providers"), provId);
+                        if (current == null || !current.optBoolean("enabled",true)) return errorResponse(409,"供应商已变化，请重新读取");
+                        current.put("models",modes);
+                        if(!saveConfig(staged)) return errorResponse(500,"网页模型别名保存失败，未生效");
+                    }
                     return jsonResponse(new JSONObject().put("ok",true).put("provider",provId).put("count",modes.length()).put("models",modes).put("message","网页模式别名，非云端模型目录"));
                 }
                 if ("qoder_cn".equals(provId)) return syncQoderCatalog(new JSONObject(prov.toString()));
@@ -7869,8 +7916,9 @@ public class GatewayServer extends NanoHTTPD {
                 String postData = rawBody;
                 JSONObject req = (postData != null && !postData.isEmpty()) ? new JSONObject(postData) : new JSONObject();
                 String newModelName = req.optString("model", "").trim();
-                if (!newModelName.isEmpty()) {
-                    JSONObject wbProv = getWorkBuddyProvider();
+                if (!newModelName.isEmpty()) synchronized (this) {
+                    JSONObject staged = new JSONObject(configJson.toString());
+                    JSONObject wbProv = findProviderById(staged.optJSONArray("providers"), "workbuddy");
                     if (wbProv != null) {
                         JSONArray models = wbProv.optJSONArray("models");
                         if (models == null) {
@@ -7886,7 +7934,7 @@ public class GatewayServer extends NanoHTTPD {
                         }
                         if (!exists) {
                             models.put(newModelName);
-                            if (!saveConfig(configJson)) return errorResponse(500, "供应商模型保存失败，未生效");
+                            if (!saveConfig(staged)) return errorResponse(500, "供应商模型保存失败，未生效");
                         }
                     }
                 }
@@ -10396,7 +10444,7 @@ public class GatewayServer extends NanoHTTPD {
             throw new IOException("config persistence failed", writeFailure);
         }
         // Durable: memory follows the committed file, later effects are diagnostics only.
-        configJson = value;
+        publishConfig(value);
         traeConfigEpoch++;
         runPostCommitEffects();
     }
@@ -15112,7 +15160,7 @@ public class GatewayServer extends NanoHTTPD {
         String chosenId=chosenProvider.optString("id");
         JSONArray poolAccounts=chosenProvider.optJSONArray("accounts");
         boolean accountPoolOwns=!commercial && ((poolAccounts!=null && poolAccounts.length()>0)
-                || (("workbuddy".equals(chosenId) || "workbuddy-ai".equals(chosenId)) && keys!=null && keys.length()>0));
+                || (("workbuddy".equals(chosenId) || "workbuddy-ai".equals(chosenId) || "zcode".equals(chosenId)) && keys!=null && keys.length()>0));
         if (!commercial && !accountPoolOwns && keys != null && keys.length() > 0) {
             selectedKey = keys.optString(nextAccountIndex(chosenId,keys.length()));
         }
@@ -17419,10 +17467,11 @@ public class GatewayServer extends NanoHTTPD {
         final JSONObject[] expected = new JSONObject[1];
         try { expected[0] = new JSONObject(account.toString()); }
         catch (Exception e) { throw new IOException("Codex account unavailable"); }
-        final long epoch = affinityEpoch;
+        final String identity = storedTokenIdentity(account);
+        final long incarnation = accountIncarnation("codex", identity);
         info.refreshCommit = (before, candidate) -> {
             synchronized (GatewayServer.this) {
-                if (backupRetired || affinityEpoch != epoch) throw new IOException("Codex configuration changed");
+                if (backupRetired || stopping || incarnation == 0 || accountIncarnation("codex", identity) != incarnation) throw new IOException("Codex configuration changed");
                 JSONObject current = findCodexAccount(configJson, expected[0]);
                 if (current == null) throw new IOException("Codex account unavailable");
                 if (!CodexAuth.matchesRefreshState(current, CodexAuth.snapshotRefreshState(expected[0]))) {
@@ -17439,7 +17488,7 @@ public class GatewayServer extends NanoHTTPD {
                 // Only credentials change: avoid post-write operations that can report a failed commit.
                 JSONObject nextExpected = new JSONObject(target.toString());
                 AtomicConfigFile.write(configFile, copy.toString(2));
-                configJson = copy;
+                publishConfig(copy);
                 expected[0] = nextExpected;
             }
         };
@@ -17470,10 +17519,11 @@ public class GatewayServer extends NanoHTTPD {
 
     private synchronized String addCodexAccount(CodexAuth.SignInInfo info, String accName) {
         try {
-            JSONArray providers = configJson.optJSONArray("providers");
+            JSONObject staged = new JSONObject(configJson.toString());
+            JSONArray providers = staged.optJSONArray("providers");
             if (providers == null) {
                 providers = new JSONArray();
-                configJson.put("providers", providers);
+                staged.put("providers", providers);
             }
 
             JSONObject cp = null;
@@ -17555,10 +17605,11 @@ public class GatewayServer extends NanoHTTPD {
             }
             if (!keyExists) keys.put(info.accessToken);
 
-            if (!saveConfig(configJson)) throw new IOException("Codex account save failed");
+            if (!saveConfig(staged)) throw new IOException("Codex account save failed");
             bindCodexPersistence(targetAcc, info);
             List<String> liveModels = CodexAuth.syncModels(info);
-            cp = getProviderById("codex");
+            staged = new JSONObject(configJson.toString());
+            cp = findProviderById(staged.optJSONArray("providers"), "codex");
             if (cp == null) throw new IOException("Codex provider unavailable");
             JSONArray modelsArr = cp.optJSONArray("models");
             if (modelsArr == null || modelsArr.length() == 0) {
@@ -17567,7 +17618,7 @@ public class GatewayServer extends NanoHTTPD {
                 cp.put("models", modelsArr);
             }
 
-            if (!saveConfig(configJson)) {
+            if (!saveConfig(staged)) {
                 try { android.util.Log.w("Magpie", "Codex 模型目录未落盘（账号凭据已保存）"); }
                 catch (Throwable ignored) { }
             }
@@ -17673,11 +17724,14 @@ public class GatewayServer extends NanoHTTPD {
             if (!usedBase.equals(AntigravityAuth.chatBase)) {
                 AntigravityAuth.switchChatBase(usedBase);
                 try {
-                    JSONObject ag = getProviderById("antigravity");
-                    if (ag != null) {
-                        ag.put("baseUrl", usedBase);
-                        ag.put("probeChatBase", usedBase);
-                        saveConfig(configJson);
+                    synchronized (this) {
+                        JSONObject staged = new JSONObject(configJson.toString());
+                        JSONObject ag = findProviderById(staged.optJSONArray("providers"), "antigravity");
+                        if (ag != null) {
+                            ag.put("baseUrl", usedBase);
+                            ag.put("probeChatBase", usedBase);
+                            saveConfig(staged);
+                        }
                     }
                 } catch (Throwable ignored) {
                 }

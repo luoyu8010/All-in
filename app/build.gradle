@@ -15,8 +15,8 @@ android {
         applicationId 'com.gaeul.allin'
         minSdk 24
         targetSdk 34
-        versionCode 47
-        versionName '1.2.41-test'
+        versionCode 50
+        versionName '1.2.44-test'
         testInstrumentationRunner 'com.gaeul.allin.RepairInstrumentation'
     }
 
@@ -77,6 +77,11 @@ dependencies {
 
 // 保留原有 9 个套件，并运行网关、Responses 和首次设置回归测试。
 def offlineTestMains = [
+        'com.gaeul.allin.AppUpdateCoreOfflineTest',
+        'com.gaeul.allin.ConfigConsistencyOfflineTest',
+        'com.gaeul.allin.AdvisoryBoundaryOfflineTest',
+        'com.gaeul.allin.BridgeTransportLifecycleOfflineTest',
+        'com.gaeul.allin.BridgeCompressionAsyncOfflineTest',
         'com.gaeul.allin.AccountTransferCodecOfflineTest',
         'com.gaeul.allin.AccountTransferMergeOfflineTest',
         'com.gaeul.allin.AccountTransferGatewayOfflineTest',
@@ -351,6 +356,7 @@ def offlineTestTasks = offlineTestMains.collect { name ->
         dependsOn 'compileOfflineTests'
         classpath = files({ [mainClassesDir.get(), testClassesDir.get(), configurations.offlineTest, tasks.named('compileReleaseJavaWithJavac', JavaCompile).get().options.bootstrapClasspath] })
         mainClass = name
+        if (simple in ['BridgeTransportLifecycleOfflineTest','BridgeCompressionAsyncOfflineTest']) jvmArgs '-Xmx64m'
         if (simple == 'ProviderStreamContractHttpTest') args rootProject.file('tests/fixtures/provider-stream-oracles-20261113.json').absolutePath
         if (simple == 'ProviderUpstreamParityOfflineTest') args rootProject.file('tests/fixtures/provider-upstream-20261113.json').absolutePath
         if (simple == 'ZCodePromptParityOfflineTest') args rootProject.file('tests/fixtures/zcode-prompt-3.17.2.json').absolutePath

@@ -48,6 +48,11 @@
                 android:value="User-enabled persistent local HTTP AI gateway serving requests from other apps and trusted local-network clients; keeps the listener available until the user turns the gateway off." />
         </service>
 
+        <service
+            android:name="com.gaeul.allin.AppUpdateJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
+
         <receiver
             android:name="com.gaeul.allin.BootReceiver"
             android:exported="false"

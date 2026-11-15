@@ -15,6 +15,14 @@ public final class ProviderEnabledOfflineTest {
     }
     static int post(GatewayServer s, String body) { return status(s,"127.0.0.1",PATH,"POST",body,null); }
     static String body(String id, boolean enabled) { return new JSONObject().put("providerId",id).put("enabled",enabled).toString(); }
+    static JSONObject live(GatewayServer server,String id) throws Exception {
+        JSONArray providers=ResponsesGatewayOfflineTest.config(server).getJSONArray("providers");
+        for(int i=0;i<providers.length();i++)if(id.equals(providers.getJSONObject(i).optString("id")))return providers.getJSONObject(i);
+        throw new AssertionError("missing fixture provider");
+    }
+    static void persist(GatewayServer server,JSONObject config)throws Exception {
+        java.lang.reflect.Method m=GatewayServer.class.getDeclaredMethod("persistConfigStrict",JSONObject.class);m.setAccessible(true);m.invoke(server,config);
+    }
     public static void main(String[] args) throws Exception {
         File dir = Files.createTempDirectory("provider-enabled").toFile();
         File disk = new File(dir,"config.json");
@@ -50,7 +58,7 @@ public final class ProviderEnabledOfflineTest {
         check(first.getStatus().getRequestStatus()==200,"conditional write");
         JSONObject firstBody = new JSONObject(new String(first.getData().readAllBytes(),StandardCharsets.UTF_8));
         check(!firstBody.getString("stateToken").equals(token),"write advances token");
-        check(post(s,conditional)==409 && a.getBoolean("enabled"),"stale request cannot write");
+        check(post(s,conditional)==409 && live(s,"alpha").getBoolean("enabled"),"stale request cannot write");
         JSONObject diskAfterConditional = new JSONObject(new String(Files.readAllBytes(disk.toPath()),StandardCharsets.UTF_8));
         check(!diskAfterConditional.has("providerStateTokens"),"tokens not persisted");
         NanoHTTPD.Response refreshed = s.serve(RoutingSetupOfflineTest.request("127.0.0.1","/api/config","GET","",null));
@@ -71,13 +79,18 @@ public final class ProviderEnabledOfflineTest {
         } finally { tokenExecutor.shutdownNow(); }
         check(post(s,body("alpha",true))==200,"return alpha to earlier value");
         check(post(s,new JSONObject(body("alpha",false)).put("expectedStateToken",alphaBefore).toString())==409
-                && a.getBoolean("enabled"),"old token rejected after provider returns to original value");
-        account.put("token","fixture-refreshed");
+                && live(s,"alpha").getBoolean("enabled"),"old token rejected after provider returns to original value");
+        synchronized(s) {
+            JSONObject updated=new JSONObject(ResponsesGatewayOfflineTest.config(s).toString());
+            updated.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0).put("token","fixture-refreshed");
+            persist(s,updated);
+        }
+        account=live(s,"alpha").getJSONArray("accounts").getJSONObject(0);
         NanoHTTPD.Response response = s.serve(RoutingSetupOfflineTest.request("127.0.0.1",PATH,"POST",body("alpha",false),null));
         check(response.getStatus().getRequestStatus()==200,"success");
         JSONObject result = new JSONObject(new String(response.getData().readAllBytes(),StandardCharsets.UTF_8));
         check(result.length()==4 && result.getBoolean("ok") && result.getString("providerId").equals("alpha") && !result.getBoolean("enabled"),"safe actual response");
-        check(a.getJSONArray("accounts").getJSONObject(0)==account && a.getJSONArray("keys").getJSONObject(0)==key,"nested identities retained");
+        check(live(s,"alpha").getJSONArray("accounts").getJSONObject(0).similar(account) && live(s,"alpha").getJSONArray("keys").getJSONObject(0).similar(key),"nested account/key contents retained without requiring mutable object aliases");
         JSONObject saved = new JSONObject(new String(Files.readAllBytes(disk.toPath()),StandardCharsets.UTF_8));
         check(saved.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0).getString("token").equals("fixture-refreshed"),"refreshed account preserved on disk");
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -94,14 +107,18 @@ public final class ProviderEnabledOfflineTest {
                 Future<Integer> off = executor.submit(() -> { same.await(); return post(s,body("alpha",false)); });
                 same.countDown(); check(on.get()==200 && off.get()==200,"concurrent same provider");
                 saved = new JSONObject(new String(Files.readAllBytes(disk.toPath()),StandardCharsets.UTF_8));
-                check(saved.getJSONArray("providers").getJSONObject(0).getBoolean("enabled")==a.getBoolean("enabled"),"same provider disk matches memory");
+                check(saved.getJSONArray("providers").getJSONObject(0).getBoolean("enabled")==live(s,"alpha").getBoolean("enabled"),"same provider disk matches memory");
             }
         } finally { executor.shutdownNow(); }
+        JSONObject failureBaseline=new JSONObject(ResponsesGatewayOfflineTest.config(s).toString());
+        failureBaseline.getJSONArray("providers").getJSONObject(0).put("enabled",true);persist(s,failureBaseline);
         RoutingAuditOfflineTest.file(s,new File(new File(dir,"missing"),"config.json"));
-        a.put("enabled",true);
-        check(post(s,body("alpha",false))==500 && a.getBoolean("enabled"),"failure rolls back value");
-        a.remove("enabled");
-        check(post(s,body("alpha",false))==500 && !a.has("enabled"),"failure restores absence");
+        check(post(s,body("alpha",false))==500 && live(s,"alpha").getBoolean("enabled"),"failure rolls back value");
+        RoutingAuditOfflineTest.file(s,disk);failureBaseline=new JSONObject(ResponsesGatewayOfflineTest.config(s).toString());
+        failureBaseline.getJSONArray("providers").getJSONObject(0).remove("enabled");persist(s,failureBaseline);
+        RoutingAuditOfflineTest.file(s,new File(new File(dir,"missing"),"config.json"));
+        check(post(s,body("alpha",false))==500 && !live(s,"alpha").has("enabled"),"failure restores absence");
+        cfg=ResponsesGatewayOfflineTest.config(s);providers=cfg.getJSONArray("providers");codex=live(s,"codex");copilot=live(s,"github-copilot");
         check(status(s,"127.0.0.1","/backend-api/codex/responses","POST","{}","fixture-auth")==403,"disabled codex blocked");
         check(status(s,"127.0.0.1","/responses","POST","{\"model\":\"github-copilot/test\"}","fixture-auth")==403,"disabled copilot blocked");
         check(status(s,"127.0.0.1","/legacy/responses","POST","{}","fixture-auth")==404,"legacy alias is not registered");

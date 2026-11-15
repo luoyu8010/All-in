@@ -98,11 +98,110 @@ public final class RepairInstrumentation extends Instrumentation {
             for(int i=0;i<4;i++){Object route=build.invoke(server,"workbuddy/android-model");java.lang.reflect.Field field=route.getClass().getDeclaredField("apiKey");field.setAccessible(true);selected.add((String)field.get(route));}
             check(selected.size()==2,"Actual Android selector rotates both stored accounts");
             String view=http(port,"GET","/api/config","",true,-1).body;check(!view.contains("ck_android_fixture_"),"Android configuration response masks tokens");
+            Reply third=http(port,"POST","/api/auth/workbuddy/add",new JSONObject().put("name","新增测试账号").put("token","ck_android_fixture_C").toString(),true,-1);
+            check(third.status==200,"Android adds an account after an older full-config snapshot");
+            Reply stale=http(port,"POST","/api/config",view,true,-1);check(stale.status==409,"Android stale full-config POST is rejected");
+            JSONObject current=new JSONObject(read(new File(dir,"config.json")));JSONObject wp=null;for(int i=0;i<current.getJSONArray("providers").length();i++){JSONObject p=current.getJSONArray("providers").getJSONObject(i);if("workbuddy".equals(p.optString("id")))wp=p;}
+            check(wp!=null&&wp.getJSONArray("accounts").length()==3,"Android stale save cannot erase the new account");
+            Reply removed=http(port,"POST","/api/auth/workbuddy/remove",new JSONObject().put("id",new JSONObject(third.body).getString("id")).toString(),true,-1);
+            check(removed.status==200,"Only the extra synthetic Android account is removed");
             server.stop();server=null;server=new GatewayServer(isolated,0);
             selected.clear();for(int i=0;i<2;i++){Object route=build.invoke(server,"workbuddy/android-model");java.lang.reflect.Field field=route.getClass().getDeclaredField("apiKey");field.setAccessible(true);selected.add((String)field.get(route));}
             check(selected.size()==2,"Restart reload preserves and rotates both accounts");
             check(IngressMemoryBudget.usedBytes()==0,"Android ingress allocations released");
         } finally {if(server!=null)server.stop();delete(dir);}
+    }
+    private void advisoryRuntime() throws Exception {
+        JSONObject account=new JSONObject().put("id","fixture-a").put("enabled",true).put("token","synthetic-android-old").put("refresh","synthetic-android-refresh");
+        JSONObject base=new JSONObject().put("providers",new JSONArray().put(new JSONObject().put("id","workbuddy").put("enabled",true).put("accounts",new JSONArray().put(account))));
+        AccountGenerations generations=new AccountGenerations();generations.observe(base);long first=generations.revision("workbuddy","id:fixture-a");
+        JSONObject copy=new JSONObject(base.toString()).put("privacy",new JSONObject().put("enabled",true));generations.observe(copy);
+        check(first>0 && first==generations.revision("workbuddy","id:fixture-a"),"Android configuration copy/settings preserve account generation");
+        copy.getJSONArray("providers").getJSONObject(0).put("accounts",new JSONArray());generations.observe(copy);
+        check(generations.revision("workbuddy","id:fixture-a")==0,"Android deleted account has no live generation");generations.observe(base);
+        check(generations.revision("workbuddy","id:fixture-a")!=first,"Android same-byte re-add is a new incarnation");
+        for(String provider:new String[]{"workbuddy","workbuddy-ai"}) {
+            JSONObject config=new JSONObject().put("providers",new JSONArray().put(new JSONObject().put("id",provider).put("accounts",new JSONArray()).put("keys",new JSONArray())));
+            JSONObject input=new JSONObject().put("providers",new JSONArray().put(new JSONObject().put("id",provider).put("keys",new JSONArray().put(new JSONObject().put("key","ck_android_import_fixture").put("enabled",true)))));
+            AccountTransferCodec.Document document=AccountTransferCodec.parse(input.toString().getBytes(StandardCharsets.UTF_8),provider);
+            JSONObject merged=AccountTransferPlan.merge(config,document,java.util.Collections.singleton(0),false,System.currentTimeMillis()).config;
+            JSONObject p=merged.getJSONArray("providers").getJSONObject(0);
+            check(AccountPoolPolicy.routingAccounts(p).size()==1,"Android imported object key becomes a usable route: "+provider);
+            p.getJSONArray("keys").getJSONObject(0).put("off",true);check(AccountPoolPolicy.routingAccounts(p).isEmpty(),"Android disabled object key stays excluded");
+        }
+        check("中文响应".equals(BoundedResponse.readUtf8(new ByteArrayInputStream("中文响应".getBytes(StandardCharsets.UTF_8)),128,1000)),"Android bounded response preserves UTF-8");
+        final java.util.concurrent.atomic.AtomicBoolean bodyClosed=new java.util.concurrent.atomic.AtomicBoolean();
+        InputStream tooLarge=new ByteArrayInputStream(new byte[128]){@Override public void close(){bodyClosed.set(true);}};
+        boolean refused=false;try{BoundedResponse.readUtf8(tooLarge,32,1000);}catch(IOException expected){refused=true;}
+        check(refused&&bodyClosed.get(),"Android oversized ordinary response is rejected and closed");
+        try(InputStream chunks=new LocalBridge.ChunkedIn(new ByteArrayInputStream("2;fixture=yes\r\n{}\r\n0\r\nX-Test: yes\r\n\r\n".getBytes(StandardCharsets.US_ASCII)))) {
+            ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4];int n;while((n=chunks.read(b))!=-1)out.write(b,0,n);
+            check("{}".equals(out.toString("UTF-8")),"Android strict chunk decoder accepts extensions and trailers");
+        }
+        for(String damaged:new String[]{"2\r\nx","2\r\n{}\r\n","0\r\nX-Test: incomplete\r\n"}) {
+            boolean rejected=false;try(InputStream in=new LocalBridge.ChunkedIn(new ByteArrayInputStream(damaged.getBytes(StandardCharsets.US_ASCII)))){while(in.read()!=-1){}}catch(IOException expected){rejected=true;}
+            check(rejected,"Android truncated chunk/trailer is not successful EOF");
+        }
+        for(String mode:new String[]{"manual","page","destroy"}) {
+            BridgeStreamOwner owner=new BridgeStreamOwner();BridgeStreamOwner.Ticket ticket=owner.begin("android-fixture",2000);
+            try(java.net.ServerSocket listener=new java.net.ServerSocket(0,1,java.net.InetAddress.getByName("127.0.0.1"));Socket client=new Socket()) {
+                ticket.call.attach(client);client.connect(new java.net.InetSocketAddress("127.0.0.1",listener.getLocalPort()),1000);
+                try(Socket peer=listener.accept()) {
+                    peer.setSoTimeout(1500);check(owner.begin("duplicate",2000)==null,"Android owner prevents second active stream");
+                    java.util.concurrent.CountDownLatch reading=new java.util.concurrent.CountDownLatch(1);java.util.concurrent.atomic.AtomicBoolean ended=new java.util.concurrent.atomic.AtomicBoolean();
+                    Thread reader=new Thread(()->{reading.countDown();try{client.getInputStream().read();}catch(IOException expected){}finally{ended.set(true);}},"repair-socket-reader");reader.start();
+                    if(!reading.await(1,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("reader not ready");
+                    if("manual".equals(mode))owner.cancel(ticket.id);else if("page".equals(mode))owner.cancelAll();else owner.close();
+                    check(peer.getInputStream().read()==-1,"Android "+mode+" cancellation closes the actual owned connection");reader.join(1500);
+                    check(!reader.isAlive()&&ended.get()&&!owner.accepts(ticket),"Android cancellation unblocks I/O and rejects late callbacks");
+                }
+            } finally {owner.close();}
+        }
+    }
+    private void gzipRuntime()throws Exception {
+        byte[] text="data: 中文\n\ndata: [DONE]\n\n".getBytes(StandardCharsets.UTF_8);
+        ByteArrayOutputStream compressed=new ByteArrayOutputStream();try(java.util.zip.GZIPOutputStream z=new java.util.zip.GZIPOutputStream(compressed)){z.write(text);}byte[] gzip=compressed.toByteArray();
+        Method decoder=LocalBridge.class.getDeclaredMethod("streamBody",InputStream.class,QoderAuth.Head.class,String.class);decoder.setAccessible(true);
+        for(String kind:new String[]{"fixed-valid","chunk-valid","fixed-short","chunk-missing","chunk-trailer"}) {
+            boolean fixed=kind.startsWith("fixed"),valid=kind.endsWith("valid");ByteArrayOutputStream wire=new ByteArrayOutputStream();
+            if(fixed)wire.write(gzip);else{wire.write((Integer.toHexString(gzip.length)+"\r\n").getBytes(StandardCharsets.US_ASCII));wire.write(gzip);wire.write("\r\n".getBytes(StandardCharsets.US_ASCII));if(kind.equals("chunk-valid"))wire.write("0\r\nX-Test: yes\r\n\r\n".getBytes(StandardCharsets.US_ASCII));if(kind.equals("chunk-trailer"))wire.write("0\r\nX: unfinished\r\n".getBytes(StandardCharsets.US_ASCII));}
+            QoderAuth.Head head=new QoderAuth.Head(200,fixed?gzip.length+(kind.equals("fixed-short")?10:0):-1,!fixed,"gzip");boolean rejected=false;
+            try(InputStream in=(InputStream)decoder.invoke(null,new ByteArrayInputStream(wire.toByteArray()),head,"POST")) {ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[64];int n;while((n=in.read(b))!=-1)out.write(b,0,n);if(valid)check(java.util.Arrays.equals(text,out.toByteArray()),"Android valid gzip payload exact: "+kind);}
+            catch(IOException expected){rejected=true;}catch(java.lang.reflect.InvocationTargetException expected){if(expected.getCause() instanceof IOException)rejected=true;else throw expected;}
+            check(valid?!rejected:rejected,"Android gzip enforces HTTP boundary: "+kind);
+        }
+    }
+    private void asyncRuntime()throws Exception {
+        final java.util.concurrent.atomic.AtomicReference<MainActivity> created=new java.util.concurrent.atomic.AtomicReference<>();runOnMainSync(()->created.set(new MainActivity()));MainActivity owner=created.get();java.lang.reflect.Field page=MainActivity.class.getDeclaredField("currentPageUrl");page.setAccessible(true);page.set(owner,"file:///android_asset/dashboard.html");
+        Class<?> bridgeClass=Class.forName("com.gaeul.allin.MainActivity$NativeBridge");java.lang.reflect.Constructor<?> ctor=bridgeClass.getDeclaredConstructor(MainActivity.class);ctor.setAccessible(true);Object bridge=ctor.newInstance(owner);
+        Method async=bridgeClass.getDeclaredMethod("requestAsync",String.class,String.class,String.class,String.class);async.setAccessible(true);Method cancel=MainActivity.class.getDeclaredMethod("cancelBridgeCalls");cancel.setAccessible(true);
+        java.util.concurrent.atomic.AtomicInteger sends=new java.util.concurrent.atomic.AtomicInteger();java.util.concurrent.atomic.AtomicReference<Throwable> failure=new java.util.concurrent.atomic.AtomicReference<>();
+        try(java.net.ServerSocket listener=new java.net.ServerSocket()) {
+            listener.setReuseAddress(true);listener.bind(new java.net.InetSocketAddress("127.0.0.1",3425));listener.setSoTimeout(650);
+            Thread peer=new Thread(()->{try(Socket socket=listener.accept()){sends.incrementAndGet();}catch(java.net.SocketTimeoutException expected){}catch(Throwable t){failure.set(t);}},"android-async-peer");peer.start();Thread worker=null;
+            synchronized(owner) {
+                async.invoke(bridge,"android-delayed-old-page","POST","/api/privacy","{}");long until=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(2);
+                while(worker==null&&System.nanoTime()<until){for(Thread t:Thread.getAllStackTraces().keySet())if(t.getName().equals("AllIn-BridgeRequest")&&t.getState()==Thread.State.BLOCKED){worker=t;break;}Thread.yield();}
+                check(worker!=null,"Actual Android requestAsync worker is paused before owning/sending");cancel.invoke(owner);
+            }
+            worker.join(1500);peer.join(1500);if(failure.get()!=null)throw new AssertionError(failure.get());
+            check(!worker.isAlive()&&!peer.isAlive()&&sends.get()==0,"Actual Android old-page asynchronous request sends zero packets");
+        }
+        java.util.concurrent.CountDownLatch received=new java.util.concurrent.CountDownLatch(1);
+        try(java.net.ServerSocket listener=new java.net.ServerSocket()) {
+            listener.setReuseAddress(true);listener.bind(new java.net.InetSocketAddress("127.0.0.1",3425));listener.setSoTimeout(2000);
+            Thread peer=new Thread(()->{try(Socket socket=listener.accept()){socket.setSoTimeout(2000);int a=-1,b=-1,c=-1,n;InputStream in=socket.getInputStream();while((n=in.read())!=-1){if(a==13&&b==10&&c==13&&n==10)break;a=b;b=c;c=n;}sends.incrementAndGet();socket.getOutputStream().write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".getBytes(StandardCharsets.US_ASCII));socket.getOutputStream().flush();received.countDown();}catch(Throwable t){failure.set(t);}},"android-fresh-peer");peer.start();async.invoke(bridge,"android-current-page","GET","/api/health","");
+            check(received.await(2,java.util.concurrent.TimeUnit.SECONDS),"New-page actual Android asynchronous request remains usable");peer.join(2000);if(failure.get()!=null)throw new AssertionError(failure.get());check(sends.get()==1&&!peer.isAlive(),"Only one fresh-page Android request was sent");
+        } finally {cancel.invoke(owner);}
+    }
+    private void updatesRuntime(Context target)throws Exception {
+        final JSONObject[] memory={new JSONObject()};final long[] time={1000000};final java.util.concurrent.atomic.AtomicInteger calls=new java.util.concurrent.atomic.AtomicInteger();
+        JSONObject release=new JSONObject().put("id",1).put("draft",false).put("prerelease",false).put("tag_name","v1.2.45-test").put("html_url","https://github.com/xunianooo/All-in/releases/tag/v1.2.45-test").put("body","测试更新说明").put("assets",new JSONArray());
+        AppUpdateCore core=new AppUpdateCore(new AppUpdateCore.Store(){public JSONObject read(){return memory[0];}public void write(JSONObject x){memory[0]=new JSONObject(x.toString());}},(url,limit)->{calls.incrementAndGet();return new AppUpdateCore.Reply(200,release.toString(),0);},()->time[0],50,"1.2.44-test");
+        JSONObject first=core.check(false);check(first.getBoolean("showPrompt"),"Android newer release prompts");core.dismiss(first.getString("releaseKey"));check(!core.snapshot(false).getBoolean("showPrompt"),"Android dismissal survives cached checks");check(core.snapshot(true).getBoolean("showPrompt"),"Android manual bypasses dismissal");time[0]+=AppUpdateCore.INTERVAL-1;core.check(false);check(calls.get()==1,"Android cache holds before exact 9-hour boundary");time[0]++;core.check(false);check(calls.get()==2,"Android exact nine hours rechecks");
+        android.app.job.JobScheduler jobs=(android.app.job.JobScheduler)target.getSystemService(Context.JOB_SCHEDULER_SERVICE);android.app.job.JobInfo previous=jobs.getPendingJob(AppUpdateManager.JOB_ID);
+        try{AppUpdateManager.schedule(target);android.app.job.JobInfo job=jobs.getPendingJob(AppUpdateManager.JOB_ID);check(job!=null&&!job.isPeriodic()&&job.getMinLatencyMillis()>=AppUpdateCore.INTERVAL-1000&&job.getMinLatencyMillis()<=AppUpdateCore.INTERVAL,"Actual Android JobScheduler has a 9-hour due-time job");check(job.isPersisted()&&job.getNetworkType()==android.app.job.JobInfo.NETWORK_TYPE_ANY,"Update job persists and requires network");AppUpdateManager.schedule(target);check(jobs.getAllPendingJobs().stream().filter(j->j.getId()==AppUpdateManager.JOB_ID).count()==1,"Scheduling does not duplicate update jobs");}finally{if(previous==null)jobs.cancel(AppUpdateManager.JOB_ID);}
+        final android.content.Intent[] opened={null};Context capture=new ContextWrapper(target){@Override public void startActivity(android.content.Intent i){opened[0]=i;}};check(AppUpdateManager.openBrowser(capture),"Production browser action dispatches");check(opened[0]!=null&&android.content.Intent.ACTION_VIEW.equals(opened[0].getAction())&&AppUpdateCore.DOWNLOAD.equals(opened[0].getDataString()),"Exact trusted GitHub latest download page used");
     }
     private void alarms(Context context) {
         SharedPreferences prefs=context.getSharedPreferences("magpie_prefs",Context.MODE_PRIVATE);
@@ -120,7 +219,7 @@ public final class RepairInstrumentation extends Instrumentation {
         try {
             Context target=getTargetContext();
             if(!target.getPackageName().endsWith(".repairtest"))throw new SecurityException("Runtime tests require the isolatedTestInstall package");
-            jsonRuntime();gateway(target);alarms(target);
+            jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);alarms(target);
             result.putString("stream","ANDROID_REPAIR_PASS checks="+checks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);
         } catch(Throwable failure) {
             StringWriter trace=new StringWriter();failure.printStackTrace(new PrintWriter(trace));result.putString("stream","ANDROID_REPAIR_FAIL checks="+checks+"\n"+trace);finish(Activity.RESULT_CANCELED,result);

@@ -34,6 +34,7 @@ public final class RoutingAuditOfflineTest {
         cfg.put("setup", new JSONObject("{\"done\":true}"));
         ExecutorService executor = Executors.newFixedThreadPool(2);
         for (int i=0; i<40; i++) {
+            cfg=ResponsesGatewayOfflineTest.config(s);
             cfg.getJSONObject("routing").put("groupsEnabled",false).put("bareModelFallback",false);
             CountDownLatch start = new CountDownLatch(1);
             Future<Integer> a=executor.submit(() -> { start.await(); return RoutingSetupOfflineTest.status(s,"127.0.0.1","/api/routing","POST","{\"enabled\":true}",null); });
@@ -45,8 +46,9 @@ public final class RoutingAuditOfflineTest {
         executor.shutdown();
         file(s, new File(new File(dir,"missing"),"config.json"));
         check(RoutingSetupOfflineTest.status(s,"127.0.0.1","/api/routing","POST","{\"enabled\":false}",null)==500,"routing failure returned");
-        check(cfg.getJSONObject("routing").optBoolean("groupsEnabled"),"routing rollback");
-        cfg.remove("setup");
+        check(ResponsesGatewayOfflineTest.config(s).getJSONObject("routing").optBoolean("groupsEnabled"),"routing rollback");
+        file(s,new File(dir,"config.json"));cfg=new JSONObject(ResponsesGatewayOfflineTest.config(s).toString());cfg.remove("setup");
+        ProviderEnabledOfflineTest.persist(s,cfg);file(s,new File(new File(dir,"missing"),"config.json"));
         check(RoutingSetupOfflineTest.status(s,"127.0.0.1","/api/setup/complete","POST","{\"authKey\":\"new-key\"}",null)==500,"setup failure returned");
         check(!cfg.has("setup") && cfg.getJSONObject("server").getString("authKey").equals("test-key"),"setup rollback");
         check(RoutingSetupOfflineTest.status(s,"192.0.2.1","/api/routing","GET","","new-key")==403,"failed setup stays locked");
