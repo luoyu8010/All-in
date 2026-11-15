@@ -6413,7 +6413,7 @@
       const refs = new Set();
       pingModelsOf(prov).forEach(m => {
         if (typeof m !== 'string' || !m.trim()) return;
-        const ref = m.startsWith(prov.id + '/') ? m : prov.id + '/' + m;
+        const ref = prov.id + '/' + m; // prov.models always contains raw upstream IDs.
         if (modelRefAllowed(ref, scope) && modelMatches(ref, prov, query || '')) refs.add(ref);
       });
       return Array.from(refs);

@@ -609,7 +609,7 @@ public final class QoderStream {
     }
 
     public static JSONObject aggregate(Stream stream) throws Exception {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
+        BufferedReader reader = new BoundedSseReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
         StringBuilder text = new StringBuilder(), reasoning = new StringBuilder();
         JSONArray calls = new JSONArray();
         TreeMap<Integer,Call> assembled=new TreeMap<>();

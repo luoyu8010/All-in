@@ -2,7 +2,7 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync('app/src/main/assets/dashboard.html','utf8');
 const elements={};let sent;
 function element(){return {children:[],style:{},appendChild(x){this.children.push(x)},innerText:'',innerHTML:''};}
-const ctx=vm.createContext({document:{createElement:element,getElementById:id=>elements[id]||(elements[id]=element())},zcodeGiftModels:[],executeModelPingTest:x=>sent=x,appConfig:{providers:[{id:'qoder_cn',accounts:[{token:'synthetic-local-fixture'}],modelMeta:{qmodel_38max:{display_name:'Qwen3.8-Max'}}}]},pingModelsOf:()=>['qoder_cn/qmodel_38max'],escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')});
+const ctx=vm.createContext({document:{createElement:element,getElementById:id=>elements[id]||(elements[id]=element())},zcodeGiftModels:[],executeModelPingTest:x=>sent=x,appConfig:{providers:[{id:'qoder_cn',accounts:[{token:'synthetic-local-fixture'}],modelMeta:{qmodel_38max:{display_name:'Qwen3.8-Max'}}}]},pingModelsOf:()=>['qmodel_38max'],escapeHtml:s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')});
 const slice=(a,b)=>html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
 vm.runInContext(slice('    function fmtMultiplier(v)','    /** 供应商是否'),ctx);
 const pairs={fast:'Fast',lmodel:'QoDuck',qmodel_38max:'Qwen3.8-Max',qfmodel:'Qwen3.8-Flash',dmodel:'DeepSeek-V4-Pro',dfmodel:'DeepSeek-Flash',gmodel:'GLM-5.3',gfmodel:'GLM-5.3-Flash',kmodel_latest:'Kimi-K3.1-Pro',kmodel:'Kimi-K2.8-Preview',jmodel:'Step-5-Preview',mmodel:'MiniMax-M3.1-Flash'};

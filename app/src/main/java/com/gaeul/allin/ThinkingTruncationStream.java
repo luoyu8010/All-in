@@ -10,7 +10,7 @@ final class ThinkingTruncationStream extends InputStream {
     private final BufferedReader in;
     private byte[] buffer=new byte[0]; private int offset;
     private boolean reasoning, content, tools;
-    ThinkingTruncationStream(InputStream source) { in=new BufferedReader(new InputStreamReader(source,StandardCharsets.UTF_8)); }
+    ThinkingTruncationStream(InputStream source) { in=new BoundedSseReader(new InputStreamReader(source,StandardCharsets.UTF_8)); }
     private boolean fill() throws IOException {
         while(offset>=buffer.length) {
             String line=in.readLine(); if(line==null)return false;

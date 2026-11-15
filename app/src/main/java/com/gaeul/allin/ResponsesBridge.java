@@ -505,8 +505,8 @@ final class ResponsesBridge {
     }
 
     static java.io.InputStream chatStreamToResponses(final java.io.InputStream source, final String model) {
-        return new java.io.InputStream() {
-            final java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(source, java.nio.charset.StandardCharsets.UTF_8));
+        class ConvertedStream extends java.io.InputStream implements fi.iki.elonen.AllInTrackedResponse.WriteCompletion {
+            final java.io.BufferedReader in = new BoundedSseReader(new java.io.InputStreamReader(source, java.nio.charset.StandardCharsets.UTF_8));
             final java.util.ArrayList<JSONObject> items = new java.util.ArrayList<JSONObject>();
             // Responses has no ID/name delta event. Keep Chat tools until finish
             // rather than publish a partial identity in output_item.added.
@@ -625,7 +625,12 @@ final class ResponsesBridge {
                         if(line==null) { complete(); ended=true; }
                         else {
                             String payload=dataPayload(line);
-                            if("[DONE]".equals(payload)) { complete(); ended=true; }
+                            if("[DONE]".equals(payload)) {
+                                // Semantic DONE is not HTTP delivery completion. Drain the bounded
+                                // source to its verified EOF before publishing the converted terminal.
+                                String tail;while((tail=in.readLine())!=null){String extra=dataPayload(tail);if(extra!=null&&!extra.trim().isEmpty())throw new java.io.IOException("upstream stream has data after DONE");}
+                                complete(); ended=true;
+                            }
                             else if(payload!=null && !payload.isEmpty()) chunk(new JSONObject(payload));
                         }
                     } catch(Exception e) {
@@ -637,8 +642,11 @@ final class ResponsesBridge {
             }
             public int read() throws java.io.IOException { if(!fill())return -1; return bytes[at++]&255; }
             public int read(byte[] b,int off,int len) throws java.io.IOException { if(len==0)return 0; if(!fill())return -1; int n=Math.min(len,bytes.length-at); System.arraycopy(bytes,at,b,off,n); at+=n; return n; }
+            public void onWriteStart(){if(source instanceof fi.iki.elonen.AllInTrackedResponse.WriteCompletion)((fi.iki.elonen.AllInTrackedResponse.WriteCompletion)source).onWriteStart();}
+            public void onWriteComplete(boolean success){if(source instanceof fi.iki.elonen.AllInTrackedResponse.WriteCompletion)((fi.iki.elonen.AllInTrackedResponse.WriteCompletion)source).onWriteComplete(success&&ended&&response!=null&&!"failed".equals(response.optString("status")));}
             public void close() throws java.io.IOException { in.close(); }
-        };
+        }
+        return new ConvertedStream();
     }
 
     static String incompleteFinish(JSONObject response) {
@@ -671,7 +679,7 @@ final class ResponsesBridge {
     static JSONObject chatUsage(JSONObject u) throws Exception { JSONObject out=new JSONObject().put("prompt_tokens",u.optInt("input_tokens",0)).put("completion_tokens",u.optInt("output_tokens",0)).put("total_tokens",u.optInt("total_tokens",u.optInt("input_tokens",0)+u.optInt("output_tokens",0))); if(u.has("input_tokens_details"))out.put("prompt_tokens_details",u.get("input_tokens_details")); if(u.has("output_tokens_details"))out.put("completion_tokens_details",u.get("output_tokens_details")); return out; }
     static java.io.InputStream responsesStreamToChat(final java.io.InputStream source, final String model) {
         return new java.io.InputStream() {
-            final java.io.BufferedReader in=new java.io.BufferedReader(new java.io.InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
+            final java.io.BufferedReader in=new BoundedSseReader(new java.io.InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
             final java.util.Map<Integer,Integer> calls=new java.util.HashMap<Integer,Integer>();
             final java.util.Map<Integer,String> callIds=new java.util.HashMap<Integer,String>();
             final java.util.Map<Integer,String> callNames=new java.util.HashMap<Integer,String>();

@@ -63,7 +63,7 @@ public final class GatewayStreamReadOfflineTest {
         check(source.reads==0,"invalid read consumed input");
         ByteArrayOutputStream out=new ByteArrayOutputStream(); int count, turn=0;
         while((count=in.read(buffer,2,1+(turn++%3)))!=-1) { check(count>0,"non-progress read"); out.write(buffer,2,count); }
-        check(Arrays.equals(data.getBytes(StandardCharsets.UTF_8),out.toByteArray()),"tiny reads changed or lost UTF-8 bytes");
+        check(Arrays.equals(data.getBytes(StandardCharsets.UTF_8),out.toByteArray()),"tiny reads changed or lost UTF-8 bytes; expected="+data+" actual="+out.toString("UTF-8"));
         check(in.read(buffer,0,0)==0 && in.read(buffer,0,1)==-1,"EOF read contract");
         in.close(); check(source.closes==1 && conn.disconnects==1,"normal close must release source and connection");
     }

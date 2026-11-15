@@ -10,6 +10,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.util.TreeMap;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.text.SimpleDateFormat;
@@ -44,7 +45,14 @@ public class UsageLedger {
     private static final String DIR = "usage";
     /** 内存里保留的天数（更早的只留在文件里） */
     private static final int MEMORY_DAYS = 90;
-    /** 单个账本文件超过这个大小就不再往里写，开新月份文件兜底 */
+    static final int MAX_RETAINED_ROWS=2048, MAX_PENDING_ROWS=512;
+    static final long MAX_RETAINED_BYTES=4L*1024*1024, MAX_PENDING_BYTES=1024L*1024;
+    static long retainedBytes,pendingBytes,droppedPendingRows,cacheEvictions;
+    static long maxFileBytes=32L*1024*1024; // Test threshold; production uses 32 MiB.
+    private static final Map<Long, LostBucket> lostHours=new LinkedHashMap<>();
+    private static long aggregateOverflowRows;
+    private static boolean gapsDirty,gapStateUncertain;
+    /** Monthly sequence shards; at most one row can take a shard past this threshold. */
     private static final long MAX_FILE_BYTES = 32L * 1024 * 1024;
 
     private static File baseDir;
@@ -101,6 +109,7 @@ public class UsageLedger {
     // ---------------------------------------------------------------- 一行
 
     public static class Row {
+        transient long ledgerEstimate;
         public long t;              // 毫秒时间戳
         public String prov = "";    // 供应商 id
         public String model = "";   // 实际应答的模型
@@ -201,6 +210,40 @@ public class UsageLedger {
         public long attempts, attemptFailed, usageKnown, usageUnknown, usageEstimated, usagePartial, usageLegacy, inputKnownCount, outputKnownCount;
         public long cacheKnown, cacheEstimated, reasoningKnown, reasoningUnknown, reasoningEstimated, cacheKnownRead;
 
+        void merge(Totals other) {
+            input+=other.input;
+            output+=other.output;
+            cacheRead+=other.cacheRead;
+            cacheWrite+=other.cacheWrite;
+            reasoning+=other.reasoning;
+            requests+=other.requests;
+            failed+=other.failed;
+            retried+=other.retried;
+            timed+=other.timed;
+            ttftSum+=other.ttftSum;
+            msSum+=other.msSum;
+            decodeMs+=other.decodeMs;
+            decodeOut+=other.decodeOut;
+            cacheUnknown+=other.cacheUnknown;
+            cacheKnownInput+=other.cacheKnownInput;
+            cacheUnknownInput+=other.cacheUnknownInput;
+            attempts+=other.attempts;
+            attemptFailed+=other.attemptFailed;
+            usageKnown+=other.usageKnown;
+            usageUnknown+=other.usageUnknown;
+            usageEstimated+=other.usageEstimated;
+            usagePartial+=other.usagePartial;
+            usageLegacy+=other.usageLegacy;
+            inputKnownCount+=other.inputKnownCount;
+            outputKnownCount+=other.outputKnownCount;
+            cacheKnown+=other.cacheKnown;
+            cacheEstimated+=other.cacheEstimated;
+            reasoningKnown+=other.reasoningKnown;
+            reasoningUnknown+=other.reasoningUnknown;
+            reasoningEstimated+=other.reasoningEstimated;
+            cacheKnownRead+=other.cacheKnownRead;
+        }
+
         void add(Row r) {
             if (r.isTerminal()) {
                 requests++; msSum += r.ms;
@@ -298,18 +341,18 @@ public class UsageLedger {
     // ---------------------------------------------------------------- 生命周期
 
     public static void init(File filesDir) {
-        synchronized (REBUILD_LOCK) {
-            synchronized (LOCK) {
-                closeWriter();
-                baseDir = new File(filesDir, DIR);
-                DAYS.clear(); heatDays.clear(); future.clear(); unpersisted.clear(); firstTimestamp = Long.MAX_VALUE;
-                invalidLines = 0; readErrors = 0; persistenceErrors = 0; uncertainWrites = 0;
-                initializing = true;
-                if (!baseDir.exists() && !baseDir.mkdirs()) persistenceErrors++;
-                heatZone = null; generation++;
+        synchronized(REBUILD_LOCK) {
+            synchronized(LOCK) {
+                closeWriter();baseDir=new File(filesDir,DIR);DAYS.clear();unpersisted.clear();
+                heatDays.clear();future.clear();lostHours.clear();retainedBytes=pendingBytes=0;
+                droppedPendingRows=cacheEvictions=aggregateOverflowRows=0;gapsDirty=gapStateUncertain=false;
+                firstTimestamp=Long.MAX_VALUE;invalidLines=readErrors=persistenceErrors=uncertainWrites=0;
+                if(!baseDir.exists()&&!baseDir.mkdirs())persistenceErrors++;
+                loadGaps();generation++;initializing=false;LOCK.notifyAll();
             }
-            rebuild(TimeZone.getDefault(), true, System.currentTimeMillis());
-            synchronized (LOCK) { openWriter(); }
+            // Deterministic init concurrency seam: records may arrive here, never counted twice.
+            Runnable hook=rebuildSnapshotHook;if(hook!=null)hook.run();
+            synchronized(LOCK){openWriter();}
         }
     }
 
@@ -340,83 +383,80 @@ public class UsageLedger {
 
     private static void openWriter() {
         try {
-            closeWriter();
-            String m = monthKey(System.currentTimeMillis());
-            currentMonth = m;
-            currentFile = new File(baseDir, "ledger-" + m + ".jsonl");
-            // A previous failed append may have left a partial JSON line. Preserve
-            // it for the scanner to report, but never join a new row to it.
-            if (currentFile.exists() && currentFile.length() > 0) {
-                try (RandomAccessFile file = new RandomAccessFile(currentFile, "rw")) {
-                    file.seek(file.length() - 1);
-                    if (file.read() != '\n') { file.seek(file.length()); file.write('\n'); }
-                }
+            closeWriter();String m=monthKey(System.currentTimeMillis());currentMonth=m;
+            int sequence=0;File chosen=new File(baseDir,"ledger-"+m+".jsonl");
+            File[] files=baseDir.listFiles();
+            if(files!=null)for(File f:files){String name=f.getName(),prefix="ledger-"+m+"-";
+                if(name.startsWith(prefix)&&name.endsWith(".jsonl"))try{int n=Integer.parseInt(name.substring(prefix.length(),name.length()-6));if(n>sequence){sequence=n;chosen=f;}}catch(NumberFormatException ignored){}
             }
-            writer = new OutputStreamWriter(new FileOutputStream(currentFile, true), "UTF-8");
-        } catch (Throwable e) {
-            writer = null;
-            persistenceErrors++;
-        }
+            if(chosen.exists()&&chosen.length()>=maxFileBytes)chosen=new File(baseDir,String.format(Locale.US,"ledger-%s-%04d.jsonl",m,++sequence));
+            currentFile=chosen;
+            if(currentFile.exists()&&currentFile.length()>0)try(RandomAccessFile f=new RandomAccessFile(currentFile,"rw")){
+                f.seek(f.length()-1);if(f.read()!='\n'){f.seek(f.length());f.write('\n');}
+            }
+            writer=new OutputStreamWriter(new FileOutputStream(currentFile,true),"UTF-8");
+        }catch(Exception e){writer=null;persistenceErrors++;}
     }
 
-    // Snapshot file lengths under LOCK, then read only that prefix without holding LOCK.
-    // Records written concurrently are replayed exactly once from rebuildDelta.
-    private static void rebuild(TimeZone zone, boolean loadRows, long now) {
-        Map<String, HeatCounts> next = new LinkedHashMap<String, HeatCounts>();
-        TreeMap<Long, HeatCounts> nextFuture = new TreeMap<Long, HeatCounts>();
-        List<Row> loaded = new ArrayList<Row>();
-        File[] files; long[] lengths; List<Row> pending; long gen; long bad = 0, errors = 0, first = Long.MAX_VALUE;
-        long cutoffPrecision = midnight(now, zone);
-        synchronized (LOCK) {
-            gen = generation;
-            files = baseDir == null ? null : baseDir.listFiles();
-            if (files == null) { files = new File[0]; errors++; }
-            lengths = new long[files.length];
-            for (int i = 0; i < files.length; i++) lengths[i] = files[i].length();
-            pending = new ArrayList<Row>(unpersisted);
-            rebuildDelta = new ArrayList<Row>();
-            if (loadRows) { initializing = false; LOCK.notifyAll(); }
+    private interface RowVisitor { void accept(Row r); }
+    private static void visitRows(long from,long through,RowVisitor visitor) {
+        final File[] files;final long[] lengths;final List<Row> pending;
+        synchronized(LOCK){File[] found=baseDir==null?null:baseDir.listFiles();files=found==null?new File[0]:found;
+            lengths=new long[files.length];for(int i=0;i<files.length;i++)lengths[i]=files[i].length();pending=new ArrayList<>(unpersisted);}
+        long bad=0,errors=0,first=Long.MAX_VALUE;
+        for(int i=0;i<files.length;i++){
+            File f=files[i];if(!f.getName().startsWith("ledger-")||!f.getName().endsWith(".jsonl"))continue;
+            final long prefix=lengths[i];
+            try(InputStream raw=new FileInputStream(f);InputStream bounded=new java.io.FilterInputStream(raw){long left=prefix;
+                public int read()throws java.io.IOException{if(left<=0)return -1;int n=in.read();if(n>=0)left--;return n;}
+                public int read(byte[] b,int off,int len)throws java.io.IOException{if(left<=0)return -1;int n=in.read(b,off,(int)Math.min(left,len));if(n>0)left-=n;return n;}};
+                BoundedSseReader reader=new BoundedSseReader(new InputStreamReader(bounded,"UTF-8"),512*1024)){
+                String line;while((line=reader.readLine())!=null){Row r=parse(line.trim());if(r==null||r.t<=0){bad++;continue;}first=Math.min(first,r.t);if(r.t>=from&&r.t<=through)visitor.accept(r);}
+            }catch(Exception e){errors++;}
         }
-        Runnable snapshotHook = rebuildSnapshotHook;
-        if (snapshotHook != null) snapshotHook.run();
-        for (int i = 0; i < files.length; i++) {
-            File f = files[i];
-            if (!f.getName().startsWith("ledger-") || !f.getName().endsWith(".jsonl")) continue;
-            final long limit = lengths[i];
-            try (InputStream raw = new FileInputStream(f);
-                 InputStream bounded = new java.io.FilterInputStream(raw) {
-                     long left = limit;
-                     public int read() throws java.io.IOException { if (left <= 0) return -1; int x = super.read(); if (x >= 0) left--; return x; }
-                     public int read(byte[] b, int off, int len) throws java.io.IOException { if (left <= 0) return -1; int n = super.read(b, off, (int)Math.min(left, len)); if (n > 0) left -= n; return n; }
-                 };
-                 BufferedReader br = new BufferedReader(new InputStreamReader(bounded, "UTF-8"))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    Row r = parse(line.trim());
-                    if (r == null || r.t <= 0) { bad++; continue; }
-                    first = Math.min(first, r.t); addHeat(next, r, zone);
-                    if (r.t >= cutoffPrecision) addFuture(nextFuture, r);
-                    if (loadRows && r.t >= now - MEMORY_DAYS * 86400000L) loaded.add(r);
-                }
-            } catch (Exception e) { errors++; }
-        }
-        synchronized (LOCK) {
-            if (gen != generation) return;
-            for (Row r : pending) { addHeat(next, r, zone); first = Math.min(first, r.t); if (r.t >= cutoffPrecision) addFuture(nextFuture, r); }
-            for (Row r : rebuildDelta) {
-                addHeat(next, r, zone); first = Math.min(first, r.t);
-                if (r.t >= cutoffPrecision) addFuture(nextFuture, r);
-            }
-            heatDays = next; future.clear(); future.putAll(nextFuture); heatZone = (TimeZone)zone.clone(); precisionStart = cutoffPrecision;
-            firstTimestamp = first; invalidLines = bad; readErrors = errors; rebuildDelta = null;
-            if (loadRows) for (Row r : loaded) bucket(r.t).add(r);
-        }
+        for(Row r:pending){first=Math.min(first,r.t);if(r.t>=from&&r.t<=through)visitor.accept(r);}
+        synchronized(LOCK){invalidLines=bad;readErrors=errors;firstTimestamp=Math.min(firstTimestamp,first);}
     }
-
-    private static void ensureZone(TimeZone zone, long now) {
-        synchronized (LOCK) { if (heatZone != null && heatZone.equals(zone) && now >= precisionStart) return; }
-        rebuild(zone, false, now);
+    private static long estimate(Row r){if(r.ledgerEstimate>0)return r.ledgerEstimate;long n=768;for(String v:new String[]{r.prov,r.model,r.req,r.err,r.ep,r.session,r.requestId,r.credentialId,r.accountId,r.failureKind,r.upstreamErrorCode,r.upstreamRetryAfter})if(v!=null)n+=2L*v.length();if(r.diagnostics!=null)n+=2L*r.diagnostics.json().toString().length();r.ledgerEstimate=n;return n;}
+    private static void retain(Row r){
+        long cutoff=System.currentTimeMillis()-MEMORY_DAYS*86400000L;
+        for(java.util.Iterator<Map.Entry<String,List<Row>>> it=DAYS.entrySet().iterator();it.hasNext();){List<Row> rows=it.next().getValue();for(java.util.Iterator<Row> q=rows.iterator();q.hasNext();){Row old=q.next();if(old.t<cutoff){retainedBytes-=estimate(old);q.remove();cacheEvictions++;}}if(rows.isEmpty())it.remove();}
+        if(r.t<cutoff)return;bucket(r.t).add(r);retainedBytes+=estimate(r);
+        for(;;){int count=0;Row oldest=null;List<Row> source=null;for(List<Row> rows:DAYS.values()){count+=rows.size();for(Row old:rows)if(oldest==null||old.t<oldest.t){oldest=old;source=rows;}}
+            if(count<=MAX_RETAINED_ROWS&&retainedBytes<=MAX_RETAINED_BYTES)break;source.remove(oldest);retainedBytes-=estimate(oldest);cacheEvictions++;}
+        DAYS.values().removeIf(List::isEmpty);
     }
+    private static final class LostBucket { final Totals totals=new Totals();final HeatCounts heat=new HeatCounts();long rows,min=Long.MAX_VALUE,max;void add(Row r){totals.add(r);heat.add(r);rows++;min=Math.min(min,r.t);max=Math.max(max,r.t);} }
+    private static void queue(Row r){unpersisted.add(r);pendingBytes+=estimate(r);
+        while(unpersisted.size()>MAX_PENDING_ROWS||pendingBytes>MAX_PENDING_BYTES){Row lost=unpersisted.remove(0);pendingBytes-=estimate(lost);droppedPendingRows++;gapsDirty=true;long hour=lost.t/3600000L;
+            LostBucket bucket=lostHours.get(hour);if(bucket==null){if(lostHours.size()>=2048){Long first=lostHours.keySet().iterator().next();aggregateOverflowRows+=lostHours.remove(first).rows;}bucket=new LostBucket();lostHours.put(hour,bucket);}bucket.add(lost);}
+    }
+    private static JSONObject rawTotals(Totals t)throws Exception {JSONObject out=new JSONObject();for(java.lang.reflect.Field f:Totals.class.getFields())if(f.getType()==long.class)out.put(f.getName(),f.getLong(t));return out;}
+    private static Totals restoreTotals(JSONObject raw)throws Exception {Totals t=new Totals();for(java.lang.reflect.Field f:Totals.class.getFields())if(f.getType()==long.class){Object n=raw.opt(f.getName());if(!(n instanceof Number))throw new IOException("Invalid aggregate");f.setLong(t,((Number)n).longValue());}return t;}
+    private static void saveGaps(){
+        try {JSONArray hours=new JSONArray();for(Map.Entry<Long,LostBucket> e:lostHours.entrySet()){LostBucket b=e.getValue();hours.put(new JSONObject().put("hour",e.getKey()).put("min",b.min).put("max",b.max).put("rows",b.rows).put("totals",rawTotals(b.totals)));}
+            JSONObject state=new JSONObject().put("schema",1).put("dropped",droppedPendingRows).put("overflow",aggregateOverflowRows).put("uncertain",gapStateUncertain).put("hours",hours);
+            AtomicConfigFile.write(new File(baseDir,"ledger-gaps.json"),state.toString());gapsDirty=false;
+        }catch(Exception e){persistenceErrors++;}
+    }
+    private static void loadGaps(){
+        File saved=new File(baseDir,"ledger-gaps.json");if(!saved.exists())return;
+        try {JSONObject state=new JSONObject(BoundedResponse.readUtf8(new FileInputStream(saved),2*1024*1024,3000));if(state.optInt("schema")!=1)throw new IOException("Unknown aggregate schema");JSONArray hours=state.getJSONArray("hours");if(hours.length()>2048)throw new IOException("Aggregate capacity exceeded");
+            Map<Long,LostBucket> loaded=new LinkedHashMap<>();for(int i=0;i<hours.length();i++){JSONObject item=hours.getJSONObject(i);LostBucket b=new LostBucket();b.min=item.getLong("min");b.max=item.getLong("max");b.rows=item.getLong("rows");b.totals.merge(restoreTotals(item.getJSONObject("totals")));b.heat.input=b.totals.input;b.heat.output=b.totals.output;b.heat.requests=b.totals.requests;b.heat.failed=b.totals.failed;b.heat.attempts=b.totals.attempts;b.heat.attemptFailed=b.totals.attemptFailed;loaded.put(item.getLong("hour"),b);}
+            lostHours.putAll(loaded);droppedPendingRows=state.getLong("dropped");aggregateOverflowRows=state.getLong("overflow");gapStateUncertain=state.optBoolean("uncertain");
+        }catch(Exception bad){persistenceErrors++;gapStateUncertain=true;}
+    }
+    private static boolean append(Row r){
+        long before=-1;try{if(writer==null||!monthKey(System.currentTimeMillis()).equals(currentMonth)||currentFile.length()>=maxFileBytes)openWriter();if(writer==null)throw new IOException("Ledger writer unavailable");
+            if(gapsDirty)saveGaps();before=currentFile.length();String line=toJsonLine(r);if(line.length()>512*1024)throw new IOException("Ledger row size limit");writer.write(line);writer.write("\n");writer.flush();return true;
+        }catch(Exception failure){persistenceErrors++;closeWriter();boolean rolledBack=false;
+            if(before>=0&&currentFile!=null)try{if(rollbackHook!=null)rolledBack=rollbackHook.rollback(currentFile,before);else try(RandomAccessFile file=new RandomAccessFile(currentFile,"rw")){file.setLength(before);rolledBack=file.length()==before;}}catch(Exception ignored){}
+            if(before>=0&&!rolledBack){uncertainWrites++;return true;}return false;}
+    }
+    private static String limitedKey(Map<?,?> map,String key){return map.containsKey(key)||map.size()<1024?key:"（其它：分组容量限制）";}
+    private static List<Row> newest(long from,long through,int limit){final java.util.PriorityQueue<Row> heap=new java.util.PriorityQueue<>(Math.max(1,limit),Comparator.comparingLong(r->r.t));
+        visitRows(from,through,r->{if(heap.size()<limit)heap.add(r);else if(r.t>heap.peek().t){heap.poll();heap.add(r);}});List<Row> out=new ArrayList<>(heap);out.sort((a,b)->Long.compare(b.t,a.t));return out;}
+    private static JSONObject storageState(){synchronized(LOCK){return new JSONObject().put("retainedRows",DAYS.values().stream().mapToInt(List::size).sum()).put("retainedBytes",retainedBytes).put("pendingRows",unpersisted.size()).put("pendingBytes",pendingBytes).put("droppedPendingRows",droppedPendingRows).put("aggregateOverflowRows",aggregateOverflowRows).put("cacheEvictions",cacheEvictions).put("complete",!gapStateUncertain&&droppedPendingRows==0&&uncertainWrites==0&&readErrors==0&&invalidLines==0);}}
 
     private static List<Row> bucket(long t) {
         String k = dayKey(t);
@@ -444,39 +484,12 @@ public class UsageLedger {
             while (initializing) {
                 try { LOCK.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
             }
-            boolean known = true;
-            long before = -1;
-            try {
-                String m = monthKey(r.t);
-                if (writer == null || !m.equals(currentMonth)
-                        || (currentFile != null && currentFile.length() > MAX_FILE_BYTES)) openWriter();
-                if (writer == null) { persistenceErrors++; unpersisted.add(r); }
-                else {
-                    before = currentFile.length();
-                    writer.write(toJsonLine(r)); writer.write("\n"); writer.flush();
-                }
-            } catch (Throwable e) {
-                persistenceErrors++;
-                closeWriter();
-                boolean rolledBack = false;
-                if (before >= 0 && currentFile != null) {
-                    try {
-                        if (rollbackHook != null) rolledBack = rollbackHook.rollback(currentFile, before);
-                        else try (RandomAccessFile file = new RandomAccessFile(currentFile, "rw")) {
-                            file.setLength(before); rolledBack = file.length() == before;
-                        }
-                    } catch (Exception ignored) { }
-                }
-                if (rolledBack || before < 0) unpersisted.add(r);
-                else { uncertainWrites++; known = false; }
+            // Retry only records proven absent after rollback. Confirmed writes leave the queue.
+            while(!unpersisted.isEmpty()){
+                Row pending=unpersisted.get(0);if(!append(pending))break;
+                unpersisted.remove(0);pendingBytes-=estimate(pending);
             }
-            if (known) {
-                bucket(r.t).add(r);
-                if (heatZone != null) addHeat(heatDays, r, heatZone);
-                firstTimestamp = Math.min(firstTimestamp, r.t);
-                if (r.t >= precisionStart) addFuture(future, r);
-                if (rebuildDelta != null) rebuildDelta.add(r);
-            }
+            if(!append(r))queue(r);retain(r);
         }
         // 顺带把老的实时计数器续上，老的 /api/quota 不至于变空
         try {
@@ -617,18 +630,15 @@ public class UsageLedger {
         final long[] hourTokens = new long[24];
         final int[] hourReq = new int[24];
         Map<String, Integer> errCount = new LinkedHashMap<String, Integer>();
-        int rows = 0;
+        final int[] rows = {0};
 
-        synchronized (LOCK) {
-            for (Map.Entry<String, List<Row>> e : DAYS.entrySet()) {
-                for (Row r : e.getValue()) {
-                    if (r.t < from || r.t > now) continue;
-                    rows++;
+        visitRows(from,now,r -> {
+                    rows[0]++;
                     total.add(r);
                     String key = "model".equals(group)
                             ? (r.model == null || r.model.isEmpty() ? "未知" : r.model)
                             : (r.prov == null || r.prov.isEmpty() ? "未知" : r.prov);
-                    Totals t = by.get(key);
+                    key=limitedKey(by,key);Totals t = by.get(key);
                     if (t == null) {
                         t = new Totals();
                         by.put(key, t);
@@ -649,7 +659,7 @@ public class UsageLedger {
                     }
                     pt.add(r);
 
-                    String sk = r.session == null || r.session.isEmpty() ? "（未标记会话）" : r.session;
+                    String sk = r.session == null || r.session.isEmpty() ? "（未标记会话）" : r.session;sk=limitedKey(bySession,sk);
                     Totals st = bySession.get(sk);
                     if (st == null) {
                         st = new Totals();
@@ -668,19 +678,26 @@ public class UsageLedger {
                             if (et.length() > 60) et = et.substring(0, 60) + "…";
                             why = why + " · " + et;
                         }
-                        Integer c = errCount.get(why);
+                        why=limitedKey(errCount,why);Integer c = errCount.get(why);
                         errCount.put(why, c == null ? 1 : c + 1);
                     }
-                }
-            }
-        }
+        });
+
+        synchronized(LOCK){for(LostBucket lost:lostHours.values())if(lost.min>=from&&lost.max<=now){
+            rows[0]+=lost.rows;total.merge(lost.totals);
+            String day=dayKey(lost.min,zone);Totals d=byDay.get(day);if(d==null){d=new Totals();byDay.put(day,d);}d.merge(lost.totals);
+            String key="（落盘失败：明细已丢弃，汇总保留）";Totals g=by.get(key);if(g==null){g=new Totals();by.put(key,g);}g.merge(lost.totals);Totals pg=byProv.get(key);if(pg==null){pg=new Totals();byProv.put(key,pg);}pg.merge(lost.totals);Totals sg=bySession.get(key);if(sg==null){sg=new Totals();bySession.put(key,sg);}sg.merge(lost.totals);
+            Calendar h=Calendar.getInstance(zone);h.setTimeInMillis(lost.min);int hour=h.get(Calendar.HOUR_OF_DAY);hourTokens[hour]+=lost.totals.tokens();hourReq[hour]+=lost.totals.requests;
+        }}
 
         JSONObject out = new JSONObject();
         try {
             out.put("ok", true);
             out.put("days", days);
             out.put("group", group);
-            out.put("rows", rows);
+            out.put("rows", rows[0]);
+            out.put("storage",storageState());
+            if(droppedPendingRows>0)out.put("warning","存储故障导致部分明细丢弃；仅保留有界时段汇总，完整性请查看 storage 诊断。");
             out.put("totals", total.toJson());
 
             JSONArray groups = new JSONArray();
@@ -733,18 +750,7 @@ public class UsageLedger {
             out.put("daily", daily);
 
             JSONArray recent = new JSONArray();
-            List<Row> all = new ArrayList<Row>();
-            synchronized (LOCK) {
-                for (List<Row> l : DAYS.values()) {
-                    for (Row r : l) if (r.t >= from && r.t <= now) all.add(r);
-                }
-            }
-            Collections.sort(all, new Comparator<Row>() {
-                @Override
-                public int compare(Row a, Row b) {
-                    return Long.compare(b.t, a.t);
-                }
-            });
+            List<Row> all = newest(from,now,50);
             for (int i = 0; i < all.size() && i < 50; i++) {
                 Row r = all.get(i);
                 JSONObject o = new JSONObject();
@@ -824,78 +830,32 @@ public class UsageLedger {
 
     static JSONObject heatmap(long now, TimeZone zone) { return heatmapInternal(now, zone); }
 
-    private static JSONObject heatmapInternal(Long fixedNow, TimeZone zone) {
-        synchronized (REBUILD_LOCK) {
-            for (;;) {
-                long observed;
-                synchronized (LOCK) { observed = fixedNow == null ? System.currentTimeMillis() : fixedNow; }
-                ensureZone(zone, observed);
-                synchronized (LOCK) {
-                    long now = fixedNow == null ? System.currentTimeMillis() : fixedNow;
-                    if (now < precisionStart) continue;
-                    long today = midnight(now, zone);
-                    if (today > precisionStart) { future.headMap(today, false).clear(); precisionStart = today; }
-                    return heatmapLocked(now, zone);
-                }
-            }
-        }
-    }
-
-    // Caller holds LOCK, so the clock snapshot and included records are consistent.
-    private static JSONObject heatmapLocked(long now, TimeZone zone) {
-        Calendar start = Calendar.getInstance(zone, Locale.US);
-        start.setTimeInMillis(now);
-        start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0); start.set(Calendar.SECOND, 0); start.set(Calendar.MILLISECOND, 0);
-        start.add(Calendar.DAY_OF_MONTH, -((start.get(Calendar.DAY_OF_WEEK) + 5) % 7) - 52 * 7);
-        String end = dayKey(now, zone);
-        JSONArray days = new JSONArray(); HeatCounts totals = new HeatCounts();
-        Map<String, HeatCounts> exclusions = new LinkedHashMap<String, HeatCounts>();
-        for (Map.Entry<Long, HeatCounts> e : future.tailMap(now, false).entrySet()) {
-            String date = dayKey(e.getKey(), zone); HeatCounts count = exclusions.get(date);
-            if (count == null) { count = new HeatCounts(); exclusions.put(date, count); }
-            count.add(e.getValue());
-        }
-        for (Calendar c = (Calendar)start.clone(); ; c.add(Calendar.DAY_OF_MONTH, 1)) {
-            String date = dayKey(c.getTimeInMillis(), zone);
-            if (date.compareTo(end) > 0) break;
-            HeatCounts count = new HeatCounts(); HeatCounts original = heatDays.get(date);
-            if (original != null) count.add(original);
-            HeatCounts excluded = exclusions.get(date); if (excluded != null) count.subtract(excluded);
-            totals.add(count); JSONObject day = count.json(); day.put("date", date); days.put(day);
-        }
-        JSONObject out = new JSONObject(); out.put("ok", true); out.put("timezone", zone.getID());
-        out.put("start", dayKey(start.getTimeInMillis(), zone)); out.put("end", end); out.put("weeks", 53);
-        out.put("days", days); out.put("totals", totals.json());
-        out.put("firstRecordedDate", firstTimestamp > now ? JSONObject.NULL : dayKey(firstTimestamp, zone));
-        out.put("invalidLines", invalidLines); out.put("readErrors", readErrors); out.put("persistenceErrors", persistenceErrors);
-        out.put("uncertainWrites", uncertainWrites); out.put("generatedAt", now); return out;
+    private static JSONObject heatmapInternal(Long fixedNow,TimeZone zone) {
+        long now=fixedNow==null?System.currentTimeMillis():fixedNow;
+        Calendar start=Calendar.getInstance(zone,Locale.US);start.setTimeInMillis(now);start.set(Calendar.HOUR_OF_DAY,0);start.set(Calendar.MINUTE,0);start.set(Calendar.SECOND,0);start.set(Calendar.MILLISECOND,0);
+        start.add(Calendar.DAY_OF_MONTH,-((start.get(Calendar.DAY_OF_WEEK)+5)%7)-52*7);
+        final Map<String,HeatCounts> counts=new LinkedHashMap<>();final long[] first={Long.MAX_VALUE};
+        visitRows(Long.MIN_VALUE,now,r->{first[0]=Math.min(first[0],r.t);if(r.t>=start.getTimeInMillis())addHeat(counts,r,zone);});
+        synchronized(LOCK){for(LostBucket bucket:lostHours.values())if(bucket.min>=start.getTimeInMillis()&&bucket.max<=now){String k=dayKey(bucket.min,zone);HeatCounts c=counts.get(k);if(c==null){c=new HeatCounts();counts.put(k,c);}c.add(bucket.heat);first[0]=Math.min(first[0],bucket.min);}}
+        JSONArray days=new JSONArray();HeatCounts total=new HeatCounts();String end=dayKey(now,zone);
+        for(Calendar c=(Calendar)start.clone();;c.add(Calendar.DAY_OF_MONTH,1)){String date=dayKey(c.getTimeInMillis(),zone);if(date.compareTo(end)>0)break;HeatCounts count=counts.get(date);if(count==null)count=new HeatCounts();total.add(count);days.put(count.json().put("date",date));}
+        JSONObject out=new JSONObject().put("ok",true).put("timezone",zone.getID()).put("start",dayKey(start.getTimeInMillis(),zone)).put("end",end).put("weeks",53).put("days",days).put("totals",total.json()).put("firstRecordedDate",first[0]==Long.MAX_VALUE?JSONObject.NULL:dayKey(first[0],zone));
+        synchronized(LOCK){out.put("invalidLines",invalidLines).put("readErrors",readErrors).put("persistenceErrors",persistenceErrors).put("uncertainWrites",uncertainWrites);}
+        return out.put("storage",storageState()).put("generatedAt",now);
     }
 
     /** 导出 CSV（给「导出 CSV」用） */
     /** 窗口内总量：[请求数, token, 失败数]；给 /api/quota 的 totals 用（计数器重启会归零） */
     public static long[] windowTotals(int days) {
         long from = System.currentTimeMillis() - (long) days * 86400000L;
-        long req = 0, tok = 0, fail = 0;
-        synchronized (LOCK) {
-            for (List<Row> l : DAYS.values()) {
-                for (Row r : l) {
-                    if (r.t < from) continue;
-                    if (r.isTerminal()) { req++; if (r.failed()) fail++; }
-                    if (r.countTokens()) tok += r.countedTokens();
-                }
-            }
-        }
-        return new long[]{req, tok, fail};
+        final long[] result={0,0,0};visitRows(from,Long.MAX_VALUE,r->{if(r.isTerminal()){result[0]++;if(r.failed())result[2]++;}if(r.countTokens())result[1]+=r.countedTokens();});synchronized(LOCK){for(LostBucket lost:lostHours.values())if(lost.min>=from){result[0]+=lost.totals.requests;result[1]+=lost.totals.tokens();result[2]+=lost.totals.failed;}}return result;
     }
 
     /** /api/quota 的供应商维度：请求数、token、成功率、平均延迟（按天窗口聚合） */
     public static JSONArray providerStats(int days) {
         long from = System.currentTimeMillis() - (long) days * 86400000L;
         Map<String, long[]> agg = new LinkedHashMap<String, long[]>();
-        synchronized (LOCK) {
-            for (List<Row> l : DAYS.values()) {
-                for (Row r : l) {
-                    if (r.t < from) continue;
+        visitRows(from,Long.MAX_VALUE,r -> {
                     String k = r.prov == null || r.prov.isEmpty() ? "未知" : r.prov;
                     long[] a = agg.get(k);
                     if (a == null) {
@@ -907,9 +867,8 @@ public class UsageLedger {
                         if (r.ms > 0) a[3] += r.ms;
                     }
                     if (r.countTokens()) a[1] += r.countedTokens();
-                }
-            }
-        }
+        });
+        synchronized(LOCK){long[] gap={0,0,0,0};for(LostBucket lost:lostHours.values())if(lost.min>=from){gap[0]+=lost.totals.requests;gap[1]+=lost.totals.tokens();gap[2]+=lost.totals.failed;gap[3]+=lost.totals.msSum;}if(gap[0]>0||gap[1]>0)agg.put("（存储失败：明细未知）",gap);}
         JSONArray out = new JSONArray();
         for (Map.Entry<String, long[]> e : agg.entrySet()) {
             long req = e.getValue()[0];
@@ -932,16 +891,12 @@ public class UsageLedger {
         long from = System.currentTimeMillis() - (long) days * 86400000L;
         final long[] tok = new long[24];
         final long[] req = new long[24];
-        synchronized (LOCK) {
-            for (List<Row> l : DAYS.values()) {
-                for (Row r : l) {
-                    if (r.t < from) continue;
-                    if (r.hour < 0 || r.hour > 23) continue;
+        visitRows(from,Long.MAX_VALUE,r -> {
+                    if (r.hour < 0 || r.hour > 23) return;
                     if (r.isTerminal()) req[r.hour]++;
                     if (r.countTokens()) tok[r.hour] += r.countedTokens();
-                }
-            }
-        }
+        });
+        synchronized(LOCK){for(LostBucket lost:lostHours.values())if(lost.min>=from){Calendar c=Calendar.getInstance();c.setTimeInMillis(lost.min);int hour=c.get(Calendar.HOUR_OF_DAY);tok[hour]+=lost.totals.tokens();req[hour]+=lost.totals.requests;}}
         JSONArray out = new JSONArray();
         for (int h = 0; h < 24; h++) {
             JSONObject o = new JSONObject();
@@ -955,18 +910,7 @@ public class UsageLedger {
 
     /** /api/sessions：最近 N 条请求（面板「最近请求」用） */
     public static JSONArray recentRequests(int limit) {
-        List<Row> all = new ArrayList<Row>();
-        synchronized (LOCK) {
-            for (List<Row> l : DAYS.values()) {
-                all.addAll(l);
-            }
-        }
-        Collections.sort(all, new Comparator<Row>() {
-            @Override
-            public int compare(Row a, Row b) {
-                return Long.compare(b.t, a.t);
-            }
-        });
+        List<Row> all = newest(Long.MIN_VALUE,Long.MAX_VALUE,Math.max(1,Math.min(1000,limit)));
         JSONArray out = new JSONArray();
         for (int i = 0; i < all.size() && i < limit; i++) {
             Row r = all.get(i);
@@ -992,18 +936,8 @@ public class UsageLedger {
         StringBuilder sb = new StringBuilder();
         sb.append("time,provider,model,requested,input,output,cache_read,cache_write,reasoning,ttft_ms,decode_ms,ms,status,tries,error,request_id,credential_id,attempt,terminal,usage_source,cache_source,reasoning_source,counted_input,counted_output,request_count,attempt_count,attempt_failed\n");
         SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
-        List<Row> all = new ArrayList<Row>();
-        synchronized (LOCK) {
-            for (List<Row> l : DAYS.values()) {
-                for (Row r : l) if (r.t >= from) all.add(r);
-            }
-        }
-        Collections.sort(all, new Comparator<Row>() {
-            @Override
-            public int compare(Row a, Row b) {
-                return Long.compare(a.t, b.t);
-            }
-        });
+        List<Row> all = newest(from,Long.MAX_VALUE,1000);
+        all.sort(Comparator.comparingLong(r->r.t));
         for (Row r : all) {
             sb.append(f.format(new Date(r.t))).append(',')
                     .append(csvEsc(r.prov)).append(',')
@@ -1022,11 +956,13 @@ public class UsageLedger {
                     .append(csvEsc(r.err)).append(',')
                     .append(csvEsc(r.requestId)).append(',').append(csvEsc(r.credentialId)).append(',')
                     .append(r.attempt).append(',').append(r.isTerminal()).append(',')
-                    .append(csvEsc(r.effectiveUsageSource())).append(',').append(csvEsc(r.cacheSource)).append(',').append(csvEsc(r.reasoningSource)).append(',')
+                    .append(csvEsc(r.effectiveUsageSource())).append(',').append(csvEsc("unknown".equals(r.cacheSource)?"":r.cacheSource)).append(',').append(csvEsc("unknown".equals(r.reasoningSource)?"":r.reasoningSource)).append(',')
                     .append(!r.effectiveInputKnown() ? "" : String.valueOf(r.countedInput())).append(',')
                     .append(!r.effectiveOutputKnown() ? "" : String.valueOf(r.countedOutput())).append(',')
                     .append(r.isTerminal() ? 1 : 0).append(',').append(r.isAttempt() ? 1 : 0).append(',').append(r.isAttempt() && r.failed() ? 1 : 0).append('\n');
         }
+        if(all.size()==1000)sb.append("# Export limited to the latest 1000 rows; use paged history for older rows.").append((char)10);
+        synchronized(LOCK){if(droppedPendingRows>0)sb.append("# Missing details after storage failure: ").append(droppedPendingRows).append("; aggregates retained within bounded coverage.").append((char)10);}
         return sb.toString();
     }
 

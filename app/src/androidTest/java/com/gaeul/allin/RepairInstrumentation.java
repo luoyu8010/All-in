@@ -17,7 +17,8 @@ import java.util.UUID;
 /** Runs on Android's actual class loader and socket stack, without accounts or vendor traffic. */
 public final class RepairInstrumentation extends Instrumentation {
     private int checks;
-    @Override public void onCreate(Bundle arguments){super.onCreate(arguments);start();}
+    private boolean audit52;
+    @Override public void onCreate(Bundle arguments){super.onCreate(arguments);audit52=arguments!=null&&arguments.getString("audit52","").equals("true");start();}
     private void check(boolean value,String label){checks++;if(!value)throw new AssertionError(label);}
     private Object call(String type,String method,Class<?>[] types,Object... args)throws Exception {
         Method m=Class.forName("com.gaeul.allin."+type).getDeclaredMethod(method,types);m.setAccessible(true);return m.invoke(null,args);
@@ -219,6 +220,7 @@ public final class RepairInstrumentation extends Instrumentation {
         try {
             Context target=getTargetContext();
             if(!target.getPackageName().endsWith(".repairtest"))throw new SecurityException("Runtime tests require the isolatedTestInstall package");
+            if(audit52){result.putString("stream","AUDIT_ANDROID 05_webview "+Audit52WebView.run(this)+"\n");finish(Activity.RESULT_OK,result);return;}
             jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);alarms(target);
             result.putString("stream","ANDROID_REPAIR_PASS checks="+checks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);
         } catch(Throwable failure) {

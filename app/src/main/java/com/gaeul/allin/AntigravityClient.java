@@ -676,7 +676,7 @@ public class AntigravityClient {
             public void run() {
                 BufferedReader br = null;
                 try {
-                    br = new BufferedReader(new InputStreamReader(upstream, StandardCharsets.UTF_8));
+                    br = new BoundedSseReader(new InputStreamReader(upstream, StandardCharsets.UTF_8));
                     String line;
                     boolean started = false;
                     boolean stopped = false;
@@ -848,7 +848,7 @@ public class AntigravityClient {
 
     public static Decoded decodeAll(InputStream upstream) throws Exception {
         Decoded d = new Decoded();
-        BufferedReader br = new BufferedReader(new InputStreamReader(upstream, StandardCharsets.UTF_8));
+        BufferedReader br = new BoundedSseReader(new InputStreamReader(upstream, StandardCharsets.UTF_8));
         StringBuilder text = new StringBuilder();
         StringBuilder think = new StringBuilder();
         String line;

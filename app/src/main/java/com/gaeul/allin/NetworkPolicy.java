@@ -108,14 +108,15 @@ public final class NetworkPolicy {
         public Socket connectTunnel(String target, int targetPort, int connectMs, int readMs) throws IOException {
             target=validHost(target);
             if (targetPort < 1 || targetPort > 65535 || connectMs <= 0 || readMs <= 0) throw new IllegalArgumentException("invalid connection parameters");
+            long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(connectMs);
             Proxy proxy=select(target,targetPort);
             Socket s=new Socket(Proxy.NO_PROXY);
             try {
-                if (proxy.type() == Proxy.Type.DIRECT) s.connect(new InetSocketAddress(target,targetPort),connectMs);
+                if (proxy.type() == Proxy.Type.DIRECT) s.connect(new InetSocketAddress(BoundedDns.resolve(target,deadline)[0],targetPort),BoundedDns.remainingMillis(deadline));
                 else {
                     if (!(proxy.address() instanceof InetSocketAddress)) throw new IOException("invalid proxy address");
                     InetSocketAddress a=(InetSocketAddress)proxy.address();
-                    s.connect(new InetSocketAddress(a.getHostString(),a.getPort()),connectMs);
+                    s.connect(new InetSocketAddress(BoundedDns.resolve(a.getHostString(),deadline)[0],a.getPort()),BoundedDns.remainingMillis(deadline));
                 }
                 s.setSoTimeout(readMs);
                 if (proxy.type() == Proxy.Type.HTTP) {
@@ -125,9 +126,9 @@ public final class NetworkPolicy {
                     InputStream in=s.getInputStream();
                     byte[] header=new byte[32768]; int n=0, b;
                     // A proxy cannot extend this budget indefinitely by sending one byte at a time.
-                    long deadline=System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(readMs);
+                    long proxyDeadline=System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(readMs);
                     while (n<header.length) {
-                        long remaining=deadline-System.nanoTime();
+                        long remaining=proxyDeadline-System.nanoTime();
                         if (remaining <= 0) throw new SocketTimeoutException("proxy header deadline exceeded");
                         long millis=java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining);
                         s.setSoTimeout((int)Math.max(1, Math.min((long)readMs, millis + 1)));

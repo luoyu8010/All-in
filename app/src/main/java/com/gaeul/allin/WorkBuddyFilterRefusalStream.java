@@ -69,7 +69,7 @@ final class WorkBuddyFilterRefusalStream extends InputStream {
 
     WorkBuddyFilterRefusalStream(InputStream source) {
         if (source == null) throw new IllegalArgumentException("upstream");
-        in = new BufferedReader(new InputStreamReader(source, StandardCharsets.UTF_8));
+        in = new BoundedSseReader(new InputStreamReader(source, StandardCharsets.UTF_8));
     }
 
     /** 只对过滤拒绝返回 true：到目前为止的正文仍是那句话（忽略两侧空白、弯引号）。 */

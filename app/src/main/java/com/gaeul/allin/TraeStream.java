@@ -83,7 +83,7 @@ public final class TraeStream extends InputStream {
     }
     @Override public void close() throws IOException { if(!closed){closed=true;reader.close();} }
     public JSONObject aggregate() throws Exception {
-        BufferedReader r=new BufferedReader(new InputStreamReader(this,StandardCharsets.UTF_8));
+        BufferedReader r=new BoundedSseReader(new InputStreamReader(this,StandardCharsets.UTF_8));
         StringBuilder content=new StringBuilder(), reasoning=new StringBuilder(); JSONArray calls=new JSONArray();
         JSONObject first=null; String finish=null; int total=0; String line;
         while((line=r.readLine())!=null) {

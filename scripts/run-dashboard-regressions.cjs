@@ -2,6 +2,7 @@
 const fs=require('fs'),path=require('path'),cp=require('child_process');
 const root=path.resolve(__dirname,'..');
 const scripts=[
+  "tests/dashboard-prefix-ids.cjs",
   "tests/dashboard-model-selection.cjs",
   "tests/dashboard-model-policy-races.cjs",
   "tests/dashboard-model-selection-browser.cjs",

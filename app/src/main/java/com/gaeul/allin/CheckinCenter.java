@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Daily per-account check-ins. Durable intent precedes a claim; unknown claims are never replayed that day. */
 final class CheckinCenter implements AutoCloseable {
     static final List<String> SUPPORTED = Collections.unmodifiableList(Arrays.asList("workbuddy", "minimax-code", "raccoon", "loomy", "trae-cn", "zcode"));
-    interface Host { Object lock(); JSONObject config(); boolean save(JSONObject next); boolean retired(); }
+    interface Host { Object lock(); JSONObject config(); boolean save(JSONObject next); boolean retired(); default long accountEpoch(String provider,String id){return 0;} }
     interface Transport { JSONObject checkin(String provider, JSONObject account) throws Exception; default JSONObject status(String provider,JSONObject account)throws Exception{return new JSONObject().put("outcome","unknown").put("message","此供应商没有独立签到状态接口，请在官方客户端核对");} }
     interface Clock { long now(); }
     private final Host host; private final Transport transport; private final Clock clock;
@@ -118,13 +118,18 @@ final class CheckinCenter implements AutoCloseable {
         Object streak=raw.opt("streak");if(streak instanceof Number && ((Number)streak).longValue()>0)r.put("streak",Math.min(100000,((Number)streak).longValue()));
         return r;
     }
+    private static boolean sameCredentials(JSONObject a,JSONObject b) {
+        for(String k:new String[]{"id","uid","domain","enterpriseId","addedAt","type","token","access","refresh","key","apiKey","jwt","giftJwt","device","deviceToken","cookie"})
+            if(!java.util.Objects.equals(a.opt(k),b.opt(k)))return false;
+        return true;
+    }
     JSONObject runOne(String provider,String id,boolean automatic) throws Exception {
         if(!SUPPORTED.contains(provider)||id==null||id.isEmpty())throw new IllegalArgumentException("unsupported checkin account");String k=key(provider,id);
         synchronized(active) { if(!active.add(k))return new JSONObject().put("outcome","running").put("message","此账号正在签到"); }
-        JSONObject snapshot=null;String fp="";long now=clock.now();
+        JSONObject snapshot=null;String fp="";long now=clock.now(),epoch=0;
         try {
             synchronized(host.lock()) {
-                live();JSONObject config=host.config(),a=account(config,provider,id);if(a==null)throw new IOException("account unavailable");snapshot=copy(a);fp=fingerprint(a);
+                live();JSONObject config=host.config(),a=account(config,provider,id);if(a==null)throw new IOException("account unavailable");snapshot=copy(a);fp=fingerprint(a);epoch=host.accountEpoch(provider,id);
                 if(!eligible(provider,a))return new JSONObject().put("outcome","ineligible").put("message","当前凭据不支持签到");
                 if(automatic&&!enabled(config,provider))return new JSONObject().put("outcome","disabled");
                 JSONObject previous=records(config).optJSONObject(k);
@@ -141,7 +146,23 @@ final class CheckinCenter implements AutoCloseable {
                 putRecord(next,k,intent);if(!host.save(next))throw new IOException("cannot persist checkin intent");
             }
             JSONObject result;CheckinEvidence.begin();
-            try { live(); if(Thread.currentThread().isInterrupted())throw new IOException("interrupted");result=normalized(provider,safeResult(transport.checkin(provider,copy(snapshot)),snapshot)); }
+            try {
+                live(); if(Thread.currentThread().isInterrupted())throw new IOException("interrupted");
+                // Atomic send admission, after durable intent and before handing to transport.
+                // Disable/delete/replace invalidates every lease that has not reached this point.
+                synchronized(host.lock()) {
+                    live();JSONObject current=account(host.config(),provider,id);
+                    if(current==null || !fp.equals(fingerprint(current))
+                            || epoch!=host.accountEpoch(provider,id)
+                            || !sameCredentials(snapshot,current)
+                            || (automatic&&!enabled(host.config(),provider)))
+                        return new JSONObject().put("outcome","account_changed").put("claimPossible",false).put("message",label("account_changed"));
+                    snapshot=copy(current);
+                }
+                // From this handoff onward an operation is in flight; stopping cannot undo it.
+                // Never hold the global configuration lock during HTTP or erase the daily fence.
+                result=normalized(provider,safeResult(transport.checkin(provider,copy(snapshot)),snapshot));
+            }
             catch(Exception failed) { result=CheckinEvidence.failure(failed); }
             long finished=clock.now();String state=result.optString("outcome");result.put("at",finished).put("day",day(now)).put("fingerprint",fp).put("automatic",automatic).put("actionAt",now).put("actionAutomatic",automatic);
             result.put("nextAt",Arrays.asList("failed","inactive").contains(state)?Math.min(nextDay(now),finished+30*60000L):nextDay(now));

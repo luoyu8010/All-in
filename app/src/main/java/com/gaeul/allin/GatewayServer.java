@@ -21,7 +21,7 @@ public class GatewayServer extends NanoHTTPD {
         return new fi.iki.elonen.AllInRawHeaderInputStream(input, socket.getOutputStream());
     }
     @Override protected ClientHandler createClientHandler(Socket socket, InputStream input) {
-        try { return super.createClientHandler(socket, validateRawHeaders(socket, input)); }
+        try { return super.createClientHandler(new NumericPeerSocket(socket), validateRawHeaders(socket, input)); }
         catch (IOException failure) {
             // A rejected connection must not escape into NanoHTTPD's accept loop (it only
             // catches IOException) and must not leak the socket: close it and hand back a
@@ -2030,6 +2030,7 @@ public class GatewayServer extends NanoHTTPD {
             public JSONObject config(){return configJson;}
             public boolean save(JSONObject next){return saveConfig(next);}
             public boolean retired(){return stopping||backupRetired;}
+            public long accountEpoch(String p,String id){return accountRevision(p,"id:"+id);}
         },checkinTransportForTests==null?new CheckinCenter.Transport(){public JSONObject checkin(String p,JSONObject a)throws Exception{return performDailyCheckin(p,a);}public JSONObject status(String p,JSONObject a)throws Exception{return readDailyCheckinStatus(p,a);}}:checkinTransportForTests);
         return dailyCheckin;
     }
@@ -3096,47 +3097,47 @@ public class GatewayServer extends NanoHTTPD {
      * 但 api.z.ai 在国内部分网络会被直接切断（TLS 握手 EOF），表现为「配置齐全却一直调不通」。
      * 这里用 key 打一次 /models 探测，当前端点不可达就自动切到另一个，避免用户自己猜。
      */
+    private static String calibrationKey(JSONObject provider) {
+        if(provider==null || !AccountGenerations.enabled(provider))return "";
+        for(JSONObject account:AccountPoolPolicy.routingAccounts(provider)) {
+            if(!"api".equals(account.optString("type")))continue;
+            String key=account.optString("token",account.optString("access","")).trim();
+            if(!key.isEmpty() && key.indexOf(13)<0 && key.indexOf(10)<0)return key;
+        }
+        return "";
+    }
+    private boolean calibrationCurrent(String state,String network,String key) throws Exception {
+        synchronized(this){JSONObject current=getProviderById("zcode");
+            return !stopping&&!backupRetired && current!=null && key.equals(calibrationKey(current))
+                    && state.equals(providerStateToken(current)) && network.equals(networkStateToken());}
+    }
     private void calibrateZCodeBaseAsync() {
         Thread t = new Thread(scopedTask(new Runnable() {
-            @Override
-            public void run() {
+            @Override public void run() {
                 try {
-                    JSONObject zc = getProviderById("zcode");
-                    if (zc == null) return;
-                    String key = "";
-                    JSONArray keys = zc.optJSONArray("keys");
-                    if (keys != null && keys.length() > 0) key = keys.optString(0, "");
-                    if (key.isEmpty()) {
-                        JSONArray accs = zc.optJSONArray("accounts");
-                        if (accs != null && accs.length() > 0) {
-                            key = accs.getJSONObject(0).optString("token", "");
-                        }
+                    final JSONObject zc;final String key,state,network;
+                    synchronized(GatewayServer.this){
+                        JSONObject current=getProviderById("zcode");key=calibrationKey(current);
+                        if(key.isEmpty()||stopping||backupRetired)return;
+                        zc=new JSONObject(current.toString());state=providerStateToken(current);network=networkStateToken();
                     }
-                    if (key == null || key.isEmpty()) return;
-
-                    String cur = zc.optString("baseUrl", "");
-                    // 当前端点就通，不必动它
-                    if (cur != null && !cur.isEmpty() && ZCodeAuth.probeBase(cur, key)) return;
-
-                    String site = zc.optString("site", "zai");
-                    String pick = ZCodeAuth.pickReachableBase(site, key);
-                    if (pick == null || pick.equals(cur)) return;
-
-                    synchronized (GatewayServer.this) {
-                        JSONObject staged = new JSONObject(configJson.toString());
-                        JSONObject now = findProviderById(staged.optJSONArray("providers"), "zcode");
-                        if (now != null && cur.equals(now.optString("baseUrl", ""))) {
-                            now.put("baseUrl", pick);
-                            saveConfig(staged);
-                        }
+                    String cur=zc.optString("baseUrl","");
+                    if(!calibrationCurrent(state,network,key))return;
+                    if(!cur.isEmpty()&&ZCodeAuth.probeBase(cur,key))return;
+                    if(!calibrationCurrent(state,network,key))return;
+                    String pick=ZCodeAuth.pickReachableBase(zc.optString("site","zai"),key);
+                    if(pick==null||pick.equals(cur))return;
+                    synchronized(GatewayServer.this){
+                        if(!calibrationCurrent(state,network,key))return;
+                        JSONObject staged=new JSONObject(configJson.toString());
+                        JSONObject now=findProviderById(staged.optJSONArray("providers"),"zcode");
+                        if(now!=null){now.put("baseUrl",pick);saveConfig(staged);}
                     }
-                    android.util.Log.d("Magpie", "zcode baseUrl 自动校正: " + cur + " -> " + pick);
-                } catch (Throwable ignored) {
-                }
+                    android.util.Log.d("Magpie","zcode endpoint calibration completed");
+                }catch(Exception ignored){}
             }
-        }), "zcode-base-calibrate");
-        t.setDaemon(true);
-        t.start();
+        }),"zcode-base-calibrate");
+        t.setDaemon(true);t.start();
     }
 
     private synchronized void loadWatchdogState() {
@@ -9638,7 +9639,7 @@ public class GatewayServer extends NanoHTTPD {
         final OpenAiUnmask unmask = new OpenAiUnmask(maskSession);
         class ConvertedStream extends InputStream implements fi.iki.elonen.AllInTrackedResponse.WriteCompletion {
             private final java.io.BufferedReader reader =
-                    new java.io.BufferedReader(new java.io.InputStreamReader(upstreamIs,
+                    new BoundedSseReader(new java.io.InputStreamReader(upstreamIs,
                             java.nio.charset.Charset.forName("UTF-8")));
             private byte[] buf = new byte[0];
             private int pos = 0;
@@ -9803,8 +9804,9 @@ public class GatewayServer extends NanoHTTPD {
         final java.util.concurrent.atomic.AtomicBoolean semantic=affinityRequest==null?null:affinityRequest.affinitySemantic;
         class ChatForwardStream extends InputStream implements fi.iki.elonen.AllInTrackedResponse.WriteCompletion {
             private boolean deliveryConfirmed;
+            private boolean writeStarted;
             private boolean readComplete;
-            private final BufferedReader reader = new BufferedReader(new InputStreamReader(upstreamIs, java.nio.charset.StandardCharsets.UTF_8));
+            private final BoundedSseReader reader = new BoundedSseReader(new InputStreamReader(upstreamIs, java.nio.charset.StandardCharsets.UTF_8));
             private ByteArrayInputStream currentChunkIs = null;
             private boolean flushedTail = false;
             private boolean sawDone = false;
@@ -9819,7 +9821,9 @@ public class GatewayServer extends NanoHTTPD {
             private boolean emittedTerminalError = false;
 
             private void recordUsage() {
-                if (uRow == null || uCommitted[0] || (awaitDelivery && !deliveryConfirmed && !sawError)) return;
+                if (uRow == null || uCommitted[0] || (writeStarted && !deliveryConfirmed)
+                        || (!readComplete && !sawError && !closed)
+                        || (awaitDelivery && !deliveryConfirmed && !sawError)) return;
                 uCommitted[0]=true; uRow.ms=System.currentTimeMillis()-uStart; uRow.status=sawError?502:200;
                 if (sawError) uRow.err = "Upstream stream incomplete or cancelled";
                 if(uFirst[0]>0) { uRow.ttft=uFirst[0]-uStart; if(uLast[0]>=uFirst[0]) { uRow.decMs=uLast[0]-uFirst[0]; uRow.decOut=uRow.out; } }
@@ -9832,22 +9836,23 @@ public class GatewayServer extends NanoHTTPD {
                     return currentChunkIs.read();
                 }
                 if (emittedTerminalError) { recordUsage(); return -1; }
-                String line;
-                try { line = reader.readLine(); }
+                BoundedSseReader.Event frame;
+                try { frame = reader.readEvent(); }
                 catch (IOException e) {
                     sawError = true;
                     emittedTerminalError = true;
-                    currentChunkIs = new ByteArrayInputStream(openAiStreamError("Upstream stream read failed").getBytes("UTF-8"));
+                    try { reader.close(); } catch (IOException ignored) {}
+                    String message = e.getMessage()!=null && e.getMessage().startsWith("SSE ") ? "Upstream stream framing size or memory limit exceeded" : "Upstream stream read failed";
+                    currentChunkIs = new ByteArrayInputStream(openAiStreamError(message).getBytes("UTF-8"));
                     return currentChunkIs.read();
                 }
-                if (line == null) {
+                if (frame == null) {
                     if (!sawDone && !sawError && !choicesComplete()) {
                         sawError = true;
                         emittedTerminalError = true;
                         currentChunkIs = new ByteArrayInputStream(openAiStreamError("Upstream stream ended before a finish reason").getBytes("UTF-8"));
                         return currentChunkIs.read();
                     }
-                    recordUsage();
                     // 上游结束：把 think-tags 状态机里挂着的尾巴吐出来，避免吞字
                     if (!flushedTail) {
                         flushedTail = true;
@@ -9859,9 +9864,10 @@ public class GatewayServer extends NanoHTTPD {
                         }
                     }
                     readComplete = true;
+                    recordUsage();
                     return -1;
                 }
-                String restored = line;
+                String restored = frame.hasData ? "data: " + frame.data : frame.metadata;
                 if (restored.startsWith("data:")) {
                     String eventData = restored.substring(5).trim();
                     if ("[DONE]".equals(eventData)) {
@@ -9939,7 +9945,7 @@ public class GatewayServer extends NanoHTTPD {
                         try {
                             JSONObject chunk = new JSONObject(data);
                             JSONArray chs = chunk.optJSONArray("choices");
-                            boolean touched = false;
+                            boolean touched = frame.data.indexOf(10)>=0; // Only multiline JSON needs canonical downstream framing.
                             for (int ci = 0; chs != null && ci < chs.length(); ci++) {
                                 JSONObject c0 = chs.optJSONObject(ci);
                                 JSONObject delta = c0 == null ? null : c0.optJSONObject("delta");
@@ -9990,7 +9996,8 @@ public class GatewayServer extends NanoHTTPD {
                     }
                 }
 
-                currentChunkIs = new ByteArrayInputStream((restored + "\n").getBytes("UTF-8"));
+                String wire = frame.hasData ? frame.wire(restored.substring(5).trim()) : frame.wire("");
+                currentChunkIs = new ByteArrayInputStream(wire.getBytes("UTF-8"));
                 return currentChunkIs.read();
             }
 
@@ -10010,9 +10017,10 @@ public class GatewayServer extends NanoHTTPD {
                 return count + 1;
             }
 
+            @Override public void onWriteStart() { writeStarted = true; }
             @Override public void onWriteComplete(boolean success) {
                 deliveryConfirmed = true;
-                if (!success || (awaitDelivery && !readComplete)) sawError = true;
+                if (!success || !readComplete) sawError = true;
                 if(semantic!=null) semantic.set(success && readComplete && sawDone && sawFinish && !sawError);
                 recordUsage();
             }
@@ -10021,8 +10029,8 @@ public class GatewayServer extends NanoHTTPD {
             public void close() throws IOException {
                 if (closed) return;
                 closed = true;
-                if ((!sawDone && !choicesComplete()) || (awaitDelivery && !readComplete)) sawError = true;
-                try { upstreamIs.close(); }
+                if ((!sawDone && !choicesComplete()) || !readComplete) sawError = true;
+                try { reader.close(); }
                 catch (IOException failure) { sawError = true; throw failure; }
                 finally {
                     try { recordUsage(); } finally {
@@ -12247,7 +12255,7 @@ public class GatewayServer extends NanoHTTPD {
         private byte[] pending=new byte[0]; private int pendingAt;
         WorkBuddyNativeObservedStream(InputStream source,UsageLedger.Row row,RequestContext request) {
             super(source);this.row=row;this.request=request;
-            reader=new java.io.BufferedReader(new java.io.InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
+            reader=new BoundedSseReader(new java.io.InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
         }
         @Override public int read() throws IOException { byte[] b=new byte[1];int n=read(b,0,1);return n<0?-1:b[0]&255; }
         @Override public int read(byte[] b,int off,int len) throws IOException {
@@ -12843,7 +12851,7 @@ public class GatewayServer extends NanoHTTPD {
             // WorkBuddy 上游强制流式，客户端要非流式时由网关聚合成一个完整回复
             if (("workbuddy".equals(target.providerId) || "workbuddy-ai".equals(target.providerId))
                     && !clientWantsStream) {
-                BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
+                BufferedReader br = new BoundedSseReader(new InputStreamReader(is, "UTF-8"));
                 StringBuilder contentAcc = new StringBuilder();
                 StringBuilder reasonAcc = new StringBuilder();
                 // 工具调用是分片增量（index + id/name 在首片，arguments 逐片累加），
@@ -13294,7 +13302,7 @@ public class GatewayServer extends NanoHTTPD {
         private final String model;
         private byte[] buffer=new byte[0]; private int offset;
         RaccoonModelStream(InputStream source,String model) {
-            in=new BufferedReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
+            in=new BoundedSseReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
             this.model=model;
         }
         private boolean fill() throws IOException {
@@ -14018,7 +14026,7 @@ public class GatewayServer extends NanoHTTPD {
         }
         AnthropicSseToOpenAI(InputStream upstream, ZCodeAnthropic.StreamState state, UsageLedger.Row originalUsage) {
             this.originalUsage = originalUsage;
-            this.reader = new java.io.BufferedReader(
+            this.reader = new BoundedSseReader(
                     new java.io.InputStreamReader(upstream, java.nio.charset.Charset.forName("UTF-8")));
             this.state = state;
         }
@@ -15748,7 +15756,7 @@ public class GatewayServer extends NanoHTTPD {
             conn.setConnectTimeout(12000);
             conn.setReadTimeout(15000);
             conn.setRequestProperty("Authorization", "Bearer " + token);
-            BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+            BufferedReader br = new BoundedSseReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
             StringBuilder sb = new StringBuilder();
             String line;
             while ((line = br.readLine()) != null) sb.append(line);
@@ -16757,7 +16765,7 @@ public class GatewayServer extends NanoHTTPD {
         final RequestContext affinityRequest=REQUEST_CONTEXT.get();
         final java.util.concurrent.atomic.AtomicBoolean semantic=affinityRequest==null?null:affinityRequest.affinitySemantic;
         InputStream processed=new InputStream() {
-            final BufferedReader reader=new BufferedReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
+            final BufferedReader reader=new BoundedSseReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
             final java.util.Map<String,StreamUnmask> deltas=new java.util.LinkedHashMap<String,StreamUnmask>();
             final java.util.Map<String,JSONObject> deltaTemplates=new java.util.LinkedHashMap<String,JSONObject>();
             byte[] bytes=new byte[0]; int offset=0; volatile boolean ended=false; boolean terminal=false; long lastSequence=-1, sequenceOffset=0; boolean sawSequence=false; JSONObject lastResponse;
@@ -16878,7 +16886,7 @@ public class GatewayServer extends NanoHTTPD {
     private Response codexNativeResponse(InputStream source, boolean stream, PrivacyMasker.Session mask,
                                          ContextGuard.Result guard, HttpURLConnection conn) throws Exception {
         if(stream) return nativeResponsesStream(source,mask,guard,conn);
-        BufferedReader reader=new BufferedReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
+        BufferedReader reader=new BoundedSseReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
         JSONObject result=null; String line;
         try { while((line=reader.readLine())!=null) {
             if(!line.startsWith("data:"))continue; String data=line.substring(5).trim();
@@ -17418,7 +17426,7 @@ public class GatewayServer extends NanoHTTPD {
                 streamHandedOff=true;
                 return out;
             } else {
-                BufferedReader reader = new BufferedReader(new InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8));
+                BufferedReader reader = new BoundedSseReader(new InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8));
                 JSONObject completed = null;
                 String line;
                 while ((line = reader.readLine()) != null) {

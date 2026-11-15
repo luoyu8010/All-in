@@ -480,11 +480,14 @@ public class QoderAuth {
         String body;
         try {
             body = httpGet(url, null);
-            android.util.Log.d("MagpieQoder", "poll 200 body=" + trim(body, 300));
+            android.util.Log.d("MagpieQoder", "poll http=200 stage=response");
         } catch (Exception e) {
             // 未授权时 openapi 回 404 NotFound，这属于"还在等"，不是错误
-            String msg = String.valueOf(e.getMessage());
-            android.util.Log.d("MagpieQoder", "poll 失败: " + msg);
+            String msg = "Qoder authorization pending or unavailable";
+            int status = 0;
+            java.util.regex.Matcher http = java.util.regex.Pattern.compile("^HTTP ([0-9]{3})(?:$|:| )").matcher(String.valueOf(e.getMessage()));
+            if (http.find()) status = Integer.parseInt(http.group(1));
+            android.util.Log.d("MagpieQoder", "poll http=" + status + " stage=pending");
             pr.status = "pending";
             pr.error = msg;
             return pr;
@@ -505,11 +508,11 @@ public class QoderAuth {
             if (deviceToken.isEmpty()) deviceToken = d1.optString("device_token", "");
         }
         if (deviceToken.isEmpty()) {
-            android.util.Log.d("MagpieQoder", "poll 无 token，body=" + trim(body, 300));
+            android.util.Log.d("MagpieQoder", "poll http=200 stage=pending");
             pr.status = "pending";
             return pr;
         }
-        android.util.Log.d("MagpieQoder", "poll 拿到 deviceToken, len=" + deviceToken.length());
+        android.util.Log.d("MagpieQoder", "poll http=200 stage=authorized");
 
         SignIn si = new SignIn();
         si.deviceToken = deviceToken;
