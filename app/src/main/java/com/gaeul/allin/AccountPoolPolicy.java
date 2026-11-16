@@ -110,12 +110,30 @@ final class AccountPoolPolicy {
         synchronizeKeys(provider,before);
         return saved;
     }
+    /** Remove account records and only the key mirrors owned by those records. */
+    static int removeAccounts(JSONObject provider, String id) {
+        if (provider == null || id == null || id.trim().isEmpty()) throw new IllegalArgumentException("account id required");
+        JSONArray before = provider.optJSONArray("accounts"), kept = new JSONArray();
+        int removed = 0;
+        for (int i=0; before!=null && i<before.length(); i++) {
+            Object raw=before.opt(i);
+            JSONObject account=raw instanceof JSONObject ? (JSONObject)raw : null;
+            if ("all".equals(id) || (account!=null && id.equals(account.optString("id")))) removed++;
+            else kept.put(raw);
+        }
+        if (removed>0) {
+            provider.put("accounts",kept);
+            synchronizeKeys(provider,before);
+        }
+        return removed;
+    }
+
     /** Replace only account-owned key mirrors; preserve independent manually configured keys. */
     static void synchronizeKeys(JSONObject provider, JSONArray before) {
         Set<String> previouslyOwned=new HashSet<>();
         for (int i=0;before!=null && i<before.length();i++) {
             JSONObject account=before.optJSONObject(i);
-            for (String field:new String[]{"access","token"}) {
+            for (String field:new String[]{"access","token","jwt","accessToken","access_token","apiKey"}) {
                 String token=value(account,field);
                 if (!token.isEmpty()) previouslyOwned.add(token);
             }
@@ -135,7 +153,7 @@ final class AccountPoolPolicy {
         JSONArray accounts=provider.optJSONArray("accounts");
         for (int i=0;accounts!=null && i<accounts.length();i++) {
             JSONObject account=accounts.optJSONObject(i);
-            if (account==null || !account.optBoolean("enabled",true)) continue;
+            if (!AccountGenerations.enabled(account)) continue;
             String token=value(account,"access"); if (token.isEmpty()) token=value(account,"token");
             if (!token.isEmpty() && seen.add(token)) keys.put(token);
         }

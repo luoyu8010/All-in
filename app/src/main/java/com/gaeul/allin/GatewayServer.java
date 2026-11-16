@@ -437,7 +437,7 @@ public class GatewayServer extends NanoHTTPD {
                     JSONObject currentProvider=uniqueRaccoonProvider(configJson), current=uniqueRaccoonAccount(currentProvider,id);
                     if(backupRetired || stopping || !"raccoon".equals(provider) || currentProvider==null
                             || !currentProvider.optBoolean("enabled",true) || !qoderEnabled(current) || current==null
-                            || !jsonEquivalent(current,expected) || !id.equals(candidate.optString("id"))
+                            || !AccountGenerations.sameExceptLabel(current,expected) || !id.equals(candidate.optString("id"))
                             || storedAccess(candidate).isEmpty() || !jsonEquivalent(raccoonTokenNonCredentials(expected),raccoonTokenNonCredentials(candidate))) {
                         boolean rejectedRotation=refreshValueRotated(RaccoonRefreshService.PROVIDER,
                                 expected.optString("refresh",""),candidate.optString("refresh",""));
@@ -445,13 +445,11 @@ public class GatewayServer extends NanoHTTPD {
                         throw new IOException("Raccoon account changed during refresh");
                     }
                     JSONObject copy=new JSONObject(configJson.toString()), destinationProvider=uniqueRaccoonProvider(copy);
-                    JSONObject destination=uniqueRaccoonAccount(destinationProvider,id); String oldAccess=storedAccess(expected),newAccess=storedAccess(candidate);
+                    JSONObject destination=uniqueRaccoonAccount(destinationProvider,id);
                     for(String key:new String[]{"access","token","refresh","expires","lastRefresh"}) {
                         if(candidate.has(key)) destination.put(key,candidate.get(key)); else destination.remove(key);
                     }
-                    JSONArray keys=destinationProvider.optJSONArray("keys"); boolean replaced=false;
-                    for(int i=0;keys!=null && i<keys.length();i++) if(oldAccess.equals(keys.optString(i,""))) { keys.put(i,newAccess); replaced=true; }
-                    if(!replaced && keys!=null && !newAccess.isEmpty()) keys.put(newAccess);
+                    synchronizeAccountKeyMirrors(copy,"raccoon");
                     boolean raccoonRotated=refreshValueRotated(RaccoonRefreshService.PROVIDER,
                             expected.optString("refresh",""),candidate.optString("refresh",""));
                     try { AtomicConfigFile.write(configFile,copy.toString(2)); }
@@ -777,6 +775,13 @@ public class GatewayServer extends NanoHTTPD {
         for (String key : new String[]{"access", "token", "refresh", "expires"}) c.remove(key);
         return c;
     }
+    /** Keep account-owned access mirrors in the same transaction as credential rotation. */
+    private void synchronizeAccountKeyMirrors(JSONObject next, String providerId) {
+        JSONObject before=findProviderById(configJson.optJSONArray("providers"),providerId);
+        JSONObject after=findProviderById(next.optJSONArray("providers"),providerId);
+        if(after!=null) AccountPoolPolicy.synchronizeKeys(after,before==null?null:before.optJSONArray("accounts"));
+    }
+
     private static String[] tokenFields(String provider) {
         return "workbuddy".equals(provider) || "workbuddy-ai".equals(provider) ? WorkBuddyAuth.ROTATING_FIELDS
                 : new String[]{"access","token","refresh","expires"};
@@ -784,6 +789,7 @@ public class GatewayServer extends NanoHTTPD {
     private static JSONObject tokenNonCredentials(String provider,JSONObject account) throws Exception {
         JSONObject copy=new JSONObject(account.toString());
         for(String field:tokenFields(provider))copy.remove(field);
+        copy.remove("label");
         return copy;
     }
     /** A refresh the gateway refuses because the one-use value cannot be protected. */
@@ -1439,13 +1445,9 @@ public class GatewayServer extends NanoHTTPD {
                     for (String name : tokenFields(p)) {
                         if (candidate.has(name)) dest.put(name, candidate.get(name)); else dest.remove(name);
                     }
-                    if ("workbuddy".equals(p) || "workbuddy-ai".equals(p)) {
-                        JSONObject cp=null; JSONArray ps=copy.optJSONArray("providers");
-                        for(int i=0;ps!=null && i<ps.length();i++){JSONObject row=ps.optJSONObject(i);if(row!=null && p.equals(row.optString("id")))cp=row;}
-                        if(cp!=null){JSONArray oldAccounts=new JSONArray(cp.optJSONArray("accounts").toString());
-                            for(int i=0;i<oldAccounts.length();i++)if(key.equals(storedTokenIdentity(oldAccounts.optJSONObject(i))))oldAccounts.put(i,expected);
-                            AccountPoolPolicy.synchronizeKeys(cp,oldAccounts);}
-                    }
+                    // All four coordinated providers can have account-owned key mirrors.
+                    // Rotate those in the same transaction so deletion cannot leave the old access behind.
+                    synchronizeAccountKeyMirrors(copy,p);
                     try { AtomicConfigFile.write(configFile, copy.toString(2)); }
                     catch (Exception writeFailure) {
                         // The exchange already happened; an unchanged value stays retryable.
@@ -1586,7 +1588,7 @@ public class GatewayServer extends NanoHTTPD {
         // 目录同步自己写的东西不算「账号变了」。disabledModels 是 listing 的关闭集合
         // （见 QoderCatalog），和 models/modelMeta 同性质：不排除它，每次同步都会跟自己的
         // 上一次结果对不上，于是永久 409。
-        for(String k:new String[]{"models","modelMeta","catalogFreeView","catalogRenewedAt",
+        for(String k:new String[]{"label","models","modelMeta","catalogFreeView","catalogRenewedAt",
                 QoderCatalog.OFF_FIELD,QoderCatalog.OFF_OBSERVED_FIELD}) g.remove(k);
         return g;
     }
@@ -1616,6 +1618,7 @@ public class GatewayServer extends NanoHTTPD {
         JSONObject copy=new JSONObject(configJson.toString()); JSONObject dst=storedTokenAccount(copy,"qoder_cn",id);
         dst.put("token",next.access); dst.put("refresh",next.refresh); dst.put("deviceToken",next.deviceToken);
         dst.put("deviceRefresh",next.deviceRefresh); dst.put("expiresAt",next.expiresAt); dst.put("catalogRenewedAt",System.currentTimeMillis());
+        synchronizeAccountKeyMirrors(copy,"qoder_cn");
         try { AtomicConfigFile.write(configFile,copy.toString(2)); }
         catch(Exception writeFailure) {
             // The refresh token in the live account was already exchanged for this rotation.
@@ -2016,6 +2019,9 @@ public class GatewayServer extends NanoHTTPD {
             public long accountEpoch(String id) { return accountRevision("trae-cn", "id:" + id); }
             public JSONObject config() { return configJson; }
             public boolean save(JSONObject next) { return saveConfig(next); }
+            public boolean saveAccountRemoval(JSONObject next) {
+                try { persistConfigStrict(next); return true; } catch(IOException failed) { return false; }
+            }
             public boolean retired() { return backupRetired || stopping; }
         });
         return traeControl;
@@ -2224,6 +2230,7 @@ public class GatewayServer extends NanoHTTPD {
                     target.put("expires", next.expires);
                     if (next.email != null && !next.email.isEmpty()) target.put("email", next.email);
                     if (next.uid != null && !next.uid.isEmpty()) target.put("uid", next.uid);
+                    synchronizeAccountKeyMirrors(copy,"cline");
                 } catch (Exception e) { throw new IOException("Cline credential persistence failed", e); }
                 try {
                     AtomicConfigFile.write(configFile, copy.toString(2));
@@ -2340,6 +2347,7 @@ public class GatewayServer extends NanoHTTPD {
                 if(backupRetired || current==null || !minimaxLifecycle().isCurrent(lease) || !miniState(current).equals(old.access+"\n"+old.refresh+"\n"+old.expires)) return false;
                 JSONObject copy=new JSONObject(configJson.toString()); JSONObject target=miniAccount(copy,key);
                 target.put("access",next.access); target.put("token",next.access); target.put("refresh",next.refresh); target.put("expires",next.expires);
+                synchronizeAccountKeyMirrors(copy,"minimax-code");
                 minimaxPublishing=true;
                 try {
                     persistConfigStrict(copy); minimaxStates.put(key,miniState(target));
@@ -2355,14 +2363,14 @@ public class GatewayServer extends NanoHTTPD {
         }
     }
 
-    private synchronized void removeMiniMaxAccount(String id) throws Exception {
+    private synchronized int removeMiniMaxAccount(String id) throws Exception {
         JSONObject copy=new JSONObject(configJson.toString()); JSONArray providers=copy.optJSONArray("providers"); JSONObject provider=null;
         for(int i=0;providers!=null && i<providers.length();i++) { JSONObject p=providers.optJSONObject(i); if(p!=null && "minimax-code".equals(p.optString("id"))) { if(provider!=null) throw new IOException("duplicate provider"); provider=p; } }
-        if(provider==null) return;
-        JSONArray accounts=provider.optJSONArray("accounts"), kept=new JSONArray();
-        for(int i=0;accounts!=null && i<accounts.length();i++) { JSONObject a=accounts.optJSONObject(i); if(a!=null && !id.equals(a.optString("id"))) kept.put(a); }
-        provider.put("accounts",kept); persistConfigStrict(copy);
+        if(provider==null) return 0;
+        int removed=AccountPoolPolicy.removeAccounts(provider,id);
+        if(removed>0) persistConfigStrict(copy);
         // Keep every attempted refresh fingerprint across account deletion.
+        return removed;
     }
     private synchronized void persistMiniMaxAux(MiniMaxLifecycle.Lease lease, JSONArray models, JSONObject result) throws Exception {
         persistMiniMaxAux(lease,models,result,null);
@@ -7567,64 +7575,75 @@ public class GatewayServer extends NanoHTTPD {
                 return jsonResponse(res);
             }
 
+            // Local display labels never change authentication identity or account order.
+            if (uri.startsWith("/api/auth/") && uri.endsWith("/label") && "POST".equalsIgnoreCase(method)) {
+                String[] parts=uri.split("/");
+                if(parts.length!=5) return errorResponse(404,"Unknown account operation");
+                JSONObject req=new JSONObject(rawBody);
+                if(!(req.opt("id") instanceof String) || !(req.opt("label") instanceof String)
+                        || !req.has("expectedStateToken") || !validExpectedStateToken(req)) return errorResponse(400,"账号或备注格式无效，请刷新后重试");
+                String id=req.getString("id"),label=req.getString("label").trim();
+                if(id.isEmpty() || label.length()>80 || req.getString("label").matches("(?s).*[\\p{Cntrl}].*")
+                        || label.contains("allin-secret-ref:") || label.matches("(?is).*(?:Bearer\\s+|-----BEGIN|eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.).*"))
+                    return errorResponse(400,"备注最多80字，请勿填写凭据或控制字符");
+                synchronized(this) {
+                    JSONObject current=getProviderById(parts[3]);
+                    if(current==null) return errorResponse(404,"供应商不存在");
+                    if(!providerStateMatches(req,current)) return errorResponse(409,"账号状态已变化，请刷新后重试");
+                    JSONObject staged=new JSONObject(configJson.toString());
+                    JSONObject target=findProviderById(staged.optJSONArray("providers"),parts[3]);
+                    JSONArray accounts=target.optJSONArray("accounts");JSONObject selected=null;
+                    for(int i=0;accounts!=null && i<accounts.length();i++) {
+                        JSONObject account=accounts.optJSONObject(i);
+                        if(account!=null && id.equals(account.optString("id"))) {if(selected!=null)return errorResponse(409,"账号标识冲突");selected=account;}
+                    }
+                    if(selected==null) return errorResponse(404,"该账号已不在池中");
+                    for(String key:new String[]{"token","access","accessToken","refresh","refreshToken","jwt","apiKey","idToken","deviceToken","deviceRefresh","devicePrivateKey"}) {
+                        String secret=selected.optString(key,"");
+                        if(!secret.isEmpty() && label.contains(secret)) return errorResponse(400,"备注不能包含账号凭据");
+                    }
+                    if(label.isEmpty())selected.remove("label");else selected.put("label",label);
+                    try {persistConfigStrict(staged);}catch(IOException failure){return errorResponse(500,"备注未保存，原账号保持不变");}
+                    return jsonResponse(new JSONObject().put("ok",true).put("providerId",parts[3]).put("id",id).put("label",label).put("stateToken",providerStateToken(getProviderById(parts[3]))));
+                }
+            }
+
             // 7. 全平台通用账号移除 API: /api/auth/{provider}/remove
             if (uri.startsWith("/api/auth/") && uri.endsWith("/remove") && "POST".equalsIgnoreCase(method)) {
-                String[] parts = uri.split("/");
-                String targetProv = (parts.length >= 4) ? parts[3] : "workbuddy";
-
-                String postData = rawBody;
-                JSONObject req = new JSONObject(postData);
-                String removeId = req.optString("id", "");
-                if(removeId.trim().isEmpty())return errorResponse(400,"Missing account id");
-
-                if ("trae-cn".equals(targetProv)) {
-                    try { return jsonResponse(traeControl().remove(removeId)); } catch(Exception e) { return errorResponse(500,"Trae 账号移除保存失败"); }
-                }
-                if ("minimax-code".equals(targetProv)) {
-                    try { removeMiniMaxAccount(removeId); } catch(Exception e) { return errorResponse(500,"MiniMax 账号移除失败"); }
-                    return jsonResponse(new JSONObject().put("ok",true));
-                }
-                if ("deepseek_web".equals(targetProv)) {
-                    try { removeDeepSeekAccount(removeId); }
-                    catch(IOException e) { return errorResponse(500,"网页账号移除保存失败"); }
-                    return jsonResponse(new JSONObject().put("ok",true));
-                }
-                boolean removed=false;
+                String[] parts=uri.split("/");
+                if(parts.length!=5) return errorResponse(404,"Unknown account operation");
+                String targetProv=parts[3];JSONObject req=new JSONObject(rawBody);
+                if(!(req.opt("id") instanceof String) || req.getString("id").trim().isEmpty() || !validExpectedStateToken(req))
+                    return errorResponse(400,"Missing or invalid account id/state");
+                String removeId=req.getString("id");
                 synchronized(this) {
-                JSONObject staged=new JSONObject(configJson.toString());
-                JSONArray providers = staged.optJSONArray("providers");
-                if (providers != null) {
-                    for (int i = 0; i < providers.length(); i++) {
-                        JSONObject p = providers.getJSONObject(i);
-                        // 只删目标供应商自己的账号。原来还 || "workbuddy"，等于删 catpaw 的账号时
-                        // 也会进 workbuddy 里按同一个 id 找一遍 —— id 撞车就会误删别人的账号。
-                        if (targetProv.equals(p.optString("id"))) {
-                            JSONArray accounts = p.optJSONArray("accounts");
-                            if (accounts != null) {
-                                JSONArray newAccs = new JSONArray();
-
-                                for (int j = 0; j < accounts.length(); j++) {
-                                    JSONObject a = accounts.getJSONObject(j);
-                                    if (!removeId.equals(a.optString("id"))) {
-                                        newAccs.put(a);
-
-                                    }
-                                }
-                                if(newAccs.length()!=accounts.length()) {
-                                    p.put("accounts", newAccs);
-                                    AccountPoolPolicy.synchronizeKeys(p,accounts);
-                                    try{persistConfigStrict(staged);}catch(IOException failed){return errorResponse(500,"账号移除未保存，原账号池保持不变");}
-                                    removed=true;
-                                }
-                            }
+                    JSONObject current=getProviderById(targetProv);
+                    if(current!=null && !providerStateMatches(req,current)) return errorResponse(409,"账号状态已变化，请核对后重试");
+                    int removed=0;
+                    if(current!=null) {
+                        if("trae-cn".equals(targetProv)) {
+                            try {removed=traeControl().remove(removeId).optInt("removedCount",0);}
+                            catch(Exception failure){return errorResponse(500,"Trae 账号移除保存失败");}
+                        } else if("minimax-code".equals(targetProv)) {
+                            try {removed=removeMiniMaxAccount(removeId);}
+                            catch(Exception failure){return errorResponse(500,"MiniMax 账号移除保存失败");}
+                        } else if("deepseek_web".equals(targetProv)) {
+                            try {removed=removeDeepSeekAccount(removeId);}
+                            catch(IOException failure){return errorResponse(500,"网页账号移除保存失败");}
+                        } else {
+                            JSONObject staged=new JSONObject(configJson.toString());
+                            JSONObject target=findProviderById(staged.optJSONArray("providers"),targetProv);
+                            removed=AccountPoolPolicy.removeAccounts(target,removeId);
+                            if(removed>0) try {persistConfigStrict(staged);}
+                            catch(IOException failure){return errorResponse(500,"账号移除未保存，原账号池保持不变");}
                         }
                     }
+                    JSONObject after=getProviderById(targetProv);JSONArray accounts=after==null?null:after.optJSONArray("accounts");
+                    JSONObject result=new JSONObject().put("ok",true).put("providerId",targetProv).put("removed",removed>0)
+                            .put("removedCount",removed).put("remainingAccounts",accounts==null?0:accounts.length());
+                    if(after!=null) result.put("stateToken",providerStateToken(after));
+                    return jsonResponse(result);
                 }
-                }
-                JSONObject res = new JSONObject();
-                res.put("ok", true);
-                res.put("removed",removed);
-                return jsonResponse(res);
             }
 
             // 7.2 全平台通用模型动态拉取 API: /api/auth/{provider}/sync-models
@@ -10504,17 +10523,13 @@ public class GatewayServer extends NanoHTTPD {
         } catch(Exception e) { throw new DeepSeekConfigFailure(); }
     }
 
-    private synchronized void removeDeepSeekAccount(String id) throws IOException {
+    private synchronized int removeDeepSeekAccount(String id) throws IOException {
         try {
             JSONObject copy=new JSONObject(configJson.toString());
-            JSONArray providers=copy.optJSONArray("providers");
-            for(int i=0;providers!=null && i<providers.length();i++) {
-                JSONObject p=providers.optJSONObject(i); if(p==null || !"deepseek_web".equals(p.optString("id"))) continue;
-                JSONArray accounts=p.optJSONArray("accounts"), kept=new JSONArray();
-                for(int j=0;accounts!=null && j<accounts.length();j++) {JSONObject a=accounts.optJSONObject(j);if(a!=null && !"all".equals(id) && !id.equals(a.optString("id"))) kept.put(a);}
-                p.put("accounts",kept); break;
-            }
-            persistConfigStrict(copy);
+            JSONObject provider=findProviderById(copy.optJSONArray("providers"),"deepseek_web");
+            int removed=provider==null?0:AccountPoolPolicy.removeAccounts(provider,id);
+            if(removed>0) persistConfigStrict(copy);
+            return removed;
         } catch(Exception e) { throw new IOException("Could not remove account",e); }
     }
 
@@ -17608,7 +17623,8 @@ public class GatewayServer extends NanoHTTPD {
                 target.put("access", candidate.accessToken); target.put("token", candidate.accessToken);
                 target.put("refresh", candidate.refreshToken); target.put("idToken", candidate.idToken);
                 target.put("expires", candidate.expiresAt); target.put("lastRefresh", candidate.lastRefresh);
-                // Only credentials change: avoid post-write operations that can report a failed commit.
+                synchronizeAccountKeyMirrors(copy,"codex");
+                // Only credentials and their owned mirrors change: preserve the same commit verdict.
                 JSONObject nextExpected = new JSONObject(target.toString());
                 AtomicConfigFile.write(configFile, copy.toString(2));
                 publishConfig(copy);

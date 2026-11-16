@@ -18,7 +18,10 @@ function dom(html,virtualTimeBudget,options={}){
   const args=['--headless','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--user-data-dir='+path.join(dir,'profile'),'--dump-dom'];
   if(virtualTimeBudget)args.push('--virtual-time-budget='+virtualTimeBudget);
   if(options.windowSize)args.push('--window-size='+options.windowSize.map(n=>Math.max(320,Math.min(2000,Number(n)||900))).join(','));
-  if(options.screenshot)args.push('--screenshot='+path.resolve(options.screenshot));
+  if(options.screenshot){
+   const target=process.env.ALLIN_TEST_SCREENSHOT_DIR?path.join(process.env.ALLIN_TEST_SCREENSHOT_DIR,path.basename(options.screenshot)):path.resolve(options.screenshot);
+   fs.mkdirSync(path.dirname(target),{recursive:true});args.push('--screenshot='+target);
+  }
   args.push(pathToFileURL(file).href);
   const r=cp.spawnSync(browser(),args,{encoding:'utf8',timeout:60000});
   if(r.error || r.status!==0)throw new Error('Browser regression failed: '+(r.error?r.error.message:r.stderr));

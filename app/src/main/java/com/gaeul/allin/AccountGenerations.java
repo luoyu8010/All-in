@@ -27,10 +27,15 @@ final class AccountGenerations {
     /** Display/catalog bookkeeping is not a new credential or account incarnation. */
     static JSONObject state(JSONObject account) {
         JSONObject state=new JSONObject(account.toString());
-        for(String field:new String[]{"name","models","modelMeta","catalogUpdatedAt","catalogRenewedAt","checkinDate","checkinOutcome","checkinCredit"})state.remove(field);
+        for(String field:new String[]{"name","label","models","modelMeta","catalogUpdatedAt","catalogRenewedAt","checkinDate","checkinOutcome","checkinCredit"})state.remove(field);
         return state;
     }
     static boolean sameState(JSONObject a,JSONObject b){return a!=null&&b!=null&&state(a).similar(state(b));}
+    static boolean sameExceptLabel(JSONObject a,JSONObject b) {
+        if(a==null || b==null) return false;
+        JSONObject left=new JSONObject(a.toString()),right=new JSONObject(b.toString());
+        left.remove("label");right.remove("label");return left.similar(right);
+    }
     private static JSONObject incarnationState(JSONObject a) {
         JSONObject out=state(a);
         for(String k:new String[]{"access","token","refresh","expires","idToken","expiresAt","lastRefresh","deviceToken","deviceRefresh"})out.remove(k);

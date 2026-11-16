@@ -1297,7 +1297,7 @@
             <span class="project-info-text"><span class="project-info-kicker">开源项目</span><span class="project-info-meta">github.com/xunianooo/All-in</span></span><span class="project-info-arrow" aria-hidden="true">↗</span>
           </a>
       </div>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.42-test</p>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.49-test</p>
       <div id="setup-anchor"></div>
       <div class="card checkin-entry" id="checkin-home-entry">
         <div><span class="checkin-kicker">DAILY CHECK-IN</span><h2>每日签到</h2><p id="checkin-home-summary">账号奖励，一处管理</p></div>
@@ -5560,6 +5560,7 @@
     }
 
     let providerConfigRequest = 0, providerWriteRevision = 0, commercialKeysDirty = false;
+    let accountMutationReadback = null;
     const providerWrites = new Set(), commercialEditedIds = new Set(), dirtyKeysMap = new Map(), providerUnknown = new Set();
     const providerDraftTokens = new Map(), providerDraftConflicts = new Set(), providerPendingKeys = new Map();
     function providerToken(id) { const t = appConfig && appConfig.providerStateTokens && appConfig.providerStateTokens[id]; return typeof t === 'string' ? t : undefined; }
@@ -5611,9 +5612,11 @@
     let providerRefreshNeeded = false, providerExpandDisabled = false, commercialRenderDeferred = false, providerConfigError = false;
     let providerView = 'list', providerDetail = '', providerListSig = '', providerListScroll = 0;
     function providerCounts(p) {
+      const accountRequired = ['antigravity','qoder_cn','catpaw','github-copilot','minimax-code','trae-cn','deepseek_web','loomy'].includes(p.id);
       const keys = new Set((Array.isArray(p.keys) ? p.keys : []).map(k => typeof k === 'string' ? k.trim() : (k && typeof k === 'object' && typeof k.key === 'string' ? k.key.trim() : '')).filter(Boolean));
       const accounts = (Array.isArray(p.accounts) ? p.accounts : []).filter(a => a && typeof a === 'object' && !Array.isArray(a) && ['token','access','accessToken','refresh','refreshToken','jwt','apiKey'].some(k => typeof a[k] === 'string' && a[k].trim()));
-      return {keys:keys.size, accounts:accounts.length, models:Array.isArray(p.models) ? p.models.length : 0};
+      // Saved disabled accounts remain manageable; expired login mirrors alone are not accounts.
+      return {keys:accountRequired ? 0 : keys.size, accounts:accounts.length, models:Array.isArray(p.models) ? p.models.length : 0};
     }
     function providerConfigured(p) { const c = providerCounts(p); return c.keys > 0 || c.accounts > 0; }
     function providerEnabled(p) { return p.enabled !== false; }
@@ -5671,7 +5674,7 @@
       if (providerView === 'add') { info.textContent = '添加供应商'; const available = (cards && Array.from(cards.children).some(x => !x.hidden)) || (commercial && Array.from(commercial.children).some(x => !x.hidden)); if (!available) { const note = document.createElement('p'); note.textContent = '暂无可添加的供应商'; info.appendChild(note); } return; }
       const p = providers.find(x => x.id === providerDetail); if (!p) return;
       const heading = document.createElement('h3'); heading.textContent = p.name || p.id; info.appendChild(heading);
-      const c = providerCounts(p), desc = document.createElement('p'); desc.textContent = '账号 ' + c.accounts + ' · Key ' + c.keys + ' · 模型 ' + c.models + '（配置） · 已配置'; info.appendChild(desc);
+      const c = providerCounts(p), desc = document.createElement('p'); desc.textContent = '账号 ' + c.accounts + ' · Key ' + c.keys + ' · 模型 ' + c.models + '（配置） · ' + (providerConfigured(p) ? '已配置' : '待接入'); info.appendChild(desc);
       if (c.accounts) { const b = document.createElement('button'); b.className = 'btn btn-outline'; b.textContent = '管理账号'; b.onclick = () => manageProviderAccounts(p.id); info.appendChild(b); }
       if (p.id === 'loomy') { const login = document.createElement('button'); login.className = 'btn btn-outline'; login.textContent = '短信登录'; login.onclick = showLoomyLogin; info.appendChild(login); }
       renderProviderBilling(info, p.id);
@@ -5819,6 +5822,8 @@
     }
 
     async function loadConfig() {
+      // Polling shares the authoritative post-mutation read instead of superseding it.
+      if (typeof accountMutationReadback !== 'undefined' && accountMutationReadback && accountMutationReadback.revision === providerWriteRevision) return accountMutationReadback.promise;
       const configRequestId = ++providerConfigRequest, requestWriteRevision = providerWriteRevision;
       try {
         if (configRequestId !== providerConfigRequest || providerWriteRevision !== requestWriteRevision || providerWrites.size) return;
@@ -5831,6 +5836,7 @@
         if (configRequestId !== providerConfigRequest || providerWriteRevision !== requestWriteRevision || providerWrites.size) return;
         providerConfigError = false; renderProviderStatus();
         appConfig = incoming;
+        if (typeof currentModalProviderId !== 'undefined' && currentModalProviderId && typeof renderAccountModalList === 'function' && !document.querySelector('#acc-modal-list .account-label-editor')) renderAccountModalList(currentModalProviderId);
         const cfgSig = JSON.stringify(appConfig);
         if (cfgSig === lastConfigSig && !renderDirty) {
           renderProviderList(); flushCommercialRender(); applyProviderView();
@@ -9112,89 +9118,95 @@
 
     let currentModalProviderId = null;
 
-    // 点击卡片上的【移除账号】快捷按钮
+    // Only display identity metadata. Credentials and opaque secret references are never labels.
+    function accountIdentityText(acc, value, max = 160) {
+      if (typeof value !== 'string' && typeof value !== 'number') return '';
+      let text = String(value).replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g, ' ').trim();
+      if (!text || /allin-secret-ref:|\bBearer\s+|\b(?:sk-|gh[pousr]_|github_pat_)|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.|-----BEGIN/i.test(text)) return '';
+      for (const key of ['token','access','accessToken','access_token','refresh','refreshToken','refresh_token','jwt','apiKey','idToken','deviceToken','deviceRefresh','devicePrivateKey','cookie','password']) {
+        const secret = acc && acc[key];
+        if (typeof secret === 'string' && secret.length > 0 && text.includes(secret)) return '';
+      }
+      return text.length > max ? text.slice(0,max) + '…' : text;
+    }
+    function accountDisplayInfo(acc) {
+      acc = acc || {};
+      const text = (value, max) => accountIdentityText(acc,value,max);
+      const label = text(acc.label,80), email = text(acc.email);
+      let name = text(acc.name || acc.displayName || acc.nickname);
+      if (/^(?:(?:默认|导入|免Key|Google|谷歌|已登录)\s*)?(?:账号|账户|用户)(?:\s*[#·•._-]?\s*\d+)?$/i.test(name)) name = '';
+      const login = text(acc.githubLogin || acc.login || acc.username);
+      const rawPhone = text(acc.phone || acc.mobile), phone = rawPhone ? rawPhone.replace(/(\d{3})\d{4}(\d{4})$/, '$1****$2') : '';
+      const identity = text(acc.uid || acc.userId || acc.userID || acc.accountId || acc.subject);
+      const primary = label || email || name || login || phone || (identity ? '用户 ' + identity : '未命名账号');
+      const details = [];
+      for (const value of [email, name, login, phone]) if (value && value !== primary && !details.includes(value)) details.push(value);
+      if (!email && !login && !phone && identity && !primary.includes(identity)) details.push('用户 ID：' + identity);
+      const scope = text(acc.site || acc.domain || acc.project); if (scope) details.push(scope);
+      if (!email && !login && !phone && !identity) {
+        const id = text(acc.id); if (id) details.push('本地标识：' + id.slice(-12));
+        details.push('可添加备注以便区分');
+      }
+      return {primary, secondary:details.join(' · '), confirmation:[primary,...details.filter(x => x !== '可添加备注以便区分')].join(' · ')};
+    }
+
+    // Single and multi-account entry points use the same identification and confirmation.
     async function removeAccountAction(providerId) {
       const prov = (appConfig.providers || []).find(p => p.id === providerId);
       const accs = prov && Array.isArray(prov.accounts) ? prov.accounts : [];
-      const pName = getProviderName(providerId);
-
-      if (accs.length === 0) {
-        alert('当前【' + pName + '】暂无已入池账号可移除');
-        return;
-      }
-
-      if (accs.length === 1) {
-        const targetAcc = accs[0];
-        const accLabel = targetAcc.name || '默认账号';
-        if (confirm('确定要将【' + pName + '】已入池账号 [' + accLabel + '] 移出网关池吗？')) {
-          await removeProviderAccount(providerId, targetAcc.id);
-        }
-        return;
-      }
-
-      // 多个账号时，直接呼出管理与移除弹窗，方便挑选或全清
+      if (!accs.length) { showToast('当前暂无已入池账号可移除'); return; }
+      if (accs.length === 1) return removeProviderAccount(providerId, accs[0].id);
       manageProviderAccounts(providerId);
     }
 
-    // 打开供应商账号管理浮层（可单删、可全清、可查看凭据）
     function manageProviderAccounts(providerId) {
-      const prov = (appConfig.providers || []).find(p => p.id === providerId);
-      const accs = prov && Array.isArray(prov.accounts) ? prov.accounts : [];
-      const pName = getProviderName(providerId);
-
       currentModalProviderId = providerId;
       const modal = document.getElementById('account-manage-modal');
-      const title = document.getElementById('acc-modal-title');
-      const subtitle = document.getElementById('acc-modal-subtitle');
-      const clearBtn = document.getElementById('acc-modal-clear-btn');
-
-      if (title) title.innerText = pName + ' - 账号管理';
-      if (subtitle) subtitle.innerText = '当前已入池 ' + accs.length + ' 个可用账号凭据';
-      if (clearBtn) {
-        clearBtn.style.display = accs.length > 0 ? 'inline-block' : 'none';
-        clearBtn.onclick = () => clearAllProviderAccounts(providerId);
-      }
-
       renderAccountModalList(providerId);
-      if (modal) {
-        modal.style.display = 'flex';
-      }
+      if (modal) modal.style.display = 'flex';
     }
 
     function renderAccountModalList(providerId) {
-      const listEl = document.getElementById('acc-modal-list');
-      if (!listEl) return;
+      const listEl = document.getElementById('acc-modal-list'); if (!listEl) return;
       const prov = (appConfig.providers || []).find(p => p.id === providerId);
-      const accs = prov && Array.isArray(prov.accounts) ? prov.accounts : [];
-      const pName = getProviderName(providerId);
-
-      listEl.innerHTML = '';
-      if (accs.length === 0) {
-        listEl.innerHTML = '<div style="text-align:center; padding:30px 10px; color:var(--text-muted); font-size:0.85rem;">⚪ 当前平台暂无账号<br><span style="font-size:0.75rem; color:#6b7280; margin-top:6px; display:block;">可关闭本弹窗后点击卡片上的【登录账号】或【导入账号】入池</span></div>';
-        return;
-      }
-
-      accs.forEach((acc, idx) => {
-        const item = document.createElement('div');
-        item.style = 'background:rgba(255,255,255,0.04); border:1px solid var(--card-border); border-radius:12px; padding:12px 14px; display:flex; justify-content:space-between; align-items:center; gap:10px;';
-        const dateStr = acc.addedAt ? new Date(acc.addedAt).toLocaleString() : '刚刚';
-
-        item.innerHTML = [
-          '<div style="flex:1; min-width:0;">',
-          '  <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">',
-          '    <span style="color:#10b981; font-size:0.75rem;">●</span>',
-          '    <b style="font-size:0.85rem; color:#fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + ('账号 •••• #' + (idx + 1)) + '</b>',
-          '    <span class="badge" style="background:rgba(16,185,129,0.15); color:#34d399; font-size:0.65rem; padding:1px 6px; border-radius:10px;">' + (acc.off || acc.enabled === false ? '已停用' : '已配置') + '</span>',
-          '  </div>',
-          '  <div style="font-size:0.7rem; color:#6b7280; margin-top:2px;">入池时间: ' + dateStr + '</div>',
-          '</div>',
-          '<div>',
-          '  <button class="btn btn-outline" style="color:#ef4444; border-color:rgba(239,68,68,0.35); background:rgba(239,68,68,0.08); padding:5px 12px; font-size:0.75rem; border-radius:16px;" onclick="removeProviderAccount(\'' + jsAttr(providerId) + '\', \'' + jsAttr(acc.id) + '\')">🗑️ 移除</button>',
-          '</div>'
-        ].join('');
-        if (['raccoon','loomy'].includes(providerId) && acc.id && acc.enabled !== false && !acc.off) addAccountOperations(item, providerId, acc.id);
+      const accs = prov && Array.isArray(prov.accounts) ? prov.accounts.filter(a => a && typeof a === 'object') : [];
+      const title = document.getElementById('acc-modal-title'), subtitle = document.getElementById('acc-modal-subtitle'), clearBtn = document.getElementById('acc-modal-clear-btn');
+      if (title) title.textContent = getProviderName(providerId) + ' - 账号管理';
+      if (subtitle) subtitle.textContent = '已入池 ' + accs.length + ' 个账号 · 移除前请核对名称';
+      if (clearBtn) { clearBtn.style.display = accs.length ? 'inline-block' : 'none'; clearBtn.disabled = providerWrites.has(providerId); clearBtn.onclick = () => clearAllProviderAccounts(providerId); }
+      listEl.replaceChildren();
+      if (!accs.length) { const empty = document.createElement('p'); empty.textContent = '当前平台暂无账号，可从添加供应商重新登录或导入。'; listEl.appendChild(empty); return; }
+      accs.forEach(acc => {
+        const item = document.createElement('div'); item.className = 'account-manage-row';
+        item.style.cssText = 'background:var(--bg-card);border:1px solid var(--card-border);border-radius:14px;padding:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;';
+        const content = document.createElement('div'); content.style.cssText = 'flex:1;min-width:0;';
+        const identity = accountDisplayInfo(acc), heading = document.createElement('b'); heading.className = 'account-display-name'; heading.textContent = identity.primary;
+        heading.style.cssText = 'display:block;font-size:.88rem;color:var(--text-main);overflow-wrap:anywhere;line-height:1.5;'; content.appendChild(heading);
+        if (identity.secondary) { const sub = document.createElement('div'); sub.className = 'account-display-identity'; sub.textContent = identity.secondary; sub.style.cssText = 'font-size:.72rem;line-height:1.5;overflow-wrap:anywhere;color:var(--text-muted);margin-top:3px;'; content.appendChild(sub); }
+        const status = document.createElement('div'), date = new Date(acc.addedAt);
+        const disabled = acc.off || acc.enabled === false;
+        status.className = 'account-display-status'; status.textContent = (disabled ? '已停用' : '已配置') + ' · 入池时间：' + (acc.addedAt && !isNaN(date.getTime()) ? date.toLocaleString() : '未记录');
+        status.style.cssText = 'font-size:.68rem;line-height:1.5;color:var(--text-muted);margin-top:5px;'; content.appendChild(status); item.appendChild(content);
+        const actions = document.createElement('div'); actions.style.cssText = 'display:flex;flex-direction:column;gap:6px;flex-shrink:0;';
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-outline account-note-button'; edit.textContent = '备注'; edit.style.cssText = 'font-size:.74rem;padding:6px 12px;border-radius:16px;'; edit.disabled = !acc.id || providerWrites.has(providerId); edit.onclick = () => editAccountLabel(providerId,acc.id,item); actions.appendChild(edit);
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline account-remove-button'; remove.textContent = '移除'; remove.style.cssText = 'color:#ef4444;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06);font-size:.74rem;padding:6px 12px;border-radius:16px;'; remove.disabled = !acc.id || providerWrites.has(providerId); remove.onclick = () => removeProviderAccount(providerId,acc.id); actions.appendChild(remove); item.appendChild(actions);
+        if (['raccoon','loomy'].includes(providerId) && acc.id && !disabled) addAccountOperations(item,providerId,acc.id);
         listEl.appendChild(item);
       });
+    }
+
+    function editAccountLabel(providerId, accId, item) {
+      const existing = item.querySelector('.account-label-editor'); if (existing) { existing.querySelector('input').focus(); return; }
+      const prov = (appConfig.providers || []).find(p => p.id === providerId), acc = prov && (prov.accounts || []).find(a => a.id === accId); if (!acc) return;
+      const area = document.createElement('form'); area.className = 'account-label-editor'; area.style.cssText = 'flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;';
+      const input = document.createElement('input'); input.type = 'text'; input.maxLength = 80; input.value = accountIdentityText(acc,acc.label,80); input.placeholder = '例如：工作邮箱（留空恢复原名称）'; input.setAttribute('aria-label','账号备注'); input.style.cssText = 'width:100%;box-sizing:border-box;min-width:0;padding:9px;border-radius:10px;'; area.appendChild(input);
+      const save = document.createElement('button'); save.type = 'submit'; save.className = 'btn btn-primary'; save.textContent = '保存备注';
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-outline'; cancel.textContent = '取消'; cancel.onclick = () => area.remove();
+      area.appendChild(save); area.appendChild(cancel); item.appendChild(area); input.focus();
+      area.onsubmit = async event => { event.preventDefault(); if (save.disabled) return; save.disabled = cancel.disabled = true;
+        const result = await mutateProviderAccount(providerId,'label',{id:accId,label:input.value},'备注已保存');
+        if (!result && area.isConnected) save.disabled = cancel.disabled = false;
+      };
     }
 
     // Account operations: all results are scoped to the selected account and rendered as text.
@@ -9306,61 +9318,56 @@
       currentModalProviderId = null;
     }
 
-    async function removeProviderAccount(providerId, accId) {
-      const pName = getProviderName(providerId);
-      providerWriteRevision++;
+    async function mutateProviderAccount(providerId, action, payload, successText) {
+      if (providerWrites.has(providerId) || providerUnknown.has(providerId)) { showToast('此供应商的操作尚未完成，请先刷新确认'); return false; }
+      const token = providerToken(providerId);
+      providerWrites.add(providerId); providerWriteRevision++;
+      let succeeded = false;
       try {
-        const res = await fetch(API_BASE + '/api/auth/' + providerId + '/remove', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: accId })
+        const res = await fetch(API_BASE + '/api/auth/' + encodeURIComponent(providerId) + '/' + action, {
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(withProviderToken(payload,token))
         });
         const data = await res.json();
-        if (data.ok) {
-          providerWriteRevision++;
-          showToast('已成功移出【' + pName + '】网关池！');
-          await loadConfig();
-          refreshProviderBadges();
-          if (currentModalProviderId === providerId) {
-            const prov = (appConfig.providers || []).find(p => p.id === providerId);
-            const remaining = prov && Array.isArray(prov.accounts) ? prov.accounts.length : 0;
-            const subtitle = document.getElementById('acc-modal-subtitle');
-            if (subtitle) subtitle.innerText = '当前已入池 ' + remaining + ' 个可用账号凭据';
-            renderAccountModalList(providerId);
-            if (remaining === 0) {
-              const clearBtn = document.getElementById('acc-modal-clear-btn');
-              if (clearBtn) clearBtn.style.display = 'none';
-            }
-          }
-        } else {
-          alert('移除失败: ' + errText(data.error));
+        if (!res.ok || !data || data.ok !== true) { showToast(res.status === 409 ? '账号状态已变化，请核对最新列表后重试' : '操作未完成，原账号不会因失败提示而被当作已移除'); return false; }
+        if (data.providerId !== providerId || (action === 'remove' && typeof data.removed !== 'boolean') || (action === 'label' && data.id !== payload.id)) { showToast('操作结果未确认，请刷新列表核对'); return false; }
+        acknowledgeProviderToken(providerId,data.stateToken);
+        if (typeof providerBillingCache !== 'undefined') delete providerBillingCache[providerId];
+        if (typeof billingRequests !== 'undefined') billingRequests[providerId] = (billingRequests[providerId] || 0) + 1;
+        showToast(action === 'remove' && !data.removed ? (payload.id === 'all' ? '当前没有可清空的账号，列表已刷新' : '该账号已不在池中，列表已刷新') : successText);
+        succeeded = true; return true;
+      } catch (_) { showToast('请求结果未确认，正在重新读取账号；请核对后再操作'); return false; }
+      finally {
+        providerWrites.delete(providerId); providerWriteRevision++;
+        providerListSig = ''; providerRefreshNeeded = true;
+        if (!providerWrites.size) {
+          providerRefreshNeeded = false;
+          const readback = {revision:providerWriteRevision, promise:loadConfig()}; accountMutationReadback = readback;
+          try { await readback.promise; } finally { if (accountMutationReadback === readback) accountMutationReadback = null; }
         }
-      } catch (e) {
-        alert('网络请求失败: ' + e.message);
+        refreshProviderBadges();
+        const prov = (appConfig.providers || []).find(p => p.id === providerId);
+        if (currentModalProviderId === providerId) {
+          if (succeeded && (!prov || !(prov.accounts || []).length)) closeAccountModal();
+          else if (!document.querySelector('#acc-modal-list .account-label-editor') || succeeded) renderAccountModalList(providerId);
+        }
+        if (succeeded && (!prov || !providerConfigured(prov)) && providerView === 'detail' && providerDetail === providerId) showProviderView('list');
       }
     }
 
+    async function removeProviderAccount(providerId, accId) {
+      const prov = (appConfig.providers || []).find(p => p.id === providerId), acc = prov && (prov.accounts || []).find(a => a && a.id === accId);
+      if (!acc) { showToast('该账号已不在当前列表，请刷新确认'); return; }
+      const identity = accountDisplayInfo(acc), pName = getProviderName(providerId);
+      if (!confirm('确定从【' + pName + '】移除以下账号？\n\n' + identity.confirmation + '\n\n只移出本地账号池，不会注销官方账号。')) return;
+      return mutateProviderAccount(providerId,'remove',{id:accId},'已移除：' + identity.primary);
+    }
+
     async function clearAllProviderAccounts(providerId) {
-      const pName = getProviderName(providerId);
-      if (!confirm('⚠️ 警告：确定要彻底清空【' + pName + '】的所有已入池账号吗？')) return;
-      try {
-        const res = await fetch(API_BASE + '/api/auth/' + providerId + '/remove', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: 'all' })
-        });
-        const data = await res.json();
-        if (data.ok) {
-          showToast('已清空【' + pName + '】所有账号！');
-          await loadConfig();
-          refreshProviderBadges();
-          closeAccountModal();
-        } else {
-          alert('清空失败: ' + errText(data.error));
-        }
-      } catch (e) {
-        alert('请求失败: ' + e.message);
-      }
+      const prov = (appConfig.providers || []).find(p => p.id === providerId), accs = prov && Array.isArray(prov.accounts) ? prov.accounts : [];
+      if (!accs.length) { showToast('当前没有可清空的账号'); return; }
+      const names = accs.slice(0,5).map(a => accountDisplayInfo(a).confirmation).join('\n');
+      if (!confirm('确定清空【' + getProviderName(providerId) + '】的 ' + accs.length + ' 个账号？\n\n' + names + (accs.length>5 ? '\n…共 ' + accs.length + ' 个账号' : '') + '\n\n只移除本地账号及其关联凭据，独立配置的 API Key 会保留。')) return;
+      return mutateProviderAccount(providerId,'remove',{id:'all'},'已清空【' + getProviderName(providerId) + '】的 ' + accs.length + ' 个账号');
     }
 
     // 动态刷新各卡片右侧的账号胶囊数量 (账号 0 / 账号 1)

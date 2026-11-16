@@ -14,6 +14,7 @@ public final class TraeControl implements AutoCloseable {
         default long accountEpoch(String id) { return epoch(); }
         JSONObject config();
         boolean save(JSONObject config);
+        default boolean saveAccountRemoval(JSONObject config) { return save(config); }
         boolean retired();
     }
     private final Host host;
@@ -80,20 +81,27 @@ public final class TraeControl implements AutoCloseable {
                 live(); JSONObject p=provider(host.config()); if(!p.optBoolean("enabled",true)) throw new IOException("provider disabled");
                 int i=accountIndex(p,id); JSONObject a=i<0?null:p.optJSONArray("accounts").optJSONObject(i);
                 JSONObject compare=copy(expected);long epoch=compare.optLong("_traeEpoch",0);compare.remove("_traeEpoch");
-                if(a==null || !a.optBoolean("enabled",true) || host.accountEpoch(id)!=epoch || !a.similar(compare) || !id.equals(next.optString("id"))) throw new IOException("account changed");
+                if(a==null || !a.optBoolean("enabled",true) || host.accountEpoch(id)!=epoch || !AccountGenerations.sameExceptLabel(a,compare) || !id.equals(next.optString("id"))) throw new IOException("account changed");
                 JSONObject cloned=copy(host.config()); JSONObject target=provider(cloned);
-                JSONObject clean=copy(next);clean.remove("_traeEpoch");target.getJSONArray("accounts").put(i,clean); rebuild(target); live();
+                JSONObject clean=copy(next);clean.remove("_traeEpoch");
+                if(a.has("label"))clean.put("label",a.opt("label"));else clean.remove("label");
+                target.getJSONArray("accounts").put(i,clean); rebuild(target); live();
                 if(!host.save(cloned)) throw new IOException("account save failed");
                 next.put("_traeEpoch",host.accountEpoch(id));
             }
         }
     };
     public JSONObject remove(String id) throws Exception {
-        if(id==null||id.isEmpty())throw new IllegalArgumentException("accountId required");
-        synchronized(host.lock()) {live();JSONObject next=copy(host.config()),p=provider(next);JSONArray old=p.optJSONArray("accounts"),kept=new JSONArray();boolean found=false;
-            for(int i=0;old!=null&&i<old.length();i++){JSONObject a=old.getJSONObject(i);if(id.equals(a.optString("id")))found=true;else kept.put(a);}
-            if(!found)throw new IllegalArgumentException("account missing");p.put("accounts",kept);rebuild(p);live();if(!host.save(next))throw new IOException("account save failed");
-            return new JSONObject().put("ok",true);
+        if(id==null||id.trim().isEmpty())throw new IllegalArgumentException("accountId required");
+        synchronized(host.lock()) {
+            live();JSONObject next=copy(host.config()),p=provider(next);
+            int removed=AccountPoolPolicy.removeAccounts(p,id);
+            if(removed>0) {
+                // Rebuild account-scoped models, without discarding independent configured keys.
+                JSONArray retainedKeys=p.getJSONArray("keys");rebuild(p);p.put("keys",retainedKeys);
+                live();if(!host.saveAccountRemoval(next))throw new IOException("account save failed");
+            }
+            return new JSONObject().put("ok",true).put("removed",removed>0).put("removedCount",removed);
         }
     }
     public JSONObject lease(String id,RequestContext request) throws Exception {

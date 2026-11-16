@@ -112,6 +112,40 @@ public final class RepairInstrumentation extends Instrumentation {
             check(IngressMemoryBudget.usedBytes()==0,"Android ingress allocations released");
         } finally {if(server!=null)server.stop();delete(dir);}
     }
+    private void accountManagementRuntime(Context target)throws Exception {
+        File dir=new File(target.getFilesDir(),"account-management-"+UUID.randomUUID());if(!dir.mkdirs())throw new IOException("Fixture directory");
+        Context isolated=new ContextWrapper(target){@Override public File getFilesDir(){return dir;}@Override public Context getApplicationContext(){return this;}};
+        GatewayServer server=null;
+        String[] ids={"antigravity","minimax-code","trae-cn","deepseek_web","workbuddy","workbuddy-ai","raccoon","loomy","catpaw","github-copilot","cline","codex","qoder_cn","zcode","openai","anthropic","deepseek","siliconflow","openrouter","tencent"};
+        try {
+            JSONObject root;try(InputStream in=target.getAssets().open("default_config.json")){ByteArrayOutputStream out=new ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)out.write(b,0,n);root=new JSONObject(out.toString("UTF-8"));}
+            root.put("checkin",new JSONObject().put("autoEnabled",false));root.put("setup",new JSONObject().put("done",true));
+            for(String id:ids) {
+                JSONObject p=null;for(int i=0;i<root.getJSONArray("providers").length();i++){JSONObject item=root.getJSONArray("providers").getJSONObject(i);if(id.equals(item.optString("id")))p=item;}
+                if(p==null)throw new AssertionError("missing fixture provider "+id);
+                JSONArray a=new JSONArray(),keys=new JSONArray();for(String suffix:new String[]{"one","two"}){String token="synthetic-android-"+id+"-"+suffix;a.put(new JSONObject().put("id",id+"-"+suffix).put("name","同名账号").put("email",suffix+"@example.invalid").put("token",token).put("access",token).put("enabled",true));keys.put(token);}
+                p.put("accounts",a).put("keys",keys).put("enabled",true);
+            }
+            AtomicConfigFile.write(new File(dir,"config.json"),root.toString(2));server=new GatewayServer(isolated,0);server.start(5000,true);int port=server.getListeningPort();
+            for(String id:ids) {
+                String path="/api/auth/"+id+"/";
+                Reply single=http(port,"POST",path+"remove",new JSONObject().put("id",id+"-one").toString(),true,-1);
+                check(single.status==200&&new JSONObject(single.body).optInt("removedCount")==1,"Android single removal "+id);
+                JSONObject view=new JSONObject(http(port,"GET","/api/config","",true,-1).body);
+                String state=view.getJSONObject("providerStateTokens").getString(id);
+                Reply label=http(port,"POST",path+"label",new JSONObject().put("id",id+"-two").put("label","备用账号").put("expectedStateToken",state).toString(),true,-1);
+                check(label.status==200&&"备用账号".equals(new JSONObject(label.body).optString("label")),"Android label persistence "+id);
+                Reply stale=http(port,"POST",path+"remove",new JSONObject().put("id","all").put("expectedStateToken",state).toString(),true,-1);
+                check(stale.status==409,"Android stale destructive confirmation rejected "+id);
+                Reply clear=http(port,"POST",path+"remove",new JSONObject().put("id","all").toString(),true,-1);
+                check(clear.status==200&&new JSONObject(clear.body).optInt("removedCount")==1&&new JSONObject(clear.body).optInt("remainingAccounts")==0,"Android actual last account removal "+id);
+                JSONObject disk=new JSONObject(read(new File(dir,"config.json"))),p=null;for(int i=0;i<disk.getJSONArray("providers").length();i++){JSONObject item=disk.getJSONArray("providers").getJSONObject(i);if(id.equals(item.optString("id")))p=item;}
+                check(p!=null&&p.getJSONArray("accounts").length()==0&&p.getJSONArray("keys").length()==0,"Android durable empty accounts AND mirrors "+id);
+                Reply repeat=http(port,"POST",path+"remove",new JSONObject().put("id","all").toString(),true,-1);check(repeat.status==200&&!new JSONObject(repeat.body).optBoolean("removed",true),"Android repeated clear is not a new removal "+id);
+            }
+            check(!new JSONObject(read(new File(dir,"config.json"))).getJSONObject("checkin").getBoolean("autoEnabled"),"Android synthetic test did not enable automatic claims");
+        } finally {if(server!=null)server.stop();delete(dir);}
+    }
     private void advisoryRuntime() throws Exception {
         JSONObject account=new JSONObject().put("id","fixture-a").put("enabled",true).put("token","synthetic-android-old").put("refresh","synthetic-android-refresh");
         JSONObject base=new JSONObject().put("providers",new JSONArray().put(new JSONObject().put("id","workbuddy").put("enabled",true).put("accounts",new JSONArray().put(account))));
@@ -221,7 +255,7 @@ public final class RepairInstrumentation extends Instrumentation {
             Context target=getTargetContext();
             if(!target.getPackageName().endsWith(".repairtest"))throw new SecurityException("Runtime tests require the isolatedTestInstall package");
             if(audit52){result.putString("stream","AUDIT_ANDROID 05_webview "+Audit52WebView.run(this)+"\n");finish(Activity.RESULT_OK,result);return;}
-            jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);alarms(target);
+            jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);accountManagementRuntime(target);alarms(target);
             result.putString("stream","ANDROID_REPAIR_PASS checks="+checks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);
         } catch(Throwable failure) {
             StringWriter trace=new StringWriter();failure.printStackTrace(new PrintWriter(trace));result.putString("stream","ANDROID_REPAIR_FAIL checks="+checks+"\n"+trace);finish(Activity.RESULT_CANCELED,result);

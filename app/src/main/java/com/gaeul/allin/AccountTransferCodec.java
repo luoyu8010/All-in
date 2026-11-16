@@ -32,7 +32,7 @@ final class AccountTransferCodec {
             index=i; provider=p; hint=p; kind=k; value=v; source=src;
         }
         String label() {
-            String name=value.optString("name", value.optString("label", ""));
+            String name=value.optString("label", value.optString("name", ""));
             if(name.isEmpty()) name="账号 " + (index+1);
             for(String k : new String[]{"token","access","access_token","accessToken","refresh","refresh_token","refreshToken","jwt","idToken","id_token","key","apiKey","api_key","deviceToken","deviceRefresh","devicePrivateKey"}) {
                 String secret=value.optString(k, ""); if(!secret.isEmpty()) name=name.replace(secret,"[隐藏凭据]");
