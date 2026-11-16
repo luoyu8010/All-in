@@ -36,6 +36,10 @@ public class AntigravityClient {
     // ------------------------------------------------------------- 请求：OpenAI → 信封
 
     public static JSONObject buildEnvelope(JSONObject payload, String model, String project) {
+        return buildEnvelope(payload, model, project, null);
+    }
+
+    public static JSONObject buildEnvelope(JSONObject payload, String model, String project, JSONObject modelInfo) {
         JSONObject req = new JSONObject();
         JSONArray contents = new JSONArray();
         StringBuilder system = new StringBuilder();
@@ -258,18 +262,19 @@ public class AntigravityClient {
             int geminiGeneration = geminiGeneration(lower);
             boolean geminiThinkingModel = geminiGeneration >= 3 || lower.contains("gemini-pro-agent");
             if (geminiThinkingModel && !claude) {
-                String normalized = normalizeEffort(effort);
-                if (!normalized.isEmpty()) {
+                // Once a specific variant has been chosen, its advertised level takes precedence.
+                String at = "";
+                for (String suffix : new String[]{"extra-high", "extra-low", "xhigh", "minimal", "low", "medium", "high"}) {
+                    if (lower.endsWith("-" + suffix)) { at = "extra-high".equals(suffix) ? "xhigh" : "extra-low".equals(suffix) ? "minimal" : suffix; break; }
+                }
+                String selected = at.isEmpty() ? effort.trim().toLowerCase(java.util.Locale.ROOT) : at;
+                if (!selected.isEmpty()) {
                     String level = "high";
-                    String raw = effort == null ? "" : effort.trim().toLowerCase();
-                    if ("minimal".equals(raw)) {
-                        // Magpie asks for a level only for an id that names one; otherwise
-                        // minimal goes as high, the lowest level every variant takes.
-                        level = "high";
-                    } else if ("low".equals(normalized)) level = "low";
-                    else if ("medium".equals(normalized)) {
-                        level = geminiGeneration == 3 && !lower.contains("flash") ? "high" : "medium";
-                    }
+                    if ("low".equals(selected) || "minimal".equals(selected) && !at.isEmpty() && !lower.contains("flash")) level = "low";
+                    else if ("minimal".equals(selected) && !at.isEmpty()) level = "minimal";
+                    else if (("none".equals(selected) || "minimal".equals(selected)) && !lower.contains("image")) level = "low";
+                    else if ("medium".equals(selected) && (lower.contains("flash") || geminiGeneration > 3)) level = "medium";
+                    if ("xhigh".equals(at)) level = "xhigh";
                     tc.put("thinkingLevel", level);
                 }
             } else if (claude) {
@@ -311,14 +316,7 @@ public class AntigravityClient {
 
         req.put("sessionId", sessionOf(contents));
 
-        JSONObject env = new JSONObject();
-        env.put("model", model);
-        env.put("project", project);
-        env.put("userAgent", "antigravity");
-        env.put("requestType", "agent");
-        env.put("requestId", "agent-" + randomHex(12));
-        env.put("request", req);
-        return env;
+        return AntigravityProtocol.envelope(req, model, project, modelInfo);
     }
 
     /** 同一段对话必须同一个 sessionId：取首条用户消息的 sha256 低 63 位 */
@@ -451,45 +449,7 @@ public class AntigravityClient {
 
     /** OpenAI 的 JSON Schema → Gemini 认得的那一子集（去掉 $schema/additionalProperties 等） */
     private static JSONObject plainSchema(JSONObject in) {
-        JSONObject out = new JSONObject();
-        String type = null;
-        Object rawType = in.opt("type");
-        if (rawType instanceof JSONArray) {
-            JSONArray ts = (JSONArray) rawType;
-            for (int i = 0; i < ts.length(); i++) {
-                String t = ts.optString(i, "");
-                if ("null".equals(t)) {
-                    out.put("nullable", true);
-                } else if (!t.isEmpty()) {
-                    type = t;
-                }
-            }
-        } else if (rawType instanceof String) {
-            type = (String) rawType;
-        }
-        if (type != null) out.put("type", type);
-        String desc = in.optString("description", "");
-        if (!desc.isEmpty()) out.put("description", desc);
-        String format = in.optString("format", "");
-        if (!format.isEmpty() && ("string".equals(type) || type == null)) out.put("format", format);
-        JSONArray en = in.optJSONArray("enum");
-        if (en != null) out.put("enum", en);
-        JSONObject props = in.optJSONObject("properties");
-        if (props != null) {
-            JSONObject op = new JSONObject();
-            java.util.Iterator<String> it = props.keys();
-            while (it.hasNext()) {
-                String k = it.next();
-                JSONObject v = props.optJSONObject(k);
-                op.put(k, v == null ? new JSONObject() : plainSchema(v));
-            }
-            out.put("properties", op);
-        }
-        JSONArray req = in.optJSONArray("required");
-        if (req != null) out.put("required", req);
-        JSONObject items = in.optJSONObject("items");
-        if (items != null) out.put("items", plainSchema(items));
-        return out;
+        return AntigravitySchema.convert(in);
     }
 
     private static String googleThoughtSignature(JSONObject extraContent) {

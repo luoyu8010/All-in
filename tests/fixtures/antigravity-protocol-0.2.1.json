@@ -1,0 +1,14 @@
+{
+  "package": "@magpie-community/opencode-antigravity-auth",
+  "version": "0.2.1",
+  "sourceCommit": "34e32a1f443e656d255b1cc23363436559accacd",
+  "indexSha256": "10cd2ca45fa194a4270d189ec958aa27e961abe4f0d086d4af66a40435a0d4d9",
+  "tarSha256": "7859f9be54d3871489ab6c01bb3e295fbd167ea7e737abe431d46f8809d375eb",
+  "upstreamLines": {"scopes": 35, "userAgent": 174, "onboard": 317, "envelope": 1292, "send": 1567},
+  "clientVersion": "2.32.1",
+  "changeList": "1021296516",
+  "addedScope": "https://www.googleapis.com/auth/aicode",
+  "envelopeOrder": ["project", "requestId", "request", "model", "userAgent", "requestType"],
+  "onboardDefault": {"tierId": "free-tier", "metadata": {"ideType": "ANTIGRAVITY"}},
+  "notes": "Frozen constants/field contracts transcribed from the identified upstream source and requests.test.mjs. No account data. Version/build pinned together in this release; no runtime auto-updater, credit retry or prompt rewriting imported."
+}

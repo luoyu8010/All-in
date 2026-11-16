@@ -82,11 +82,12 @@ public class AntigravityAuth {
             + "https://www.googleapis.com/auth/userinfo.email "
             + "https://www.googleapis.com/auth/userinfo.profile "
             + "https://www.googleapis.com/auth/cclog "
-            + "https://www.googleapis.com/auth/experimentsandconfigs";
+            + "https://www.googleapis.com/auth/experimentsandconfigs "
+            + "https://www.googleapis.com/auth/aicode";
 
-    // Fixed local npm 0.1.9 fallback; 2.9.1 omits Gemini 4 from the live catalog.
-    public static final String APP_VERSION = "2.31.2";
-    public static final String USER_AGENT = "antigravity/hub/" + APP_VERSION + " linux/x64";
+    // Pinned community 0.2.1 contract; version/build are updated together.
+    public static final String APP_VERSION = AntigravityProtocol.VERSION;
+    public static final String USER_AGENT = AntigravityProtocol.userAgent();
 
     /** Antigravity 不说有哪些模型时的兜底（upstream antigravityModels） */
     public static final String[][] DEFAULT_MODELS = new String[][]{
@@ -543,6 +544,16 @@ public class AntigravityAuth {
     public static Resp request(String urlStr, String method, String bearer, String accept,
                                String contentType, byte[] body, int connectMs, int readMs,
                                Transport transport, Cancellation cancellation, int attempt) throws Exception {
+        return request(urlStr, method, bearer, accept, contentType, body, connectMs, readMs,
+                transport, cancellation, attempt, USER_AGENT);
+    }
+
+    static Resp request(String urlStr, String method, String bearer, String accept,
+                        String contentType, byte[] body, int connectMs, int readMs,
+                        Transport transport, Cancellation cancellation, int attempt, String userAgent) throws Exception {
+        if (userAgent == null || userAgent.isEmpty() || userAgent.length() > 256
+                || userAgent.indexOf(13) >= 0 || userAgent.indexOf(10) >= 0)
+            throw new java.io.IOException("invalid Antigravity user agent");
         java.net.URL u = new java.net.URL(urlStr);
         if (!"https".equalsIgnoreCase(u.getProtocol())) throw new java.io.IOException("HTTPS required");
         String host = u.getHost();
@@ -554,7 +565,7 @@ public class AntigravityAuth {
         StringBuilder h = new StringBuilder(512);
         h.append(method).append(' ').append(path).append(" HTTP/1.1\r\n");
         h.append("Host: ").append(host).append("\r\n");
-        h.append("User-Agent: ").append(USER_AGENT).append("\r\n");
+        h.append("User-Agent: ").append(userAgent).append("\r\n");
         if (accept != null) h.append("Accept: ").append(accept).append("\r\n");
         if (contentType != null) h.append("Content-Type: ").append(contentType).append("\r\n");
         if (bearer != null && !bearer.isEmpty()) h.append("Authorization: Bearer ").append(bearer).append("\r\n");
@@ -830,7 +841,7 @@ public class AntigravityAuth {
             outcome.openCount++;
             try {
                 String url = base.replaceAll("/+$", "") + (pathSuffix == null ? "" : pathSuffix);
-                outcome.resp = request(url, "POST", bearer, "text/event-stream", "application/json",
+                outcome.resp = request(url, "POST", bearer, null, "application/json",
                         body, connectMs, readMs, transport, cancellation, outcome.openCount);
                 outcome.usedBase = base;
                 outcome.sendCount++;
@@ -1461,6 +1472,8 @@ public class AntigravityAuth {
         acc.put("name", email);
         acc.put("addedAt", System.currentTimeMillis());
         acc.put("enabled", true);
+        String granted = tok.optString("scope", "");
+        if (!granted.isEmpty() && granted.length() <= 4096) acc.put("grantedScopes", granted);
 
         String project = "";
         String plan = "";
@@ -1470,7 +1483,7 @@ public class AntigravityAuth {
             plan = planOf(load);
             acc.put("tier", tierOf(load));
             acc.put("paidTier", paidTierOf(load));
-            if (project.isEmpty()) project = onboard(access);
+            if (project.isEmpty()) project = onboard(access, load);
         } catch (Exception e) {
             acc.put("projectError", e.getMessage() == null ? "取项目失败" : e.getMessage());
         }
@@ -1690,7 +1703,7 @@ public class AntigravityAuth {
         if (!project.isEmpty()) return project;
         JSONObject load = loadCodeAssist(access, "");
         project = projectOf(load);
-        if (project.isEmpty()) project = onboard(access);
+        if (project.isEmpty()) project = onboard(access, load);
         if (project.isEmpty()) throw new Exception("Google 没有给这个账号分配 Cloud 项目（onboard 未完成）");
         acc.put("project", project);
         acc.put("tier", tierOf(load));
@@ -1704,7 +1717,8 @@ public class AntigravityAuth {
 
     public static JSONObject postJson(String url, String bearer, JSONObject body, String ua) throws Exception {
         byte[] payload = (body == null ? "{}" : body.toString()).getBytes(StandardCharsets.UTF_8);
-        Resp r = request(url, "POST", bearer, "application/json", "application/json", payload, 20000, 90000);
+        Resp r = request(url, "POST", bearer, null, "application/json", payload, 20000, 90000,
+                SOCKET_TRANSPORT, Cancellation.NONE, 1, ua);
         try {
             String text = r.text();
             if (r.status < 200 || r.status >= 400) {
@@ -1732,10 +1746,13 @@ public class AntigravityAuth {
      */
     public static final class CodeAssistException extends Exception {
         private final int status;
+        private final String responseBody;
 
-        CodeAssistException(int status, String message) {
+        CodeAssistException(int status, String message) { this(status, message, ""); }
+        CodeAssistException(int status, String message, String responseBody) {
             super(message);
             this.status = status;
+            this.responseBody = responseBody == null ? "" : responseBody.substring(0, Math.min(responseBody.length(), 65536));
         }
 
         /** HTTP 状态码（Code Assist 应答的那个）。 */
@@ -1746,7 +1763,7 @@ public class AntigravityAuth {
 
     /** 造一条 Code Assist 非 2xx 应答的异常；消息格式与旧版逐字一致，日志不变。 */
     static CodeAssistException codeAssistRefused(int status, String text) {
-        return new CodeAssistException(status, "Code Assist " + status + ": " + shortErr(text));
+        return new CodeAssistException(status, "Code Assist " + status + ": " + shortErr(text), text);
     }
 
     /**
@@ -1758,6 +1775,12 @@ public class AntigravityAuth {
             if (t instanceof CodeAssistException) return ((CodeAssistException) t).status();
         }
         return 0;
+    }
+
+    static String codeAssistBody(Throwable error) {
+        for (int depth = 0; error != null && depth < 8; depth++, error = error.getCause())
+            if (error instanceof CodeAssistException) return ((CodeAssistException) error).responseBody;
+        return "";
     }
 
     private static JSONObject postForm(String url, String form) throws Exception {
@@ -1801,10 +1824,11 @@ public class AntigravityAuth {
         // prod 优先（upstream 的 loadBase），本机网络不通时回落到 daily
         try {
             return postJson(loadBase + "/v1internal:loadCodeAssist", access, body,
-                    USER_AGENT + " google-api-nodejs-client/10.3.0");
+                    USER_AGENT);
         } catch (Exception e) {
+            if (codeAssistStatus(e) != 0) throw e; // Explicit HTTP refusal is not a transport fallback.
             return postJson(chatBase + "/v1internal:loadCodeAssist", access, body,
-                    USER_AGENT + " google-api-nodejs-client/10.3.0");
+                    USER_AGENT);
         }
     }
 
@@ -1836,15 +1860,11 @@ public class AntigravityAuth {
     }
 
     /** onboardUser：没有项目的新账号要跑一次（LRO，最多等 5 轮） */
-    public static String onboard(String access) throws Exception {
-        JSONObject meta = new JSONObject();
-        meta.put("ide_type", "ANTIGRAVITY");
-        meta.put("ide_version", APP_VERSION);
-        meta.put("ide_name", "antigravity");
-        JSONObject body = new JSONObject();
-        body.put("tier_id", "free-tier");
-        body.put("metadata", meta);
-        String ua = USER_AGENT + " google-api-nodejs-client/10.3.0";
+    public static String onboard(String access) throws Exception { return onboard(access, null); }
+
+    private static String onboard(String access, JSONObject load) throws Exception {
+        JSONObject body = AntigravityProtocol.onboardBody(load);
+        String ua = USER_AGENT;
         for (int i = 0; i < 5; i++) {
             JSONObject lro = postJson(chatBase + "/v1internal:onboardUser", access, body, ua);
             if (lro.optBoolean("done", false)) {
@@ -1964,6 +1984,10 @@ public class AntigravityAuth {
             if (m.optBoolean("disabled", false)) continue;
             JSONObject o = new JSONObject();
             o.put("id", id);
+            String modelEnum = m.optString("model", "");
+            String modelProvider = m.optString("modelProvider", "");
+            if (modelEnum.matches("[A-Z][A-Z0-9_]{0,159}")) o.put("modelEnum", modelEnum);
+            if (modelProvider.matches("[A-Z][A-Z0-9_]{0,159}")) o.put("modelProvider", modelProvider);
             String name = m.optString("displayName", "");
             o.put("name", name.isEmpty() ? id : name);
             int ctx = m.optInt("maxTokens", 0);
@@ -2051,6 +2075,17 @@ public class AntigravityAuth {
                     }
                     if (vs.length() > 0) meta.put("variants", vs);
                     meta.put("defaultId", def);
+                    JSONObject variantMetadata = new JSONObject();
+                    for (int j = 0; j < rawModels.length(); j++) {
+                        JSONObject raw = rawModels.optJSONObject(j);
+                        if (raw != null && family.equals(splitEffort(raw.optString("id", ""))[0])) {
+                            JSONObject info = new JSONObject();
+                            if (raw.has("modelEnum")) info.put("modelEnum", raw.opt("modelEnum"));
+                            if (raw.has("modelProvider")) info.put("modelProvider", raw.opt("modelProvider"));
+                            variantMetadata.put(raw.optString("id"), info);
+                        }
+                    }
+                    meta.put("variantMetadata", variantMetadata);
                     // 显示名去掉「(Low)」这类括号后缀
                     String name = base.optString("name", family);
                     int paren = name.lastIndexOf(" (");

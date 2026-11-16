@@ -73,7 +73,8 @@ public final class ProviderUpstreamParityOfflineTest {
         JSONObject ordered=tools(oracle.getString("qoderOrderWire"));JSONArray orderedCalls=ordered.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getJSONArray("tool_calls");
         check(orderedCalls.length()==oracle.getJSONArray("qoderNamedOrder").length(),"independent upstream named order count");
         for(int i=0;i<orderedCalls.length();i++)check(orderedCalls.getJSONObject(i).getString("id").equals(oracle.getJSONArray("qoderNamedOrder").getString(i)),"first-name order follows actual upstream events");
-        check(AntigravityAuth.APP_VERSION.equals(oracle.getString("antigravityVersion")),"catalog fingerprint follows pinned upstream");
+        JSONObject agOracle=new JSONObject(new String(Files.readAllBytes(Paths.get(args[1])),StandardCharsets.UTF_8));
+        check(AntigravityAuth.APP_VERSION.equals(agOracle.getString("clientVersion")),"Antigravity fingerprint follows separately updated 0.2.1 oracle; other providers keep original oracle");
         java.lang.reflect.Method safe=GatewayServer.class.getDeclaredMethod("safeAllowance",String.class,JSONObject.class);safe.setAccessible(true);JSONObject clean=(JSONObject)safe.invoke(null,"qoder_cn",q);check(clean.getJSONArray("windows").getJSONObject(0).getString("resetAt").equals(total.getString("resetAt")),"actual gateway preserves reset");check(clean.getJSONArray("windows").getJSONObject(1).getBoolean("aside"),"actual gateway preserves aside");
         clean=(JSONObject)safe.invoke(null,"loomy",ProviderAllowance.fromLoomy(wallet,1794596400000L));check(clean.getJSONArray("windows").getJSONObject(0).getDouble("amount")==800,"actual gateway keeps spent unit");
         System.out.println("ProviderUpstreamParityOfflineTest PASS: "+checks+" checks");

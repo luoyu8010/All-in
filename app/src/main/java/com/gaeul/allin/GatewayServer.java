@@ -95,6 +95,7 @@ public class GatewayServer extends NanoHTTPD {
         }
     }
     private static final ThreadLocal<RequestContext> REQUEST_CONTEXT = new ThreadLocal<>();
+    private static final ThreadLocal<CallEvidence.Entry> CALL_ENTRY = new ThreadLocal<>();
     private volatile OutboundLimiter outboundLimiter;
     private java.util.concurrent.ThreadPoolExecutor heldWorkers;
     private synchronized java.util.concurrent.ExecutorService heldWorkers() {
@@ -1555,6 +1556,8 @@ public class GatewayServer extends NanoHTTPD {
             JSONObject copy=new JSONObject(configJson.toString());
             JSONObject target=storedTokenAccount(copy,"antigravity",identity);
             target.put("project",project);
+            for (String field : new String[]{"tier", "paidTier", "plan"})
+                if (candidate.has(field)) target.put(field, candidate.opt(field));
             AtomicConfigFile.write(configFile,copy.toString(2));publishConfig(copy);
             return new JSONObject(target.toString());
         }
@@ -5082,6 +5085,7 @@ public class GatewayServer extends NanoHTTPD {
                 } else { PREPARED_BODY.set(raw); response=serveTrackedRequest(session); }
             } else response=serveTrackedRequest(session);
             if (response == null) return null;
+            attachCallId(response,request.requestId);
             if(response.getData()!=null) {
                 final InputStream body=response.getData();
                 request.onClose(() -> { try { body.close(); } catch(IOException ignoredClose) { } });
@@ -5099,11 +5103,21 @@ public class GatewayServer extends NanoHTTPD {
         } finally { REQUEST_CONTEXT.remove(); PREPARED_BODY.remove(); BODY_ERROR.remove(); RESILIENCE_SCOPE.remove(); if (!handedOff) { finishContext(request); gate.leave(); } }
     }
 
+    private static void attachCallId(Response response,String id) {
+        if(response==null || CallEvidence.id(id)==null)return;
+        response.addHeader("X-AllIn-Request-Id",id);
+        String exposed=response.getHeader("Access-Control-Expose-Headers");if(exposed==null)exposed="";
+        if(!exposed.toLowerCase(java.util.Locale.ROOT).contains("x-allin-request-id"))
+            response.addHeader("Access-Control-Expose-Headers",exposed.isEmpty()?"X-AllIn-Request-Id, Retry-After":exposed+", X-AllIn-Request-Id, Retry-After");
+    }
     private static void clearUsageThreadState() {
-        U_SESSION.remove(); U_ROW.remove();U_START.remove();U_FIRST.remove();U_LAST.remove();U_DONE.remove();
+        CALL_ENTRY.remove();U_SESSION.remove(); U_ROW.remove();U_START.remove();U_FIRST.remove();U_LAST.remove();U_DONE.remove();
         ATTEMPT_LEASE.remove();LOGICAL.remove();CURRENT_ORIGIN.remove();CLIENT_ANTHROPIC.remove();CLIENT_MODEL.remove();CLIENT_OUTPUT_LIMIT.remove();CODEX_CLIENT_OUTPUT_LIMIT_FIELDS.remove(); CODEX_SESSION_HEADERS.remove();CLIENT_OUTPUT_PROTOCOL.remove();
     }
     private Response serveTrackedRequest(IHTTPSession session) {
+        RequestContext traceContext=REQUEST_CONTEXT.get();
+        CallEvidence.Entry trace=CallEvidence.entry(session.getUri(),session.getMethod().name(),traceContext==null?java.util.UUID.randomUUID().toString():traceContext.requestId);
+        if(trace==null)CALL_ENTRY.remove();else CALL_ENTRY.set(trace);
         QODER_HISTORY_ERROR.remove();
         QODER_RAW_HISTORY.remove();
         NATIVE_HEADERS.remove();
@@ -5121,6 +5135,7 @@ public class GatewayServer extends NanoHTTPD {
             }
             CODEX_SESSION_HEADERS.set(codexHeaders);
             Response response = serveRequest(session);
+            if(trace!=null)attachCallId(response,trace.requestId);
             if (GatewayAccessPolicy.responses(session.getUri()) && session.getMethod() == Method.POST && response != null
                     && response.getStatus().getRequestStatus() >= 200
                     && response.getStatus().getRequestStatus() < 300 && !Boolean.TRUE.equals(RESP_NATIVE_RESULT.get())
@@ -5155,7 +5170,7 @@ public class GatewayServer extends NanoHTTPD {
             }
             return response;
         }
-        finally { QODER_HISTORY_ERROR.remove(); QODER_RAW_HISTORY.remove(); LOGICAL.remove(); RESP_WARNING.remove(); NATIVE_HEADERS.remove(); NATIVE_REQUEST.remove(); NATIVE_BASELINE.remove(); NATIVE_DIRECT_ALLOWED.remove(); CLIENT_OUTPUT_LIMIT.remove(); CODEX_CLIENT_OUTPUT_LIMIT_FIELDS.remove(); CODEX_SESSION_HEADERS.remove(); RESP_REQUEST.remove(); RESP_BASELINE.remove(); RESP_NATIVE_RESULT.remove(); RESP_NATIVE_CANDIDATE.remove(); CLIENT_OUTPUT_PROTOCOL.remove(); }
+        finally { CALL_ENTRY.remove();QODER_HISTORY_ERROR.remove(); QODER_RAW_HISTORY.remove(); LOGICAL.remove(); RESP_WARNING.remove(); NATIVE_HEADERS.remove(); NATIVE_REQUEST.remove(); NATIVE_BASELINE.remove(); NATIVE_DIRECT_ALLOWED.remove(); CLIENT_OUTPUT_LIMIT.remove(); CODEX_CLIENT_OUTPUT_LIMIT_FIELDS.remove(); CODEX_SESSION_HEADERS.remove(); RESP_REQUEST.remove(); RESP_BASELINE.remove(); RESP_NATIVE_RESULT.remove(); RESP_NATIVE_CANDIDATE.remove(); CLIENT_OUTPUT_PROTOCOL.remove(); }
     }
 
     private Response serveRequest(IHTTPSession session) {
@@ -8013,6 +8028,8 @@ public class GatewayServer extends NanoHTTPD {
 
                 JSONObject ret = new JSONObject();
                 ret.put("model", testModel);
+                CallEvidence.Entry probeTrace=CALL_ENTRY.get();
+                if(probeTrace!=null)ret.put("requestId",probeTrace.requestId);
                 ret.put("latencyMs", latency);
                 ret.put("statusCode", a.ok ? 200 : (a.status <= 0 ? 502 : a.status));
                 ret.put("provider", target.providerId);
@@ -8032,6 +8049,14 @@ public class GatewayServer extends NanoHTTPD {
                     if(a.transportKind!=null) ret.put("transportKind", a.transportKind);
                     FailureLayers.describeExecution(ret, a.sent,
                             a.executionUnknown || (a.sent && (a.status<=0 || a.protocolFailure)));
+                    if(a.localRejection && a.status==429 && "Account is in rate-limit cooldown".equals(a.body)) {
+                        ret.put("failureLabel","本地限流冷却").put("failureLayer","inference").put("failureLayerLabel","限流与冷却")
+                                .put("cooldownSource","gateway").put("advice","此前收到上游限流后，网关暂缓发送此账号/模型的请求。等待显示的冷却结束再试；剩余等待不保证上游届时恢复。");
+                    }
+                    if ("antigravity".equals(target.providerId)) {
+                        String safe = AntigravityProtocol.safeError(scrubUpstreamSecrets(a.body, target), target.account);
+                        AntigravityProtocol.describeRefusal(ret, a.status, safe);
+                    }
                 } else if(a.failure!=null) {
                     ret.put("errorKind",a.failure.kind.name().toLowerCase(java.util.Locale.ROOT));
                 }
@@ -10129,10 +10154,14 @@ public class GatewayServer extends NanoHTTPD {
     // ==================================================================================
     private static void recordUsageRow(UsageLedger.Row row) {
         RequestDiagnostics.freeze(row);
+        CallEvidence.freeze(row);
+        LogicalRequest logical=LOGICAL.get();
+        if(logical!=null && row.attempt>0 && row.callEvidence!=null && logical.id.equals(row.requestId))logical.lastCallEvidence=row.callEvidence;
         UsageLedger.record(row);
     }
     private static final class LogicalRequest {
         final String id = REQUEST_CONTEXT.get()==null?java.util.UUID.randomUUID().toString():REQUEST_CONTEXT.get().requestId;
+        CallEvidence.Snapshot lastCallEvidence;
         final RequestDiagnostics.Logical diagnostics = REQUEST_CONTEXT.get()==null
                 ? new RequestDiagnostics.Logical() : REQUEST_CONTEXT.get().diagnosticScope;
         int attempts;
@@ -10192,6 +10221,11 @@ public class GatewayServer extends NanoHTTPD {
             r.attempt = logical.attempts;
             r.tries = logical.attempts;
             r.credentialId = logical.credentialId;
+        }
+        CallEvidence.Entry entry=CALL_ENTRY.get();
+        if("antigravity".equals(prov) && entry!=null){
+            if(logical==null)r.requestId=entry.requestId;
+            r.callObservation=new CallEvidence.Builder(entry,prov,account);
         }
         r.prov = prov == null ? "" : prov;
         r.req = reqModel == null ? "" : reqModel;
@@ -11156,6 +11190,7 @@ public class GatewayServer extends NanoHTTPD {
         row.req = requestedModel == null ? "" : requestedModel;
         row.session = U_SESSION.get() == null ? "" : U_SESSION.get();
         if (target != null) { row.prov = target.providerId; row.model = target.upstreamModel; }
+        row.callEvidence=logical.lastCallEvidence;
         row.status = status < 400 ? 502 : status;
         row.err = error == null ? "" : error;
         if (logical.credentials != null) for (CommercialKeyPool.Credential c : logical.credentials)
@@ -11789,13 +11824,24 @@ public class GatewayServer extends NanoHTTPD {
     private synchronized java.util.concurrent.ConcurrentHashMap<String,Long> clientRateCooldowns() {
         if(clientRateCooldowns==null)clientRateCooldowns=new java.util.concurrent.ConcurrentHashMap<>();return clientRateCooldowns;
     }
+    private java.util.LinkedHashMap<String,CallEvidence.Snapshot> rateCooldownEvidence;
+    private synchronized CallEvidence.Snapshot cooldownEvidence(String key) {
+        return rateCooldownEvidence==null?null:rateCooldownEvidence.get(key);
+    }
+    private synchronized void rememberCooldownEvidence(String key,CallEvidence.Snapshot origin) {
+        if(rateCooldownEvidence==null)rateCooldownEvidence=new java.util.LinkedHashMap<>();
+        if(origin==null){rateCooldownEvidence.remove(key);return;}
+        if(rateCooldownEvidence.containsKey(key)||rateCooldownEvidence.size()<512)rateCooldownEvidence.put(key,origin);
+    }
     private long rateRestRemaining(RouteTarget t) {
         if(t==null)return 0;String key=restKeyOf(t);Long until=clientRateCooldowns().get(key);if(until==null)return 0;
-        long remaining=until-System.currentTimeMillis();if(remaining<=0)clientRateCooldowns().remove(key,until);return Math.max(0,remaining);
+        long remaining=until-System.currentTimeMillis();if(remaining<=0 && clientRateCooldowns().remove(key,until))rememberCooldownEvidence(key,null);return Math.max(0,remaining);
     }
-    private void rateRest(RouteTarget t,long ms) {
+    private void rateRest(RouteTarget t,long ms) { rateRest(t,ms,null); }
+    private void rateRest(RouteTarget t,long ms,CallEvidence.Snapshot origin) {
         if(t==null||ms<=0)return;long until=System.currentTimeMillis()+Math.min(ms,CooldownFeedback.MAX_MS);
-        clientRateCooldowns().merge(restKeyOf(t),until,Math::max);
+        String key=restKeyOf(t);long actual=clientRateCooldowns().merge(key,until,Math::max);
+        if(actual==until)rememberCooldownEvidence(key,origin);
     }
     static String zcodeSiteForBase(String base) {
         return base!=null && base.contains("bigmodel") ? "bigmodel" : "zai";
@@ -11809,7 +11855,7 @@ public class GatewayServer extends NanoHTTPD {
         if(attempt.localRejection&&ProviderRetryPolicy.safeRetryAfter(hint)==null)return attempt.response;
         long now=System.currentTimeMillis(),remaining=rateRestRemaining(target);
         if(!attempt.localRejection&&target!=null&&target.commercialCandidates==null&&!"trae-cn".equals(target.providerId)) {
-            long wait=CooldownFeedback.waitMillis(hint,remaining,now);rateRest(target,wait);remaining=Math.max(remaining,wait);
+            long wait=CooldownFeedback.waitMillis(hint,remaining,now);rateRest(target,wait,attempt.callObservation==null?null:attempt.callObservation.snapshot());remaining=Math.max(remaining,wait);
         }
         JSONObject body=CooldownFeedback.body(target==null?"gateway":target.providerId,attempt.body,hint,remaining,now);
         if(attempt.localRejection){JSONObject detail=body.getJSONObject("error");detail.put("cooldown_source","gateway");detail.put("message",(target==null?"gateway":target.providerId)+" 正在限流冷却，请在 "+detail.optLong("retry_after")+" 秒后重试（网关剩余等待时间，不保证上游届时恢复）");}
@@ -11891,6 +11937,7 @@ public class GatewayServer extends NanoHTTPD {
      */
     private static Attempt adopt(Attempt out, Attempt r) {
         if (r == null) return out;
+        r.callObservation=out.callObservation;
         out.ok = r.ok;
         out.sent = r.sent; out.executionUnknown=r.executionUnknown;
         out.localRejection=r.localRejection; out.protocolFailure=r.protocolFailure;out.safeZcodeRejection=r.safeZcodeRejection;out.stopFallback=r.stopFallback;
@@ -12331,6 +12378,9 @@ public class GatewayServer extends NanoHTTPD {
         } catch (Throwable ignored) {
         }
         beginUsage(target.providerId, requestedModel, target.upstreamModel, target.account);
+        UsageLedger.Row evidenceRow=U_ROW.get();
+        out.callObservation=evidenceRow==null?null:evidenceRow.callObservation;
+        if(out.callObservation!=null)out.callObservation.shape(payloadIn,clientWantsStream);
         if(target.commercialCandidates!=null) RequestDiagnostics.coverTransport(U_ROW.get());
 
         WorkBuddyHarnessPolicy.Report harnessReport=null;
@@ -12345,6 +12395,7 @@ public class GatewayServer extends NanoHTTPD {
         try {
             long rateWait=target.commercialCandidates==null?rateRestRemaining(target):0;
             if(rateWait>0) {
+                if(out.callObservation!=null)out.callObservation.cooldown(rateWait,cooldownEvidence(restKeyOf(target)));
                 out.localRejection=true;out.status=429;out.body="Account is in rate-limit cooldown";
                 out.retryAfter=Long.toString((rateWait+999)/1000);out.response=errorResponse(429,out.body);
                 out.response.addHeader("Retry-After",out.retryAfter);return out;
@@ -15086,6 +15137,7 @@ public class GatewayServer extends NanoHTTPD {
 
     /** 单次转发的结果：成功就直接是响应；失败带上状态码与错误体供 retryable 判定 */
     private static class Attempt {
+        CallEvidence.Builder callObservation;
         boolean stopFallback; // Terminal adapter result; preserve affinity and do not replay.
         boolean safeZcodeRejection;
         boolean affinitySemanticComplete;
@@ -17772,6 +17824,9 @@ public class GatewayServer extends NanoHTTPD {
     // Antigravity（Google Code Assist）真机接入
     // 协议见 AntigravityAuth / AntigravityClient；这里只做 HTTP、错误映射与流接管。
     // ==================================================================================
+    private volatile AntigravityAuth.Transport antigravityTestTransport;
+    void setAntigravityTransportForTests(AntigravityAuth.Transport transport) { antigravityTestTransport = transport; }
+
     private Attempt forwardAntigravity(RouteTarget target, JSONObject payload, boolean clientWantsStream,
                                        String requestedModel, PrivacyMasker.Session maskSession,
                                        ContextGuard.Result guardResult) {
@@ -17813,10 +17868,12 @@ public class GatewayServer extends NanoHTTPD {
                 acc=ensureStoredProject(acc,access);target.account=acc;
                 project=acc.optString("project","");
             } catch (Exception e) {
-                String msg = e.getMessage() == null ? "Antigravity 取 Cloud 项目失败" : e.getMessage();
-                out.status = 502;
-                out.body = msg;
-                out.response = errorResponse(502, msg);
+                String msg = AntigravityProtocol.safeError(e.getMessage() == null ? "Antigravity 取 Cloud 项目失败" : e.getMessage(), acc);
+                int upstreamStatus = AntigravityAuth.codeAssistStatus(e);
+                out.status = upstreamStatus >= 400 && upstreamStatus <= 599 ? upstreamStatus : 502;
+                String structured = AntigravityAuth.codeAssistBody(e);
+                out.body = structured.isEmpty() ? msg : AntigravityProtocol.safeError(structured, acc);
+                out.response = errorResponse(out.status, out.body);
                 return out;
             }
             // Project assignment, if needed, was committed before use.
@@ -17836,7 +17893,10 @@ public class GatewayServer extends NanoHTTPD {
                 upstreamModel = variant;
             }
 
-            JSONObject env = AntigravityClient.buildEnvelope(payload, upstreamModel, project);
+            JSONObject variantMetadata = famMeta == null ? null : famMeta.optJSONObject("variantMetadata");
+            JSONObject modelInfo = variantMetadata == null ? null : variantMetadata.optJSONObject(upstreamModel);
+            // A family's first row can belong to a different effort variant: never guess its enum.
+            JSONObject env = AntigravityClient.buildEnvelope(payload, upstreamModel, project, modelInfo);
             byte[] bodyBytes = env.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
 
             // 这台机到 Google 的连接会间歇性被 RST，两个域又是同一后端：
@@ -17846,9 +17906,12 @@ public class GatewayServer extends NanoHTTPD {
             AntigravityAuth.Dispatch sent = AntigravityAuth.dispatch(
                     new String[]{AntigravityAuth.chatBase, AntigravityAuth.altBase()},
                     AntigravityAuth.STREAM_PATH, access, bodyBytes, 20000, 300000,
-                    AntigravityAuth.SOCKET_TRANSPORT,
+                    antigravityTestTransport == null ? AntigravityAuth.SOCKET_TRANSPORT : antigravityTestTransport,
                     AntigravityAuth.cancellation(agRequest));
             AntigravityAuth.Resp resp = sent.resp;
+            UsageLedger.Row agRow=U_ROW.get();
+            CallEvidence.Builder evidence=agRow==null?null:agRow.callObservation;
+            if(evidence!=null)evidence.dispatched(upstreamModel,sent.sendCount);
             out.sent = sent.sendCount > 0;
             if (resp == null) {
                 boolean cancelled = sent.cancelled || (agRequest != null && agRequest.isCancelled());
@@ -17878,6 +17941,10 @@ public class GatewayServer extends NanoHTTPD {
             }
 
             int statusCode = resp.status;
+            String upstreamWait=null;
+            for(Map.Entry<String,String> header:resp.headers.entrySet())
+                if("Retry-After".equalsIgnoreCase(header.getKey())){upstreamWait=header.getValue();break;}
+            if(evidence!=null)evidence.reply(statusCode,upstreamWait,null);
             // 401 是上游明确拒绝（请求没有进入生成阶段），刷新 token 后重放一次是安全的；
             // 超时 / 连接被掐 / 5xx 没有明确结论，绝不走这条路。
             if (statusCode == 401 && attempt < 1) {
@@ -17908,6 +17975,8 @@ public class GatewayServer extends NanoHTTPD {
                     } catch (Exception ignored) {
                     }
                 }
+                errBody = AntigravityProtocol.safeError(scrubUpstreamSecrets(errBody, target), acc);
+                if(evidence!=null)evidence.reply(statusCode,upstreamWait,errBody);
                 out.body = errBody;
                 Status st = Status.lookup(statusCode) != null ? Status.lookup(statusCode) : Status.INTERNAL_ERROR;
                 Response r = newFixedLengthResponse(st, "application/json; charset=UTF-8", errBody);

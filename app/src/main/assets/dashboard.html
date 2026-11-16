@@ -1297,7 +1297,7 @@
             <span class="project-info-text"><span class="project-info-kicker">开源项目</span><span class="project-info-meta">github.com/xunianooo/All-in</span></span><span class="project-info-arrow" aria-hidden="true">↗</span>
           </a>
       </div>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.49-test</p>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.52-test</p>
       <div id="setup-anchor"></div>
       <div class="card checkin-entry" id="checkin-home-entry">
         <div><span class="checkin-kicker">DAILY CHECK-IN</span><h2>每日签到</h2><p id="checkin-home-summary">账号奖励，一处管理</p></div>
@@ -3854,6 +3854,26 @@
       const id = typeof s.requestId === 'string' && /^[a-fA-F0-9-]{32,36}$/.test(s.requestId) ? s.requestId : '未记录';
       const time = new Date(s.timestamp);
       const row = (label, value) => '<div style="overflow-wrap:anywhere;"><span style="color:var(--text-muted);">' + esc(label) + '：</span>' + esc(value) + '</div>';
+      const c = s.callEvidence && s.callEvidence.schemaVersion === 1 ? s.callEvidence : null;
+      const sources = {not_sent:'生成请求未尝试发送',upstream:'已收到上游响应',send_unknown:'尝试发送，结果待核实',gateway_cooldown:'网关本地冷却（本次未发出）'};
+      const flag = value => value === true ? '有' : value === false ? '无' : '未知';
+      const count = value => Number.isInteger(value) && value >= 0 ? String(value) : '未知';
+      const seconds = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value + ' 秒' : '未提供或未记录';
+      const callRows = c ? row('入口接口', diagnosticText(c.method) + ' ' + diagnosticText(c.path))
+        + row('入口类型', c.entry === 'panel-test' ? '普通模型测试接口' : '模型 API（也可能是面板流式自测）')
+        + row('尝试发送的模型', typeof c.sentModel === 'string' ? diagnosticText(c.sentModel) : '未发送或未记录')
+        + row('账号对照标识', diagnosticText(c.accountRef))
+        + row('请求形态（规范化后）', '消息 ' + count(c.messageCount) + ' · 系统消息 ' + flag(c.systemPresent) + ' · 工具 ' + count(c.toolCount) + ' · 流式 ' + flag(c.stream) + ' · 思考 ' + diagnosticText(c.effort))
+        + row('响应来源', sources[c.source] || '未记录')
+        + row('生成请求发送次数', count(c.physicalSends))
+        + row('上游 HTTP / Google 状态', count(c.upstreamStatus) + ' / ' + diagnosticText(c.googleStatus))
+        + row('上游原因码', diagnosticText(c.googleReason))
+        + row('上游等待提示', seconds(c.upstreamRetryAfterSeconds))
+        + row('本地冷却剩余', diagnosticMillis(c.localCooldownRemainingMs))
+        + row('冷却触发请求 ID', diagnosticText(c.cooldownOriginRequestId))
+        + row('冷却触发状态', count(c.cooldownOriginStatus) + ' / ' + diagnosticText(c.cooldownOriginGoogleStatus))
+        + row('触发时上游等待提示', seconds(c.cooldownOriginRetryAfterSeconds))
+        : row('调用对照信息', '旧记录或该路径未采集');
       return '<details style="font-size:0.75rem;padding:7px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere;">'
         + '<summary style="cursor:pointer;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">'
         + '<span style="color:' + (failed ? '#f87171' : 'var(--text-muted)') + ';">' + (hasStatus ? 'HTTP ' + s.statusCode : '状态未知') + '</span>'
@@ -3872,6 +3892,7 @@
         + row('失败类别', failures[d.failureKind] || '未观测')
         + row('响应阶段', phases[d.responsePhase] || '未观测')
         + row('规则版本', diagnosticText(d.rulesVersion))
+        + callRows
         + '<div style="color:var(--text-muted);">路由目标不代表厂商实际执行模型；HTTP 成功不等于完整交付。此处为最近账本行，可能未包含同一逻辑请求的全部尝试。</div></div></details>';
     }
 
@@ -8358,11 +8379,16 @@
       result = result || {};
       // 兜底不再断言"连接超时或未配置有效 Key"：上游没给原因时说"没给原因"，
       // 把未知写成确定的故障，用户会去换本来没坏的密钥。
-      const parts = [errText(result.error, '网关没有给出失败原因（未知，先别据此更换密钥）')];
+      const upstream = result.upstreamError && typeof result.upstreamError === 'object' ? result.upstreamError : null;
+      const parts = [errText(upstream && typeof upstream.message === 'string' && upstream.message
+        ? upstream.message : result.error, '网关没有给出失败原因（未知，先别据此更换密钥）')];
+      if (upstream && typeof upstream.status === 'string') parts.push('Google 状态: ' + upstream.status);
+      if (upstream && Array.isArray(upstream.reasons)) parts.push('Google 原因: ' + upstream.reasons.join(', '));
       if (result.failureLabel) parts.push('类别: ' + result.failureLabel);
       else if (result.errorKind) parts.push('类别: ' + result.errorKind);
       if (result.failureLayerLabel) parts.push('层: ' + result.failureLayerLabel);
       if (result.statusCode != null && result.statusCode !== '') parts.push('HTTP ' + result.statusCode);
+      if (typeof result.requestId === 'string' && /^[a-fA-F0-9-]{36}$/.test(result.requestId)) parts.push('请求 ID: ' + result.requestId);
       if (result.retryAfter != null && result.retryAfter !== '') parts.push('重试等待: ' + result.retryAfter);
       return parts.join(' · ');
     }

@@ -15,8 +15,8 @@ android {
         applicationId 'com.gaeul.allin'
         minSdk 24
         targetSdk 34
-        versionCode 55
-        versionName '1.2.49-test'
+        versionCode 58
+        versionName '1.2.52-test'
         testInstrumentationRunner 'com.gaeul.allin.RepairInstrumentation'
     }
 
@@ -77,6 +77,11 @@ dependencies {
 
 // 保留原有 9 个套件，并运行网关、Responses 和首次设置回归测试。
 def offlineTestMains = [
+        'com.gaeul.allin.AntigravityRequestParityOfflineTest',
+        'com.gaeul.allin.CallEvidenceGatewayTest',
+        'com.gaeul.allin.CallEvidenceOfflineTest',
+        'com.gaeul.allin.AntigravityCompatibilityOfflineTest',
+        'com.gaeul.allin.AntigravityCompatibilityGatewayTest',
         'com.gaeul.allin.AccountManagementRegressionTest',
         'com.gaeul.allin.Audit53RegressionTest',
         'com.gaeul.allin.Audit53NativeLifecycleTest',
@@ -365,8 +370,10 @@ def offlineTestTasks = offlineTestMains.collect { name ->
         mainClass = name
         if (simple in ['BridgeTransportLifecycleOfflineTest','BridgeCompressionAsyncOfflineTest']) jvmArgs '-Xmx64m'
         if (simple == 'Audit52RegressionTest') jvmArgs '-Xmx48m'
+        if (simple == 'AntigravityCompatibilityOfflineTest') args rootProject.file('tests/fixtures/antigravity-protocol-0.2.1.json').absolutePath
+        if (simple == 'AntigravityRequestParityOfflineTest') args rootProject.file('tests/fixtures/antigravity-request-oracle-0.2.1.json').absolutePath
         if (simple == 'ProviderStreamContractHttpTest') args rootProject.file('tests/fixtures/provider-stream-oracles-20261113.json').absolutePath
-        if (simple == 'ProviderUpstreamParityOfflineTest') args rootProject.file('tests/fixtures/provider-upstream-20261113.json').absolutePath
+        if (simple == 'ProviderUpstreamParityOfflineTest') args rootProject.file('tests/fixtures/provider-upstream-20261113.json').absolutePath, rootProject.file('tests/fixtures/antigravity-protocol-0.2.1.json').absolutePath
         if (simple == 'ZCodePromptParityOfflineTest') args rootProject.file('tests/fixtures/zcode-prompt-3.17.2.json').absolutePath
     }
 }

@@ -21,7 +21,7 @@ eq(provider('minimax-code').modelMeta['MiniMax-M3'].maxOutput,524288,'MiniMax de
 eq(config.guard.maxOutputTokens,0,'no implicit Guard output ceiling');
 const licenses=fs.readFileSync('app/src/main/assets/licenses.html','utf8');
 for(const name of ['catpaw','cline','copilot','loomy','minimax','qoder','raccoon','trae','workbuddy','zcode','antigravity']){
- const versions={catpaw:'0.2.2',cline:'0.1.15',copilot:'0.1.2',loomy:'0.1.5',minimax:'0.2.9',qoder:'0.2.67',raccoon:'0.1.11',trae:'0.2.34',workbuddy:'0.2.34',zcode:'0.1.61',antigravity:'0.1.9'};
+ const versions={catpaw:'0.2.2',cline:'0.1.15',copilot:'0.1.2',loomy:'0.1.5',minimax:'0.2.9',qoder:'0.2.67',raccoon:'0.1.11',trae:'0.2.34',workbuddy:'0.2.34',zcode:'0.1.61',antigravity:'0.2.1'};
  eq(licenses.includes(`opencode-${name}-auth</td><td>${versions[name]}</td>`),true,'pinned reference version '+name);
 }
 console.log('provider-upstream-defaults PASS: '+checks+' checks');

@@ -153,6 +153,8 @@ public class UsageLedger {
         public long outboundAt, queuedMs;
         public String failureKind="", upstreamErrorCode="", upstreamRetryAfter="";
         public RequestDiagnostics.Snapshot diagnostics;
+        public CallEvidence.Snapshot callEvidence;
+        transient CallEvidence.Builder callObservation;
         transient RequestDiagnostics.Observation diagnosticObservation;
         public boolean isLegacy() { return requestId == null || requestId.isEmpty(); }
         public boolean isTerminal() { return isLegacy() || terminal; }
@@ -408,7 +410,7 @@ public class UsageLedger {
         for(Row r:pending){first=Math.min(first,r.t);if(r.t>=from&&r.t<=through)visitor.accept(r);}
         synchronized(LOCK){invalidLines=bad;readErrors=errors;firstTimestamp=Math.min(firstTimestamp,first);}
     }
-    private static long estimate(Row r){if(r.ledgerEstimate>0)return r.ledgerEstimate;long n=768;for(String v:new String[]{r.prov,r.model,r.req,r.err,r.ep,r.session,r.requestId,r.credentialId,r.accountId,r.failureKind,r.upstreamErrorCode,r.upstreamRetryAfter})if(v!=null)n+=2L*v.length();if(r.diagnostics!=null)n+=2L*r.diagnostics.json().toString().length();r.ledgerEstimate=n;return n;}
+    private static long estimate(Row r){if(r.ledgerEstimate>0)return r.ledgerEstimate;long n=768;for(String v:new String[]{r.prov,r.model,r.req,r.err,r.ep,r.session,r.requestId,r.credentialId,r.accountId,r.failureKind,r.upstreamErrorCode,r.upstreamRetryAfter})if(v!=null)n+=2L*v.length();if(r.diagnostics!=null)n+=2L*r.diagnostics.json().toString().length();if(r.callEvidence!=null)n+=2L*r.callEvidence.json().toString().length();r.ledgerEstimate=n;return n;}
     private static void retain(Row r){
         long cutoff=System.currentTimeMillis()-MEMORY_DAYS*86400000L;
         for(java.util.Iterator<Map.Entry<String,List<Row>>> it=DAYS.entrySet().iterator();it.hasNext();){List<Row> rows=it.next().getValue();for(java.util.Iterator<Row> q=rows.iterator();q.hasNext();){Row old=q.next();if(old.t<cutoff){retainedBytes-=estimate(old);q.remove();cacheEvictions++;}}if(rows.isEmpty())it.remove();}
@@ -464,6 +466,7 @@ public class UsageLedger {
     public static void record(Row r) {
         if (r == null) return;
         RequestDiagnostics.freeze(r);
+        CallEvidence.freeze(r);
         if (r.recentUsageLease != null) r.recentUsageLease.complete(r);
         if (r.t <= 0) r.t = System.currentTimeMillis();
         if (r.hour < 0) {
@@ -511,6 +514,7 @@ public class UsageLedger {
         JSONObject o = new JSONObject();
         try {
             if(r.diagnostics!=null) o.put("diagnostics",r.diagnostics.json());
+            if(r.callEvidence!=null)o.put("callEvidence",r.callEvidence.json());
             if (!r.isLegacy()) {
                 o.put("requestId", r.requestId); o.put("attempt", r.attempt); o.put("terminal", r.terminal);
                 if (r.credentialId != null && !r.credentialId.isEmpty()) o.put("credentialId", r.credentialId);
@@ -556,6 +560,7 @@ public class UsageLedger {
             JSONObject o = new JSONObject(line);
             Row r = new Row();
             r.diagnostics=RequestDiagnostics.Snapshot.parse(o.optJSONObject("diagnostics"));
+            r.callEvidence=CallEvidence.Snapshot.parse(o.optJSONObject("callEvidence"));
             r.requestId = o.optString("requestId", "");
             r.credentialId = o.optString("credentialId", "");
             r.accountId = o.optString("accountId", "");
@@ -747,6 +752,7 @@ public class UsageLedger {
                 JSONObject o = new JSONObject();
                 o.put("t", r.t);
                 o.put("diagnostics",RequestDiagnostics.json(r));
+                if(r.callEvidence!=null)o.put("callEvidence",r.callEvidence.json());
                 o.put("prov", r.prov);
                 o.put("requestId", r.requestId); o.put("attempt", r.attempt); o.put("terminal", r.isTerminal());
                 o.put("credentialId", r.credentialId); o.put("usageSource", r.effectiveUsageSource());
@@ -908,6 +914,7 @@ public class UsageLedger {
             JSONObject o = new JSONObject();
             o.put("timestamp", r.t);
             o.put("diagnostics",RequestDiagnostics.json(r));
+            if(r.callEvidence!=null)o.put("callEvidence",r.callEvidence.json());
             o.put("statusCode", r.status);
             o.put("model", r.model == null || r.model.isEmpty() ? r.req : r.model);
             o.put("provider", r.prov);

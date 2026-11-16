@@ -14,6 +14,14 @@ row.diagnostics.executionState='delivered';row.diagnostics.deliveryConfirmed=tru
 row.attempt=0;assert(context.renderRecentRequest(row).includes('不计尝试'));
 row.usageSource='partial';assert(context.renderRecentRequest(row).includes('部分已知用量'));
 row.durationMs=-1;assert(!context.renderRecentRequest(row).includes('-1 ms'));
+// Optional call evidence: explicit units, real dispatched variant, safe rendering and old-row unknowns.
+row.callEvidence={schemaVersion:1,path:'/v1/chat/completions',method:'POST',entry:'model-api',sentModel:'gemini-3.8-flash-high',accountRef:'acct-012345678901234567890123',messageCount:2,toolCount:3,systemPresent:true,stream:true,effort:'high',physicalSends:1,source:'upstream',upstreamStatus:429,googleStatus:'RESOURCE_EXHAUSTED',upstreamRetryAfterSeconds:null};
+text=context.renderRecentRequest(row);for(const word of ['/v1/chat/completions','gemini-3.8-flash-high','acct-012345678901234567890123','系统消息 有','工具 3','思考 high','RESOURCE_EXHAUSTED','未提供或未记录'])assert(text.includes(word),word);
+assert(!text.includes('Eta'), 'entry path cannot establish a client identity');
+row.callEvidence={...row.callEvidence,source:'gateway_cooldown',sentModel:null,physicalSends:0,upstreamStatus:null,googleStatus:null,localCooldownRemainingMs:58000,cooldownOriginRequestId:row.requestId,cooldownOriginStatus:429,cooldownOriginGoogleStatus:'RESOURCE_EXHAUSTED'};
+text=context.renderRecentRequest(row);assert(text.includes('58000 ms')&&text.includes('本次未发出'));assert(text.includes('未发送或未记录'));assert(!text.includes('58000 秒'));
+row.callEvidence.path='<img src=x onerror=alert(1)>';row.callEvidence.sentModel='<script>bad()</script>';text=context.renderRecentRequest(row);assert(!text.includes('<img')&&!text.includes('<script>'));assert(text.includes('&lt;img'));
+delete row.callEvidence;assert(context.renderRecentRequest(row).includes('旧记录或该路径未采集'));
 (async()=>{
 const a=context.loadRecentSessions(),b=context.loadRecentSessions();queue[1]({ok:true,json:async()=>({sessions:[row]})});await b;const saved=elements['recent-sessions'].innerHTML;queue[0]({ok:false,status:503});await a;assert.equal(elements['recent-sessions'].innerHTML,saved);assert.equal(elements['recent-sessions-status'].textContent,'');
 const c=context.loadRecentSessions();queue.at(-1)({ok:false,status:500});await c;assert.equal(elements['recent-sessions'].innerHTML,saved);assert.match(elements['recent-sessions-status'].textContent,/保留上次记录/);

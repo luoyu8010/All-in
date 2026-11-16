@@ -256,6 +256,9 @@ public final class RepairInstrumentation extends Instrumentation {
             if(!target.getPackageName().endsWith(".repairtest"))throw new SecurityException("Runtime tests require the isolatedTestInstall package");
             if(audit52){result.putString("stream","AUDIT_ANDROID 05_webview "+Audit52WebView.run(this)+"\n");finish(Activity.RESULT_OK,result);return;}
             jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);accountManagementRuntime(target);alarms(target);
+            checks += AntigravityCompatibilityRuntime.run();
+            checks += CallEvidenceRuntime.run(target);
+            checks += AntigravityRequestParityRuntime.run();
             result.putString("stream","ANDROID_REPAIR_PASS checks="+checks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);
         } catch(Throwable failure) {
             StringWriter trace=new StringWriter();failure.printStackTrace(new PrintWriter(trace));result.putString("stream","ANDROID_REPAIR_FAIL checks="+checks+"\n"+trace);finish(Activity.RESULT_CANCELED,result);

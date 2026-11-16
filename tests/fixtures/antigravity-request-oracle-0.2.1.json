@@ -1,0 +1,6685 @@
+{
+  "sourceCommit": "34e32a1f443e656d255b1cc23363436559accacd",
+  "sourceSha256": "10cd2ca45fa194a4270d189ec958aa27e961abe4f0d086d4af66a40435a0d4d9",
+  "schemas": [
+    {
+      "name": "simple",
+      "input": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "synthetic path"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "synthetic path"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "local-ref",
+      "input": {
+        "$defs": {
+          "Position": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "integer"
+              },
+              "y": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          }
+        },
+        "type": "object",
+        "properties": {
+          "point": {
+            "$ref": "#/$defs/Position"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "point": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "integer"
+              },
+              "y": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "x",
+              "y"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "escaped-ref",
+      "input": {
+        "$defs": {
+          "a/b~c": {
+            "type": "string",
+            "pattern": "^x+$"
+          }
+        },
+        "type": "object",
+        "properties": {
+          "name": {
+            "$ref": "#/$defs/a~1b~0c"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^x+$"
+          }
+        }
+      }
+    },
+    {
+      "name": "union",
+      "input": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "optional"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "description": "optional",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "root-oneof",
+      "input": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "a"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "number"
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "a": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "a"
+        ]
+      }
+    },
+    {
+      "name": "shape-union",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          }
+        },
+        "oneOf": [
+          {
+            "properties": {
+              "a": {
+                "type": "string"
+              },
+              "common": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "common",
+              "a"
+            ]
+          },
+          {
+            "properties": {
+              "b": {
+                "type": "number"
+              },
+              "common": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "common",
+              "b"
+            ]
+          }
+        ],
+        "required": [
+          "kind"
+        ]
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "a": {
+            "type": "string"
+          },
+          "common": {
+            "type": "boolean"
+          },
+          "b": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "kind",
+          "common"
+        ]
+      }
+    },
+    {
+      "name": "allof",
+      "input": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "path"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "count"
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "path",
+          "count"
+        ]
+      }
+    },
+    {
+      "name": "bounded-array",
+      "input": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        },
+        "additionalProperties": false
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 20
+          }
+        }
+      }
+    },
+    {
+      "name": "type-preference",
+      "input": {
+        "type": [
+          "string",
+          "null",
+          "array"
+        ],
+        "items": {
+          "type": "integer"
+        }
+      },
+      "expected": {
+        "type": "array",
+        "nullable": true,
+        "items": {
+          "type": "integer"
+        }
+      }
+    },
+    {
+      "name": "string-enum",
+      "input": {
+        "type": "string",
+        "enum": [
+          "",
+          "  ",
+          "yes",
+          "no"
+        ],
+        "const": "yes"
+      },
+      "expected": {
+        "type": "string",
+        "enum": [
+          "yes"
+        ]
+      }
+    },
+    {
+      "name": "number-enum",
+      "input": {
+        "type": "integer",
+        "enum": [
+          1,
+          2,
+          3
+        ],
+        "minimum": 1,
+        "maximum": 3
+      },
+      "expected": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3
+      }
+    },
+    {
+      "name": "constraints",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 12,
+            "pattern": "^[a-z]+$"
+          },
+          "n": {
+            "type": "number",
+            "exclusiveMinimum": 2,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "code",
+          "not_there",
+          42
+        ],
+        "propertyOrdering": [
+          "code",
+          "n"
+        ]
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 12,
+            "pattern": "^[a-z]+$"
+          },
+          "n": {
+            "type": "number",
+            "minimum": 2,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "propertyOrdering": [
+          "code",
+          "n"
+        ]
+      }
+    },
+    {
+      "name": "boolean-properties",
+      "input": {
+        "type": "object",
+        "properties": {
+          "yes": true,
+          "no": false
+        },
+        "required": [
+          "yes",
+          "no"
+        ]
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "yes": {}
+        },
+        "required": [
+          "yes"
+        ]
+      }
+    },
+    {
+      "name": "false-items",
+      "input": {
+        "type": "array",
+        "items": false
+      },
+      "expected": {
+        "type": "array",
+        "items": {},
+        "maxItems": 0
+      }
+    },
+    {
+      "name": "uniform-tuple",
+      "input": {
+        "type": "array",
+        "items": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "expected": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "mixed-tuple",
+      "input": {
+        "type": "array",
+        "items": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "expected": {
+        "type": "array",
+        "items": {}
+      }
+    },
+    {
+      "name": "prefix-items",
+      "input": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ]
+      },
+      "expected": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "self-ref",
+      "input": {
+        "type": "object",
+        "properties": {
+          "next": {
+            "$ref": "#"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "next": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "mutual-ref",
+      "input": {
+        "$defs": {
+          "A": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "$ref": "#/$defs/B"
+              }
+            }
+          },
+          "B": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "$ref": "#/$defs/A"
+              }
+            }
+          }
+        },
+        "type": "object",
+        "properties": {
+          "root": {
+            "$ref": "#/$defs/A"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "object",
+            "properties": {
+              "b": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "missing-ref",
+      "input": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "$ref": "#/$defs/missing"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "ref-array-path",
+      "input": {
+        "definitions": {
+          "choices": [
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "type": "object",
+        "properties": {
+          "x": {
+            "$ref": "#/definitions/choices/0"
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "type-array-prefers-object",
+      "input": {
+        "type": [
+          "null",
+          "string",
+          "object"
+        ],
+        "properties": {
+          "x": {
+            "type": "string"
+          }
+        }
+      },
+      "expected": {
+        "nullable": true,
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "allof-nullable",
+      "input": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "allOf": [
+              {
+                "type": "string"
+              },
+              {
+                "minLength": 1
+              }
+            ]
+          },
+          "y": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        }
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string",
+            "minLength": 1
+          },
+          "y": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      }
+    },
+    {
+      "name": "no-format",
+      "input": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string",
+            "format": "uri",
+            "default": "ignored"
+          }
+        },
+        "$schema": "https://example.invalid/schema"
+      },
+      "expected": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ],
+  "thinking": [
+    {
+      "model": "gemini-3.8-flash-high",
+      "at": "high",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-high",
+      "at": "high",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-high",
+      "at": "high",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-high",
+      "at": "high",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-high",
+      "at": "high",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-high",
+      "at": "high",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-low",
+      "at": "low",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-low",
+      "at": "low",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-low",
+      "at": "low",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-low",
+      "at": "low",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-low",
+      "at": "low",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-low",
+      "at": "low",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-medium",
+      "at": "medium",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-medium",
+      "at": "medium",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-medium",
+      "at": "medium",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-medium",
+      "at": "medium",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-medium",
+      "at": "medium",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash-medium",
+      "at": "medium",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "at": "",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "at": "",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "at": "",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "at": "",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "medium"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "at": "",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "at": "",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "high"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-low",
+      "at": "low",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-low",
+      "at": "low",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-low",
+      "at": "low",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-low",
+      "at": "low",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-low",
+      "at": "low",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-3.1-pro-low",
+      "at": "low",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "low"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-4-hydrogen-xhigh",
+      "at": "xhigh",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-4-hydrogen-xhigh",
+      "at": "xhigh",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-4-hydrogen-xhigh",
+      "at": "xhigh",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-4-hydrogen-xhigh",
+      "at": "xhigh",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-4-hydrogen-xhigh",
+      "at": "xhigh",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-4-hydrogen-xhigh",
+      "at": "xhigh",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "xhigh"
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "at": "",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "at": "",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "at": "",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "at": "",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "at": "",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "at": "",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "at": "",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 8192
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "at": "",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 8192
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "at": "",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 8192
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "at": "",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 8192
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "at": "",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 8192
+        }
+      }
+    },
+    {
+      "model": "claude-sonnet-4-6",
+      "at": "",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 8192
+        }
+      }
+    },
+    {
+      "model": "gpt-oss-120b",
+      "at": "",
+      "effort": "none",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-oss-120b",
+      "at": "",
+      "effort": "minimal",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-oss-120b",
+      "at": "",
+      "effort": "low",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-oss-120b",
+      "at": "",
+      "effort": "medium",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-oss-120b",
+      "at": "",
+      "effort": "high",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "model": "gpt-oss-120b",
+      "at": "",
+      "effort": "xhigh",
+      "input": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096,
+            "thinkingLevel": "HIGH"
+          },
+          "maxOutputTokens": 8192
+        }
+      },
+      "expected": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "synthetic request"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "batch": {
+    "input": {
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "text": "synthetic request"
+            }
+          ]
+        }
+      ],
+      "systemInstruction": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Use the declared tools only when needed."
+          }
+        ]
+      },
+      "tools": [
+        {
+          "functionDeclarations": [
+            {
+              "name": "synthetic_tool_0",
+              "description": "Synthetic declaration 0",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_1",
+              "description": "Synthetic declaration 1",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "Position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "$ref": "#/$defs/Position"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_2",
+              "description": "Synthetic declaration 2",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "a/b~c": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/a~1b~0c"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_3",
+              "description": "Synthetic declaration 3",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "optional"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_4",
+              "description": "Synthetic declaration 4",
+              "parametersJsonSchema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_5",
+              "description": "Synthetic declaration 5",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "a"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "b"
+                    ]
+                  }
+                ],
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_6",
+              "description": "Synthetic declaration 6",
+              "parametersJsonSchema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "count": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "count"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_7",
+              "description": "Synthetic declaration 7",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "synthetic_tool_8",
+              "description": "Synthetic declaration 8",
+              "parametersJsonSchema": {
+                "type": [
+                  "string",
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_9",
+              "description": "Synthetic declaration 9",
+              "parametersJsonSchema": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "  ",
+                  "yes",
+                  "no"
+                ],
+                "const": "yes"
+              }
+            },
+            {
+              "name": "synthetic_tool_10",
+              "description": "Synthetic declaration 10",
+              "parametersJsonSchema": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ],
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_11",
+              "description": "Synthetic declaration 11",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "exclusiveMinimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code",
+                  "not_there",
+                  42
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_12",
+              "description": "Synthetic declaration 12",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "yes": true,
+                  "no": false
+                },
+                "required": [
+                  "yes",
+                  "no"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_13",
+              "description": "Synthetic declaration 13",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": false
+              }
+            },
+            {
+              "name": "synthetic_tool_14",
+              "description": "Synthetic declaration 14",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_15",
+              "description": "Synthetic declaration 15",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_16",
+              "description": "Synthetic declaration 16",
+              "parametersJsonSchema": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_17",
+              "description": "Synthetic declaration 17",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "$ref": "#"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_18",
+              "description": "Synthetic declaration 18",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "A": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "$ref": "#/$defs/B"
+                      }
+                    }
+                  },
+                  "B": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "$ref": "#/$defs/A"
+                      }
+                    }
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "$ref": "#/$defs/A"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_19",
+              "description": "Synthetic declaration 19",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/$defs/missing"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_20",
+              "description": "Synthetic declaration 20",
+              "parametersJsonSchema": {
+                "definitions": {
+                  "choices": [
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/definitions/choices/0"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_21",
+              "description": "Synthetic declaration 21",
+              "parametersJsonSchema": {
+                "type": [
+                  "null",
+                  "string",
+                  "object"
+                ],
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_22",
+              "description": "Synthetic declaration 22",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "y": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_23",
+              "description": "Synthetic declaration 23",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "format": "uri",
+                    "default": "ignored"
+                  }
+                },
+                "$schema": "https://example.invalid/schema"
+              }
+            },
+            {
+              "name": "synthetic_tool_24",
+              "description": "Synthetic declaration 24",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_25",
+              "description": "Synthetic declaration 25",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "Position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "$ref": "#/$defs/Position"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_26",
+              "description": "Synthetic declaration 26",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "a/b~c": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/a~1b~0c"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_27",
+              "description": "Synthetic declaration 27",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "optional"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_28",
+              "description": "Synthetic declaration 28",
+              "parametersJsonSchema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_29",
+              "description": "Synthetic declaration 29",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "a"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "b"
+                    ]
+                  }
+                ],
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_30",
+              "description": "Synthetic declaration 30",
+              "parametersJsonSchema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "count": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "count"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_31",
+              "description": "Synthetic declaration 31",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "synthetic_tool_32",
+              "description": "Synthetic declaration 32",
+              "parametersJsonSchema": {
+                "type": [
+                  "string",
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_33",
+              "description": "Synthetic declaration 33",
+              "parametersJsonSchema": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "  ",
+                  "yes",
+                  "no"
+                ],
+                "const": "yes"
+              }
+            },
+            {
+              "name": "synthetic_tool_34",
+              "description": "Synthetic declaration 34",
+              "parametersJsonSchema": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ],
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_35",
+              "description": "Synthetic declaration 35",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "exclusiveMinimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code",
+                  "not_there",
+                  42
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_36",
+              "description": "Synthetic declaration 36",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "yes": true,
+                  "no": false
+                },
+                "required": [
+                  "yes",
+                  "no"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_37",
+              "description": "Synthetic declaration 37",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": false
+              }
+            },
+            {
+              "name": "synthetic_tool_38",
+              "description": "Synthetic declaration 38",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_39",
+              "description": "Synthetic declaration 39",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_40",
+              "description": "Synthetic declaration 40",
+              "parametersJsonSchema": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_41",
+              "description": "Synthetic declaration 41",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "$ref": "#"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_42",
+              "description": "Synthetic declaration 42",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "A": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "$ref": "#/$defs/B"
+                      }
+                    }
+                  },
+                  "B": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "$ref": "#/$defs/A"
+                      }
+                    }
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "$ref": "#/$defs/A"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_43",
+              "description": "Synthetic declaration 43",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/$defs/missing"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_44",
+              "description": "Synthetic declaration 44",
+              "parametersJsonSchema": {
+                "definitions": {
+                  "choices": [
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/definitions/choices/0"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_45",
+              "description": "Synthetic declaration 45",
+              "parametersJsonSchema": {
+                "type": [
+                  "null",
+                  "string",
+                  "object"
+                ],
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_46",
+              "description": "Synthetic declaration 46",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "y": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_47",
+              "description": "Synthetic declaration 47",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "format": "uri",
+                    "default": "ignored"
+                  }
+                },
+                "$schema": "https://example.invalid/schema"
+              }
+            },
+            {
+              "name": "synthetic_tool_48",
+              "description": "Synthetic declaration 48",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_49",
+              "description": "Synthetic declaration 49",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "Position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "$ref": "#/$defs/Position"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_50",
+              "description": "Synthetic declaration 50",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "a/b~c": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/a~1b~0c"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_51",
+              "description": "Synthetic declaration 51",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "optional"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_52",
+              "description": "Synthetic declaration 52",
+              "parametersJsonSchema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_53",
+              "description": "Synthetic declaration 53",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "a"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "b"
+                    ]
+                  }
+                ],
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_54",
+              "description": "Synthetic declaration 54",
+              "parametersJsonSchema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "count": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "count"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_55",
+              "description": "Synthetic declaration 55",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "synthetic_tool_56",
+              "description": "Synthetic declaration 56",
+              "parametersJsonSchema": {
+                "type": [
+                  "string",
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_57",
+              "description": "Synthetic declaration 57",
+              "parametersJsonSchema": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "  ",
+                  "yes",
+                  "no"
+                ],
+                "const": "yes"
+              }
+            },
+            {
+              "name": "synthetic_tool_58",
+              "description": "Synthetic declaration 58",
+              "parametersJsonSchema": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ],
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_59",
+              "description": "Synthetic declaration 59",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "exclusiveMinimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code",
+                  "not_there",
+                  42
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_60",
+              "description": "Synthetic declaration 60",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "yes": true,
+                  "no": false
+                },
+                "required": [
+                  "yes",
+                  "no"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_61",
+              "description": "Synthetic declaration 61",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": false
+              }
+            },
+            {
+              "name": "synthetic_tool_62",
+              "description": "Synthetic declaration 62",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_63",
+              "description": "Synthetic declaration 63",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_64",
+              "description": "Synthetic declaration 64",
+              "parametersJsonSchema": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_65",
+              "description": "Synthetic declaration 65",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "$ref": "#"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_66",
+              "description": "Synthetic declaration 66",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "A": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "$ref": "#/$defs/B"
+                      }
+                    }
+                  },
+                  "B": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "$ref": "#/$defs/A"
+                      }
+                    }
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "$ref": "#/$defs/A"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_67",
+              "description": "Synthetic declaration 67",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/$defs/missing"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_68",
+              "description": "Synthetic declaration 68",
+              "parametersJsonSchema": {
+                "definitions": {
+                  "choices": [
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/definitions/choices/0"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_69",
+              "description": "Synthetic declaration 69",
+              "parametersJsonSchema": {
+                "type": [
+                  "null",
+                  "string",
+                  "object"
+                ],
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_70",
+              "description": "Synthetic declaration 70",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "y": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_71",
+              "description": "Synthetic declaration 71",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "format": "uri",
+                    "default": "ignored"
+                  }
+                },
+                "$schema": "https://example.invalid/schema"
+              }
+            },
+            {
+              "name": "synthetic_tool_72",
+              "description": "Synthetic declaration 72",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_73",
+              "description": "Synthetic declaration 73",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "Position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "$ref": "#/$defs/Position"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_74",
+              "description": "Synthetic declaration 74",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "a/b~c": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/a~1b~0c"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_75",
+              "description": "Synthetic declaration 75",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "optional"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_76",
+              "description": "Synthetic declaration 76",
+              "parametersJsonSchema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_77",
+              "description": "Synthetic declaration 77",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "a"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "b"
+                    ]
+                  }
+                ],
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_78",
+              "description": "Synthetic declaration 78",
+              "parametersJsonSchema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "count": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "count"
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_79",
+              "description": "Synthetic declaration 79",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            {
+              "name": "synthetic_tool_80",
+              "description": "Synthetic declaration 80",
+              "parametersJsonSchema": {
+                "type": [
+                  "string",
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_81",
+              "description": "Synthetic declaration 81",
+              "parametersJsonSchema": {
+                "type": "string",
+                "enum": [
+                  "",
+                  "  ",
+                  "yes",
+                  "no"
+                ],
+                "const": "yes"
+              }
+            },
+            {
+              "name": "synthetic_tool_82",
+              "description": "Synthetic declaration 82",
+              "parametersJsonSchema": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  2,
+                  3
+                ],
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_83",
+              "description": "Synthetic declaration 83",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "exclusiveMinimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code",
+                  "not_there",
+                  42
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_84",
+              "description": "Synthetic declaration 84",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "yes": true,
+                  "no": false
+                },
+                "required": [
+                  "yes",
+                  "no"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_85",
+              "description": "Synthetic declaration 85",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": false
+              }
+            },
+            {
+              "name": "synthetic_tool_86",
+              "description": "Synthetic declaration 86",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_87",
+              "description": "Synthetic declaration 87",
+              "parametersJsonSchema": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_88",
+              "description": "Synthetic declaration 88",
+              "parametersJsonSchema": {
+                "type": "array",
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_89",
+              "description": "Synthetic declaration 89",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "$ref": "#"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_90",
+              "description": "Synthetic declaration 90",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "A": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "$ref": "#/$defs/B"
+                      }
+                    }
+                  },
+                  "B": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "$ref": "#/$defs/A"
+                      }
+                    }
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "$ref": "#/$defs/A"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_91",
+              "description": "Synthetic declaration 91",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/$defs/missing"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_92",
+              "description": "Synthetic declaration 92",
+              "parametersJsonSchema": {
+                "definitions": {
+                  "choices": [
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "$ref": "#/definitions/choices/0"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_93",
+              "description": "Synthetic declaration 93",
+              "parametersJsonSchema": {
+                "type": [
+                  "null",
+                  "string",
+                  "object"
+                ],
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_94",
+              "description": "Synthetic declaration 94",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "allOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "minLength": 1
+                      }
+                    ]
+                  },
+                  "y": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_95",
+              "description": "Synthetic declaration 95",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "format": "uri",
+                    "default": "ignored"
+                  }
+                },
+                "$schema": "https://example.invalid/schema"
+              }
+            },
+            {
+              "name": "synthetic_tool_96",
+              "description": "Synthetic declaration 96",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_97",
+              "description": "Synthetic declaration 97",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "Position": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "$ref": "#/$defs/Position"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_98",
+              "description": "Synthetic declaration 98",
+              "parametersJsonSchema": {
+                "$defs": {
+                  "a/b~c": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                },
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "$ref": "#/$defs/a~1b~0c"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_99",
+              "description": "Synthetic declaration 99",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ],
+                    "description": "optional"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_100",
+              "description": "Synthetic declaration 100",
+              "parametersJsonSchema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "a"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_101",
+              "description": "Synthetic declaration 101",
+              "parametersJsonSchema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  }
+                },
+                "oneOf": [
+                  {
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "a"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "b": {
+                        "type": "number"
+                      },
+                      "common": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "common",
+                      "b"
+                    ]
+                  }
+                ],
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_102",
+              "description": "Synthetic declaration 102",
+              "parametersJsonSchema": {
+                "allOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "count": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "required": [
+                      "count"
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "toolConfig": {
+        "functionCallingConfig": {
+          "mode": "AUTO"
+        }
+      },
+      "generationConfig": {
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "high"
+        },
+        "maxOutputTokens": 16384
+      }
+    },
+    "model": "gemini-3.8-flash-high",
+    "at": "high",
+    "effort": "high",
+    "expected": {
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "text": "synthetic request"
+            }
+          ]
+        }
+      ],
+      "systemInstruction": {
+        "role": "user",
+        "parts": [
+          {
+            "text": "Use the declared tools only when needed."
+          }
+        ]
+      },
+      "tools": [
+        {
+          "functionDeclarations": [
+            {
+              "name": "synthetic_tool_0",
+              "description": "Synthetic declaration 0",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_1",
+              "description": "Synthetic declaration 1",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_2",
+              "description": "Synthetic declaration 2",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_3",
+              "description": "Synthetic declaration 3",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "description": "optional",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_4",
+              "description": "Synthetic declaration 4",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "a"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_5",
+              "description": "Synthetic declaration 5",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "a": {
+                    "type": "string"
+                  },
+                  "common": {
+                    "type": "boolean"
+                  },
+                  "b": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "common"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_6",
+              "description": "Synthetic declaration 6",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "path",
+                  "count"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_7",
+              "description": "Synthetic declaration 7",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_8",
+              "description": "Synthetic declaration 8",
+              "parameters": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_9",
+              "description": "Synthetic declaration 9",
+              "parameters": {
+                "type": "string",
+                "enum": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_10",
+              "description": "Synthetic declaration 10",
+              "parameters": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_11",
+              "description": "Synthetic declaration 11",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "minimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_12",
+              "description": "Synthetic declaration 12",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "yes": {}
+                },
+                "required": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_13",
+              "description": "Synthetic declaration 13",
+              "parameters": {
+                "type": "array",
+                "items": {},
+                "maxItems": 0
+              }
+            },
+            {
+              "name": "synthetic_tool_14",
+              "description": "Synthetic declaration 14",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_15",
+              "description": "Synthetic declaration 15",
+              "parameters": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            {
+              "name": "synthetic_tool_16",
+              "description": "Synthetic declaration 16",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_17",
+              "description": "Synthetic declaration 17",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_18",
+              "description": "Synthetic declaration 18",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "object",
+                        "properties": {
+                          "a": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_19",
+              "description": "Synthetic declaration 19",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_20",
+              "description": "Synthetic declaration 20",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_21",
+              "description": "Synthetic declaration 21",
+              "parameters": {
+                "nullable": true,
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_22",
+              "description": "Synthetic declaration 22",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_23",
+              "description": "Synthetic declaration 23",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_24",
+              "description": "Synthetic declaration 24",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_25",
+              "description": "Synthetic declaration 25",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_26",
+              "description": "Synthetic declaration 26",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_27",
+              "description": "Synthetic declaration 27",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "description": "optional",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_28",
+              "description": "Synthetic declaration 28",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "a"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_29",
+              "description": "Synthetic declaration 29",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "a": {
+                    "type": "string"
+                  },
+                  "common": {
+                    "type": "boolean"
+                  },
+                  "b": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "common"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_30",
+              "description": "Synthetic declaration 30",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "path",
+                  "count"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_31",
+              "description": "Synthetic declaration 31",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_32",
+              "description": "Synthetic declaration 32",
+              "parameters": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_33",
+              "description": "Synthetic declaration 33",
+              "parameters": {
+                "type": "string",
+                "enum": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_34",
+              "description": "Synthetic declaration 34",
+              "parameters": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_35",
+              "description": "Synthetic declaration 35",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "minimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_36",
+              "description": "Synthetic declaration 36",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "yes": {}
+                },
+                "required": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_37",
+              "description": "Synthetic declaration 37",
+              "parameters": {
+                "type": "array",
+                "items": {},
+                "maxItems": 0
+              }
+            },
+            {
+              "name": "synthetic_tool_38",
+              "description": "Synthetic declaration 38",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_39",
+              "description": "Synthetic declaration 39",
+              "parameters": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            {
+              "name": "synthetic_tool_40",
+              "description": "Synthetic declaration 40",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_41",
+              "description": "Synthetic declaration 41",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_42",
+              "description": "Synthetic declaration 42",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "object",
+                        "properties": {
+                          "a": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_43",
+              "description": "Synthetic declaration 43",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_44",
+              "description": "Synthetic declaration 44",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_45",
+              "description": "Synthetic declaration 45",
+              "parameters": {
+                "nullable": true,
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_46",
+              "description": "Synthetic declaration 46",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_47",
+              "description": "Synthetic declaration 47",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_48",
+              "description": "Synthetic declaration 48",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_49",
+              "description": "Synthetic declaration 49",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_50",
+              "description": "Synthetic declaration 50",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_51",
+              "description": "Synthetic declaration 51",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "description": "optional",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_52",
+              "description": "Synthetic declaration 52",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "a"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_53",
+              "description": "Synthetic declaration 53",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "a": {
+                    "type": "string"
+                  },
+                  "common": {
+                    "type": "boolean"
+                  },
+                  "b": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "common"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_54",
+              "description": "Synthetic declaration 54",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "path",
+                  "count"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_55",
+              "description": "Synthetic declaration 55",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_56",
+              "description": "Synthetic declaration 56",
+              "parameters": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_57",
+              "description": "Synthetic declaration 57",
+              "parameters": {
+                "type": "string",
+                "enum": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_58",
+              "description": "Synthetic declaration 58",
+              "parameters": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_59",
+              "description": "Synthetic declaration 59",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "minimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_60",
+              "description": "Synthetic declaration 60",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "yes": {}
+                },
+                "required": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_61",
+              "description": "Synthetic declaration 61",
+              "parameters": {
+                "type": "array",
+                "items": {},
+                "maxItems": 0
+              }
+            },
+            {
+              "name": "synthetic_tool_62",
+              "description": "Synthetic declaration 62",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_63",
+              "description": "Synthetic declaration 63",
+              "parameters": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            {
+              "name": "synthetic_tool_64",
+              "description": "Synthetic declaration 64",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_65",
+              "description": "Synthetic declaration 65",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_66",
+              "description": "Synthetic declaration 66",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "object",
+                        "properties": {
+                          "a": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_67",
+              "description": "Synthetic declaration 67",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_68",
+              "description": "Synthetic declaration 68",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_69",
+              "description": "Synthetic declaration 69",
+              "parameters": {
+                "nullable": true,
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_70",
+              "description": "Synthetic declaration 70",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_71",
+              "description": "Synthetic declaration 71",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_72",
+              "description": "Synthetic declaration 72",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_73",
+              "description": "Synthetic declaration 73",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_74",
+              "description": "Synthetic declaration 74",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_75",
+              "description": "Synthetic declaration 75",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "description": "optional",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_76",
+              "description": "Synthetic declaration 76",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "a"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_77",
+              "description": "Synthetic declaration 77",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "a": {
+                    "type": "string"
+                  },
+                  "common": {
+                    "type": "boolean"
+                  },
+                  "b": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "common"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_78",
+              "description": "Synthetic declaration 78",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "path",
+                  "count"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_79",
+              "description": "Synthetic declaration 79",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "maxItems": 20
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_80",
+              "description": "Synthetic declaration 80",
+              "parameters": {
+                "type": "array",
+                "nullable": true,
+                "items": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_81",
+              "description": "Synthetic declaration 81",
+              "parameters": {
+                "type": "string",
+                "enum": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_82",
+              "description": "Synthetic declaration 82",
+              "parameters": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              }
+            },
+            {
+              "name": "synthetic_tool_83",
+              "description": "Synthetic declaration 83",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 12,
+                    "pattern": "^[a-z]+$"
+                  },
+                  "n": {
+                    "type": "number",
+                    "minimum": 2,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "propertyOrdering": [
+                  "code",
+                  "n"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_84",
+              "description": "Synthetic declaration 84",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "yes": {}
+                },
+                "required": [
+                  "yes"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_85",
+              "description": "Synthetic declaration 85",
+              "parameters": {
+                "type": "array",
+                "items": {},
+                "maxItems": 0
+              }
+            },
+            {
+              "name": "synthetic_tool_86",
+              "description": "Synthetic declaration 86",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_87",
+              "description": "Synthetic declaration 87",
+              "parameters": {
+                "type": "array",
+                "items": {}
+              }
+            },
+            {
+              "name": "synthetic_tool_88",
+              "description": "Synthetic declaration 88",
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_89",
+              "description": "Synthetic declaration 89",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "next": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_90",
+              "description": "Synthetic declaration 90",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "root": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "object",
+                        "properties": {
+                          "a": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_91",
+              "description": "Synthetic declaration 91",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_92",
+              "description": "Synthetic declaration 92",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_93",
+              "description": "Synthetic declaration 93",
+              "parameters": {
+                "nullable": true,
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_94",
+              "description": "Synthetic declaration 94",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "y": {
+                    "type": "number",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_95",
+              "description": "Synthetic declaration 95",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_96",
+              "description": "Synthetic declaration 96",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "description": "synthetic path"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_97",
+              "description": "Synthetic declaration 97",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "point": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "integer"
+                      },
+                      "y": {
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "x",
+                      "y"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_98",
+              "description": "Synthetic declaration 98",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^x+$"
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_99",
+              "description": "Synthetic declaration 99",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "description": "optional",
+                    "nullable": true
+                  }
+                }
+              }
+            },
+            {
+              "name": "synthetic_tool_100",
+              "description": "Synthetic declaration 100",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "a"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_101",
+              "description": "Synthetic declaration 101",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string"
+                  },
+                  "a": {
+                    "type": "string"
+                  },
+                  "common": {
+                    "type": "boolean"
+                  },
+                  "b": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "common"
+                ]
+              }
+            },
+            {
+              "name": "synthetic_tool_102",
+              "description": "Synthetic declaration 102",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "path",
+                  "count"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "toolConfig": {
+        "functionCallingConfig": {
+          "mode": "AUTO"
+        }
+      },
+      "generationConfig": {
+        "thinkingConfig": {
+          "includeThoughts": true,
+          "thinkingLevel": "high"
+        }
+      }
+    }
+  },
+  "networkCalls": 0
+}

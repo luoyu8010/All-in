@@ -167,5 +167,15 @@ function safe() {
   const one = probeCtx.endpointProbeMarkup({ok: true, results: [{reachable: true, kind: 'response', label: 'x'}]});
   assert(one.includes('官方默认地址'), one);
 
-  console.log('dashboard model diagnostics: layers, unknown reasons, Qoder queue wording, escaping and probe emptiness passed');
+  // Antigravity structured facts survive the legacy truncated JSON and are escaped.
+  response = {ok:false, provider:'antigravity', statusCode:403, error:'{truncated legacy JSON',
+    failureLayerLabel:'服务资格与地区', failureLabel:'Google 拒绝服务资格或地区 (403)',
+    upstreamError:{message:'Google official long message ' + bad, status:'PERMISSION_DENIED', reasons:['ACCESS_TOKEN_SCOPE_INSUFFICIENT', bad]}};
+  await ctx.executeModelPingTest('antigravity/gemini-3.8-flash', true); safe();
+  const agText = elements['ping-test-output'].innerHTML;
+  assert(agText.includes('Google official long message') && agText.includes('PERMISSION_DENIED') && agText.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT'));
+  assert(!agText.includes('{truncated legacy JSON'), 'prefer complete safe structured message');
+  assert(elements['ping-model-status'].innerHTML.includes('服务资格与地区'));
+  assert(!elements['ping-model-status'].innerHTML.includes('登录与凭据'));
+  console.log('dashboard model diagnostics: original regressions and safe structured Google refusals passed');
 })().catch(e => {console.error(e); process.exitCode = 1;});
