@@ -11,7 +11,8 @@ final class BoundedSseReader extends BufferedReader {
     static final int MAX_LINE_CHARS=256*1024, MAX_EVENT_CHARS=512*1024;
     static final long MAX_ACTIVE_BYTES=16L*1024*1024;
     private static final AtomicLong ACTIVE=new AtomicLong();
-    private long held;
+    private static final long RESERVATION_BYTES=4096L*8;
+    private long held,used;
     private boolean skipLf,closed;
     private final int maxLine;
     BoundedSseReader(Reader input){this(input,MAX_LINE_CHARS);}
@@ -19,11 +20,17 @@ final class BoundedSseReader extends BufferedReader {
     static long activeBytes(){return ACTIVE.get();}
     private void reserve()throws IOException {
         // Conservative eight bytes per character includes builder capacity/copies and UTF-8.
-        long n=ACTIVE.addAndGet(8);
-        if(n>MAX_ACTIVE_BYTES){ACTIVE.addAndGet(-8);throw new IOException("SSE active framing budget exceeded");}
-        held+=8;
+        // Reserve a bounded chunk; only replenishment touches the global atomic.
+        if(used==held) for(;;) {
+            long current=ACTIVE.get();
+            long amount=Math.min(RESERVATION_BYTES,MAX_ACTIVE_BYTES-current);
+            amount-=amount%8;
+            if(amount<8)throw new IOException("SSE active framing budget exceeded");
+            if(ACTIVE.compareAndSet(current,current+amount)){held+=amount;break;}
+        }
+        used+=8;
     }
-    private void release(){long n=held;held=0;if(n!=0)ACTIVE.addAndGet(-n);}
+    private void release(){long n=held;held=0;used=0;if(n!=0)ACTIVE.addAndGet(-n);}
     private String line()throws IOException {
         StringBuilder b=new StringBuilder();
         for(;;){int c=super.read();if(skipLf){skipLf=false;if(c=='\n')continue;}

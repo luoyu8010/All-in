@@ -215,7 +215,7 @@ public final class CommercialFailoverHttpTest {
                 check(u.keys.size()==1 && u.keys.get(0).equals(K1),"cancellation does not replay another credential");
                 check(rows.size()==1,"cancellation exactly one ledger row");
                 UsageLedger.Row row=rows.get(0);
-                check(row.terminal && row.attempt==1 && row.tries==1 && row.status==502,"cancellation terminal failure");
+                check(row.terminal && row.attempt==1 && row.tries==1 && row.status==499 && row.failed(),"client cancellation terminal 499");
             }
         }
     }

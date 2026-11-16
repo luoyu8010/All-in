@@ -9,7 +9,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
-import java.util.TreeMap;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -52,8 +51,6 @@ public class UsageLedger {
     private static final Map<Long, LostBucket> lostHours=new LinkedHashMap<>();
     private static long aggregateOverflowRows;
     private static boolean gapsDirty,gapStateUncertain;
-    /** Monthly sequence shards; at most one row can take a shard past this threshold. */
-    private static final long MAX_FILE_BYTES = 32L * 1024 * 1024;
 
     private static File baseDir;
     private static File currentFile;
@@ -61,11 +58,10 @@ public class UsageLedger {
     private static String currentMonth = "";
     private static final Object REBUILD_LOCK = new Object();
     private static Map<String, HeatCounts> heatDays = new LinkedHashMap<String, HeatCounts>();
-    // Timestamp precision from the indexed local day onward supports clock rollback.
-    private static final TreeMap<Long, HeatCounts> future = new TreeMap<Long, HeatCounts>();
     private static TimeZone heatZone;
     private static long firstTimestamp = Long.MAX_VALUE;
     private static long invalidLines, readErrors, persistenceErrors, uncertainWrites;
+    // Timestamp precision from the indexed local day onward supports clock rollback.
     private static long precisionStart;
     private static boolean initializing;
     // Package-private fault hooks for deterministic offline tests.
@@ -91,11 +87,6 @@ public class UsageLedger {
         String key = dayKey(r.t, zone);
         HeatCounts c = index.get(key);
         if (c == null) { c = new HeatCounts(); index.put(key, c); }
-        c.add(r);
-    }
-    private static void addFuture(TreeMap<Long, HeatCounts> index, Row r) {
-        HeatCounts c = index.get(r.t);
-        if (c == null) { c = new HeatCounts(); index.put(r.t, c); }
         c.add(r);
     }
 
@@ -344,7 +335,7 @@ public class UsageLedger {
         synchronized(REBUILD_LOCK) {
             synchronized(LOCK) {
                 closeWriter();baseDir=new File(filesDir,DIR);DAYS.clear();unpersisted.clear();
-                heatDays.clear();future.clear();lostHours.clear();retainedBytes=pendingBytes=0;
+                heatDays.clear();lostHours.clear();retainedBytes=pendingBytes=0;
                 droppedPendingRows=cacheEvictions=aggregateOverflowRows=0;gapsDirty=gapStateUncertain=false;
                 firstTimestamp=Long.MAX_VALUE;invalidLines=readErrors=persistenceErrors=uncertainWrites=0;
                 if(!baseDir.exists()&&!baseDir.mkdirs())persistenceErrors++;

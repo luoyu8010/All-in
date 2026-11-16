@@ -3126,15 +3126,18 @@ public class GatewayServer extends NanoHTTPD {
                     if(!cur.isEmpty()&&ZCodeAuth.probeBase(cur,key))return;
                     if(!calibrationCurrent(state,network,key))return;
                     String pick=ZCodeAuth.pickReachableBase(zc.optString("site","zai"),key);
-                    if(pick==null||pick.equals(cur))return;
+                    if(pick==null){android.util.Log.d("Magpie","zcode endpoint calibration skipped: no reachable endpoint");return;}
+                    if(pick.equals(cur))return;
                     synchronized(GatewayServer.this){
                         if(!calibrationCurrent(state,network,key))return;
                         JSONObject staged=new JSONObject(configJson.toString());
                         JSONObject now=findProviderById(staged.optJSONArray("providers"),"zcode");
-                        if(now!=null){now.put("baseUrl",pick);saveConfig(staged);}
+                        if(now==null)return;
+                        now.put("baseUrl",pick);
+                        if(!saveConfig(staged)){android.util.Log.d("Magpie","zcode endpoint calibration skipped: configuration not saved");return;}
                     }
                     android.util.Log.d("Magpie","zcode endpoint calibration completed");
-                }catch(Exception ignored){}
+                }catch(Exception failure){logException("zcode endpoint calibration skipped",failure);}
             }
         }),"zcode-base-calibrate");
         t.setDaemon(true);t.start();
@@ -3160,10 +3163,9 @@ public class GatewayServer extends NanoHTTPD {
 
     private synchronized void saveWatchdogState() {
         try {
-            FileOutputStream fos = new FileOutputStream(watchdogFile);
-            fos.write(watchdogState.toString(2).getBytes("UTF-8"));
-            fos.close();
-        } catch (Throwable ignored) {
+            AtomicConfigFile.write(watchdogFile,watchdogState.toString(2));
+        } catch (Exception failure) {
+            logException("watchdog state save",failure);
         }
     }
 
@@ -3354,10 +3356,7 @@ public class GatewayServer extends NanoHTTPD {
         }
         // No configuration file yet: the shipped asset is a template, not user data.
         try {
-            InputStream is = context.getAssets().open("default_config.json");
-            byte[] bytes = new byte[is.available()];
-            is.read(bytes);
-            is.close();
+            byte[] bytes = readFileBytes(context.getAssets().open("default_config.json"));
             String str = new String(bytes, "UTF-8");
             publishConfig(new JSONObject(str));
             configJson.put("schemaVersion", 4);
@@ -3561,7 +3560,11 @@ public class GatewayServer extends NanoHTTPD {
     }
 
     static byte[] readFileBytes(File file) throws IOException {
-        FileInputStream in = new FileInputStream(file);
+        return readFileBytes(new FileInputStream(file));
+    }
+
+    /** Fully reads an owned stream, including short reads, and closes on every exit. */
+    static byte[] readFileBytes(InputStream in) throws IOException {
         try {
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             byte[] buf = new byte[8192];
@@ -3704,10 +3707,7 @@ public class GatewayServer extends NanoHTTPD {
         JSONObject staged = new JSONObject(configJson.toString());
         if (staged.optInt("schemaVersion", 1) >= 4) return;
         try {
-            InputStream is = context.getAssets().open("default_config.json");
-            byte[] bytes = new byte[is.available()];
-            is.read(bytes);
-            is.close();
+            byte[] bytes = readFileBytes(context.getAssets().open("default_config.json"));
             JSONObject defaults = new JSONObject(new String(bytes, "UTF-8"));
             JSONArray defaultProvs = defaults.optJSONArray("providers");
             JSONArray cur = staged.optJSONArray("providers");
@@ -3801,7 +3801,7 @@ public class GatewayServer extends NanoHTTPD {
             staged.put("schemaVersion", 4);
             saveConfig(staged);
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("migrateProviders",e);
         }
     }
 
@@ -3809,10 +3809,7 @@ public class GatewayServer extends NanoHTTPD {
     private synchronized void mergeDefaultProviders() {
         JSONObject staged = new JSONObject(configJson.toString());
         try {
-            InputStream is = context.getAssets().open("default_config.json");
-            byte[] bytes = new byte[is.available()];
-            is.read(bytes);
-            is.close();
+            byte[] bytes = readFileBytes(context.getAssets().open("default_config.json"));
             JSONObject defaults = new JSONObject(new String(bytes, "UTF-8"));
             JSONArray defaultProvs = defaults.optJSONArray("providers");
             if (defaultProvs == null) return;
@@ -3851,7 +3848,7 @@ public class GatewayServer extends NanoHTTPD {
                 saveConfig(staged);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("mergeDefaultProviders",e);
         }
     }
 
@@ -3874,7 +3871,12 @@ public class GatewayServer extends NanoHTTPD {
     private JSONObject buildWatchdogStatus() {
         JSONObject out = new JSONObject();
         try {
-            JSONObject st = watchdogState;
+            final JSONObject st;
+            final JSONArray recent = new JSONArray();
+            synchronized(this) {
+                st=watchdogState==null?new JSONObject():new JSONObject(watchdogState.toString());
+                for(int i=0;watchdogLog!=null && i<watchdogLog.size() && i<10;i++)recent.put(watchdogLog.get(i));
+            }
             long now = System.currentTimeMillis();
             long lastBeat = st.optLong("lastBeatAt", 0L);
             long lastUnfreeze = st.optLong("lastUnfreezeAt", 0L);
@@ -3892,13 +3894,7 @@ public class GatewayServer extends NanoHTTPD {
             out.put("verifiedTarget", false);
             out.put("beatAgeSeconds", lastBeat > 0 ? (now - lastBeat) / 1000L : -1);
             out.put("unfreezeAgeSeconds", lastUnfreeze > 0 ? (now - lastUnfreeze) / 1000L : -1);
-            JSONArray arr = new JSONArray();
-            synchronized (this) {
-                for (int i = 0; i < watchdogLog.size() && i < 10; i++) {
-                    arr.put(watchdogLog.get(i));
-                }
-            }
-            out.put("recent", arr);
+            out.put("recent", recent);
         } catch (Throwable ignored) {
         }
         return out;
@@ -4532,6 +4528,17 @@ public class GatewayServer extends NanoHTTPD {
         return resp;
     }
 
+    static String safeLogMessage(String stage,Throwable failure) {
+        String phase=stage==null?"gateway":stage.replaceAll("[^A-Za-z0-9 _.-]","?");
+        if(phase.length()>96)phase=phase.substring(0,96);
+        String type=failure==null?"Unknown":failure.getClass().getSimpleName();
+        if(!type.matches("[A-Za-z0-9_$]{1,96}"))type="Exception";
+        return phase+": "+type;
+    }
+    private static void logException(String stage,Throwable failure) {
+        try{android.util.Log.w("Magpie",safeLogMessage(stage,failure));}catch(Throwable unavailableLogger){/* diagnostics never change control flow */}
+    }
+
     /** Account ingestion helpers report failure instead of an id, so no caller can claim success. */
     static boolean accountAddSucceeded(String accountId) {
         if (accountId == null) return false;
@@ -4564,14 +4571,7 @@ public class GatewayServer extends NanoHTTPD {
     }
 
     private String readFileToString(File file) throws Exception {
-        FileInputStream fis = new FileInputStream(file);
-        // 必须循环读：单次 read() 不保证填满缓冲区，长配置会被截断成半截 JSON
-        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = fis.read(buf)) != -1) bo.write(buf, 0, n);
-        fis.close();
-        return new String(bo.toByteArray(), "UTF-8");
+        return new String(readFileBytes(file), java.nio.charset.StandardCharsets.UTF_8);
     }
 
     // ===== 访问控制 =====
@@ -4753,6 +4753,7 @@ public class GatewayServer extends NanoHTTPD {
             out.put("limit", runner == null ? 0 : runner.limit());
             out.put("rejected", runner == null ? 0L : runner.rejected());
             out.put("serviced", runner == null ? 0L : runner.serviced());
+            out.put("outboundDns",BoundedDns.diagnostics());
         } catch (Throwable ignored) {
         }
         return out;
@@ -4984,6 +4985,7 @@ public class GatewayServer extends NanoHTTPD {
     }
     @Override
     public Response serve(IHTTPSession session) {
+        clearUsageThreadState(); // Includes early failures on a reused keep-alive worker.
         try (NetworkPolicy.Scope ignored = NetworkPolicy.use(NetworkPolicy.capture())) {
             Response response=serveWithNetworkScope(session);
             if(response!=null && session.getMethod()==Method.HEAD && GatewayAccessPolicy.staticRoute(session.getUri())) {
@@ -4997,6 +4999,7 @@ public class GatewayServer extends NanoHTTPD {
         } finally {
             releaseIngressAllocation();
             BODY_ERROR.remove();
+            clearUsageThreadState();
         }
     }
 
@@ -5220,10 +5223,7 @@ public class GatewayServer extends NanoHTTPD {
 
             // 1. Dashboard 首页（App 内直接以 http://127.0.0.1:3425/ 打开，规避 file:// 跨域被 Chromium 拦死）
             if ("/".equals(uri) || "/index.html".equals(uri) || "/dashboard.html".equals(uri)) {
-                InputStream is = context.getAssets().open("dashboard.html");
-                byte[] data = new byte[is.available()];
-                is.read(data);
-                is.close();
+                byte[] data = readFileBytes(context.getAssets().open("dashboard.html"));
                 Response resp = newFixedLengthResponse(Status.OK, "text/html; charset=UTF-8", new String(data, "UTF-8"));
                 resp.addHeader("Cache-Control", "no-store");
                 addCorsHeaders(resp);
@@ -5476,7 +5476,8 @@ public class GatewayServer extends NanoHTTPD {
 
             // 2.5 配额与用量看板（本地统计）
             // 用量账本：真实 per-request 记账（口径对齐上游 usage.Totals）
-            if (uri.startsWith("/api/usage")) {
+            if ("/api/usage".equals(uri) || "/api/usage/summary".equals(uri)
+                    || "/api/usage/heatmap".equals(uri) || "/api/usage/csv".equals(uri)) {
                 Map<String, List<String>> up = session.getParameters();
                 int udays = 7;
                 try {
@@ -5720,7 +5721,7 @@ public class GatewayServer extends NanoHTTPD {
                     if(req.length()!=2 || !(req.opt("expectedStateToken") instanceof String) || settings.length()!=1 || !(settings.opt("enabled") instanceof Boolean)) throw new IllegalArgumentException();
                 } catch(Exception invalid) { return errorResponse(400,"Invalid affinity settings"); }
                 synchronized(this) {
-                    if(!affinitySettingsResponse().getString("stateToken").equals(req.getString("expectedStateToken"))) return errorResponse(409,"Affinity settings changed; reload");
+                    if(!constantTimeEquals(affinitySettingsResponse().getString("stateToken"),req.getString("expectedStateToken"))) return errorResponse(409,"Affinity settings changed; reload");
                     JSONObject updated=new JSONObject(configJson.toString()).put("affinity",new JSONObject().put("enabled",settings.getBoolean("enabled")));
                     try { persistConfigStrict(updated); advanceProviderStateRevision("affinity-settings"); } catch(IOException e) { return errorResponse(500,"Affinity settings save failed"); }
                     return jsonResponse(affinitySettingsResponse());
@@ -5747,7 +5748,7 @@ public class GatewayServer extends NanoHTTPD {
                     if(!(req.opt("settings") instanceof JSONObject)) throw new IllegalArgumentException(); policy=PatiencePolicy.parse(req.getJSONObject("settings")); }
                 catch(Exception invalid) { return errorResponse(400,"Invalid resilience settings"); }
                 synchronized(this) {
-                    if(!resilienceStateToken().equals(req.getString("expectedStateToken"))) return errorResponse(409,"Resilience settings changed; reload");
+                    if(!constantTimeEquals(resilienceStateToken(),req.getString("expectedStateToken"))) return errorResponse(409,"Resilience settings changed; reload");
                     JSONObject updated=new JSONObject(configJson.toString()).put("resilience",policy.json());
                     try { persistConfigStrict(updated); advanceProviderStateRevision("resilience-settings"); }
                     catch(Exception failure) { return errorResponse(500,"Resilience settings save failed"); }
@@ -5762,7 +5763,7 @@ public class GatewayServer extends NanoHTTPD {
                 try { req=new JSONObject(rawBody); if(req.length()!=2 || !req.has("settings") || !(req.opt("expectedStateToken") instanceof String)) throw new IllegalArgumentException(); validateOutbound(req.getJSONObject("settings")); }
                 catch(Exception invalid) { return errorResponse(400,"Invalid outbound settings"); }
                 synchronized(this) {
-                    if(!outboundStateToken().equals(req.getString("expectedStateToken"))) return errorResponse(409,"Outbound settings changed; reload before saving");
+                    if(!constantTimeEquals(outboundStateToken(),req.getString("expectedStateToken"))) return errorResponse(409,"Outbound settings changed; reload before saving");
                     JSONObject updated=new JSONObject(configJson.toString()); updated.put("outbound",req.getJSONObject("settings"));
                     try { persistConfigStrict(updated); advanceProviderStateRevision("outbound-settings"); }
                     catch(Exception failed) { return errorResponse(500,"Outbound settings save failed"); }
@@ -5788,7 +5789,7 @@ public class GatewayServer extends NanoHTTPD {
                     NetworkPolicy.parse(network);
                 } catch (Exception invalid) { return errorResponse(400, "网络配置无效"); }
                 synchronized (this) { synchronized (NETWORK_STATE_LOCK) {
-                    if (expected != null && !expected.equals(networkStateToken()))
+                    if (expected != null && !constantTimeEquals(expected,networkStateToken()))
                         return errorResponse(409, "网络配置已更改，请重新读取");
                     try {
                         JSONObject updated = new JSONObject(configJson.toString());
@@ -6251,7 +6252,7 @@ public class GatewayServer extends NanoHTTPD {
                     if (pr.error != null) ret.put("error", pr.error);
                     if (pr.account != null && !pr.account.isEmpty()) ret.put("account", pr.account);
                     if ("ready".equals(pr.status) && pr.signIn != null) {
-                        String site = "bigmodel".equals(pr.signIn.base.contains("bigmodel")) ? "bigmodel" : "zai";
+                        String site = zcodeSiteForBase(pr.signIn.base);
                         // 有 api key 才算真正可用；没有 key 只有 jwt 时提示订阅
                         if (pr.signIn.key == null || pr.signIn.key.isEmpty()) {
                             ret.put("ok", false);
@@ -6709,6 +6710,7 @@ public class GatewayServer extends NanoHTTPD {
                 Map<String, List<String>> fp = session.getParameters();
                 String host = (fp.containsKey("host") && !fp.get("host").isEmpty())
                         ? fp.get("host").get(0) : "daily-cloudcode-pa.googleapis.com";
+                if(!allowedAntigravityDiagnosticHost(host))return errorResponse(400,"Unsupported Antigravity diagnostic host");
                 int n = 10;
                 try {
                     if (fp.containsKey("n") && !fp.get("n").isEmpty()) n = Integer.parseInt(fp.get("n").get(0));
@@ -6913,33 +6915,17 @@ public class GatewayServer extends NanoHTTPD {
             // 3.10.4.2 Antigravity 手动提交授权 code / 回调完整 URL
             if ("/api/auth/antigravity/submit-code".equals(uri) && "POST".equalsIgnoreCase(method)) {
                 JSONObject ret = new JSONObject();
+                AntigravityAuth.Flow submittedFlow = null;
                 try {
                     JSONObject req = rawBody.isEmpty() ? new JSONObject() : new JSONObject(rawBody);
                     String input = req.optString("code", "").trim();
                     String flowId = req.optString("flowId", "").trim();
                     if (input.isEmpty()) return errorResponse(400, "请输入 code 或回调链接");
-                    String code = input;
-                    String state = "";
-                    if (input.contains("code=")) {
-                        String query = input.contains("?") ? input.substring(input.indexOf('?') + 1) : input;
-                        for (String part : query.split("&")) {
-                            String[] kv = part.split("=");
-                            if (kv.length == 2) {
-                                if ("code".equals(kv[0])) code = java.net.URLDecoder.decode(kv[1], "UTF-8");
-                                else if ("state".equals(kv[0])) state = java.net.URLDecoder.decode(kv[1], "UTF-8");
-                            }
-                        }
-                    }
-                    AntigravityAuth.Flow flow = antigravityFlows.get(flowId);
-                    if (flow == null && !state.isEmpty()) {
-                        for (AntigravityAuth.Flow f : antigravityFlows.values()) {
-                            if (f.state.equals(state)) { flow = f; break; }
-                        }
-                    }
-                    if (flow == null) {
-                        for (AntigravityAuth.Flow f : antigravityFlows.values()) { flow = f; break; }
-                    }
-                    if (flow == null) return errorResponse(400, "未找到对应的授权流程，请先点击发起授权");
+                    Map<String,String> parsed=manualOAuthInput(input);
+                    String code=parsed.get("code");
+                    AntigravityAuth.Flow flow=pendingAntigravityFlow(flowId,parsed.get("state"));
+                    if (flow == null) return errorResponse(400, "未找到匹配且有效的授权流程，请重新发起授权");
+                    submittedFlow=flow;
                     JSONObject acc = AntigravityAuth.exchangeCode(code, flow.verifier, flow.redirect);
                     String accId = addAntigravityAccount(acc, acc.optString("email", ""));
                     ret.put("ok", true);
@@ -6955,8 +6941,7 @@ public class GatewayServer extends NanoHTTPD {
                     ret.put("ok", false);
                     ret.put("error", msg);
                     // 记到流程上，轮询那边能拿到同一份原因，不会一直卡在 pending
-                    AntigravityAuth.Flow f = antigravityFlows.get(
-                            rawBody.isEmpty() ? "" : new JSONObject(rawBody).optString("flowId", ""));
+                    AntigravityAuth.Flow f = submittedFlow;
                     if (f != null) {
                         f.status = "failed";
                         f.error = msg;
@@ -7045,36 +7030,11 @@ public class GatewayServer extends NanoHTTPD {
                     String flowId = req.optString("flowId", "").trim();
                     if (input.isEmpty()) return errorResponse(400, "请输入 code 或回调链接");
 
-                    String code = input;
-                    String verifier = "";
-                    if (input.contains("code=")) {
-                        String query = input.contains("?") ? input.substring(input.indexOf('?') + 1) : input;
-                        for (String part : query.split("&")) {
-                            String[] kv = part.split("=");
-                            if (kv.length == 2) {
-                                if ("code".equals(kv[0])) code = java.net.URLDecoder.decode(kv[1], "UTF-8");
-                                else if ("state".equals(kv[0])) {
-                                    String st = java.net.URLDecoder.decode(kv[1], "UTF-8");
-                                    for (CodexAuth.Flow f : codexFlows.values()) {
-                                        if (f.state.equals(st)) { verifier = f.verifier; break; }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (verifier.isEmpty() && !flowId.isEmpty()) {
-                        CodexAuth.Flow f = codexFlows.get(flowId);
-                        if (f != null) verifier = f.verifier;
-                    }
-                    if (verifier.isEmpty()) {
-                        for (CodexAuth.Flow f : codexFlows.values()) {
-                            verifier = f.verifier;
-                            break;
-                        }
-                    }
-                    if (verifier.isEmpty()) {
-                        return errorResponse(400, "未找到对应的授权流程，请先点击发起授权");
-                    }
+                    Map<String,String> parsed=manualOAuthInput(input);
+                    String code=parsed.get("code");
+                    CodexAuth.Flow matchedFlow=pendingCodexFlow(flowId,parsed.get("state"));
+                    if(matchedFlow==null)return errorResponse(400,"未找到匹配且有效的授权流程，请重新发起授权");
+                    String verifier=matchedFlow.verifier;
 
                     CodexAuth.SignInInfo info = CodexAuth.exchangeCode(code, verifier);
                     String accId = addCodexAccount(info, info.email);
@@ -7088,7 +7048,7 @@ public class GatewayServer extends NanoHTTPD {
                     ret.put("account", info.email);
                     ret.put("plan", info.planType);
                     ret.put("accountId", info.accountId);
-                    if (!flowId.isEmpty()) codexFlows.remove(flowId);
+                    codexFlows.remove(matchedFlow.flowId,matchedFlow);
                 } catch (Exception e) {
                     ret.put("ok", false);
                     ret.put("error", e.getMessage() == null ? "授权换取失败" : e.getMessage());
@@ -7629,6 +7589,7 @@ public class GatewayServer extends NanoHTTPD {
                     catch(IOException e) { return errorResponse(500,"网页账号移除保存失败"); }
                     return jsonResponse(new JSONObject().put("ok",true));
                 }
+                boolean removed=false;
                 synchronized(this) {
                 JSONObject staged=new JSONObject(configJson.toString());
                 JSONArray providers = staged.optJSONArray("providers");
@@ -7649,9 +7610,12 @@ public class GatewayServer extends NanoHTTPD {
 
                                     }
                                 }
-                                p.put("accounts", newAccs);
-                                AccountPoolPolicy.synchronizeKeys(p,accounts);
-                                try{persistConfigStrict(staged);}catch(IOException failed){return errorResponse(500,"账号移除未保存，原账号池保持不变");}
+                                if(newAccs.length()!=accounts.length()) {
+                                    p.put("accounts", newAccs);
+                                    AccountPoolPolicy.synchronizeKeys(p,accounts);
+                                    try{persistConfigStrict(staged);}catch(IOException failed){return errorResponse(500,"账号移除未保存，原账号池保持不变");}
+                                    removed=true;
+                                }
                             }
                         }
                     }
@@ -7659,6 +7623,7 @@ public class GatewayServer extends NanoHTTPD {
                 }
                 JSONObject res = new JSONObject();
                 res.put("ok", true);
+                res.put("removed",removed);
                 return jsonResponse(res);
             }
 
@@ -8345,7 +8310,7 @@ public class GatewayServer extends NanoHTTPD {
                         }
                     } catch (Throwable mwErr) {
                         // 中间件出错一律原样放行，绝不因此让请求失败
-                        mwErr.printStackTrace();
+                        logException("request middleware",mwErr);
                     }
                 }
 
@@ -8407,7 +8372,7 @@ public class GatewayServer extends NanoHTTPD {
                         if (guardResult.dropped > 0) totalContextDropped.addAndGet(guardResult.dropped);
                     }
                 } catch (Exception guardErr) {
-                    guardErr.printStackTrace();
+                    logException("context guard",guardErr);
                     return errorResponse(500, "上下文保护处理失败");
                 }
 
@@ -8480,7 +8445,7 @@ public class GatewayServer extends NanoHTTPD {
             // 空 body / 非法 JSON 是调用方的问题，不该报 500，也不该把 Java 异常信息回给客户端
             return errorResponse(400, "请求体不是合法 JSON: " + je.getMessage());
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("serve request",e);
             String m = e.getMessage() == null ? "内部错误" : e.getMessage();
             if (m.length() > 500) m = m.substring(0, 500) + "…";
             return errorResponse(500, m);
@@ -8561,7 +8526,7 @@ public class GatewayServer extends NanoHTTPD {
             if (!saveConfig(staged)) throw new IOException("配置保存失败，账号未加入账号池");
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addProviderAccount",e);
             return "err";
         }
     }
@@ -8622,7 +8587,7 @@ public class GatewayServer extends NanoHTTPD {
                 resolveRefreshFence("github-copilot", si.githubToken);
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addCopilotAccount",e);
             return "err";
         }
     }
@@ -8733,7 +8698,7 @@ public class GatewayServer extends NanoHTTPD {
             if (!saveConfig(staged)) throw new IOException("配置保存失败，账号未加入账号池");
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addWorkBuddyAccount",e);
             return "err";
         }
     }
@@ -8806,7 +8771,7 @@ public class GatewayServer extends NanoHTTPD {
             if (!saveConfig(staged)) throw new IOException("配置保存失败，账号未加入账号池");
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addQoderAccount",e);
             return "qd_err";
         }
     }
@@ -8916,7 +8881,7 @@ public class GatewayServer extends NanoHTTPD {
             if (!saveConfig(staged)) throw new IOException("配置保存失败，账号未加入账号池");
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addZCodeKey",e);
             return "zc_err";
         }
     }
@@ -9815,17 +9780,23 @@ public class GatewayServer extends NanoHTTPD {
             private final java.util.Set<Integer> finishedChoices = new java.util.HashSet<>();
             private boolean choicesComplete() { return sawFinish && finishedChoices.containsAll(seenChoices); }
             private boolean sawError = false;
+            private boolean downstreamCancelled;
+            private boolean clientClose() {
+                return affinityRequest==null || (affinityRequest.remainingMillis()>0
+                        && !"deadline".equals(affinityRequest.cancelReason()));
+            }
             private boolean closed = false;
             // 占位符可能被切成两半，content / reasoning / 工具参数各自一个缓冲，别互相串
             private final OpenAiUnmask unmask = new OpenAiUnmask(maskSession);
             private boolean emittedTerminalError = false;
 
-            private void recordUsage() {
+            private synchronized void recordUsage() {
                 if (uRow == null || uCommitted[0] || (writeStarted && !deliveryConfirmed)
                         || (!readComplete && !sawError && !closed)
                         || (awaitDelivery && !deliveryConfirmed && !sawError)) return;
-                uCommitted[0]=true; uRow.ms=System.currentTimeMillis()-uStart; uRow.status=sawError?502:200;
-                if (sawError) uRow.err = "Upstream stream incomplete or cancelled";
+                uCommitted[0]=true; uRow.ms=System.currentTimeMillis()-uStart; uRow.status=sawError?(downstreamCancelled?499:502):200;
+                if (sawError) uRow.err = downstreamCancelled?"Downstream stream cancelled":"Upstream stream incomplete";
+                if(downstreamCancelled)uRow.failureKind="cancelled";
                 if(uFirst[0]>0) { uRow.ttft=uFirst[0]-uStart; if(uLast[0]>=uFirst[0]) { uRow.decMs=uLast[0]-uFirst[0]; uRow.decOut=uRow.out; } }
                 try { recordUsageRow(uRow); } catch(Throwable ignored) {}
             }
@@ -9839,6 +9810,7 @@ public class GatewayServer extends NanoHTTPD {
                 BoundedSseReader.Event frame;
                 try { frame = reader.readEvent(); }
                 catch (IOException e) {
+                    if(affinityRequest!=null && !affinityRequest.cancelReason().isEmpty() && clientClose())downstreamCancelled=true;
                     sawError = true;
                     emittedTerminalError = true;
                     try { reader.close(); } catch (IOException ignored) {}
@@ -10020,6 +9992,7 @@ public class GatewayServer extends NanoHTTPD {
             @Override public void onWriteStart() { writeStarted = true; }
             @Override public void onWriteComplete(boolean success) {
                 deliveryConfirmed = true;
+                if(!success && !sawError && clientClose())downstreamCancelled=true;
                 if (!success || !readComplete) sawError = true;
                 if(semantic!=null) semantic.set(success && readComplete && sawDone && sawFinish && !sawError);
                 recordUsage();
@@ -10029,6 +10002,7 @@ public class GatewayServer extends NanoHTTPD {
             public void close() throws IOException {
                 if (closed) return;
                 closed = true;
+                if(!readComplete && !sawError && clientClose())downstreamCancelled=true;
                 if ((!sawDone && !choicesComplete()) || !readComplete) sawError = true;
                 try { reader.close(); }
                 catch (IOException failure) { sawError = true; throw failure; }
@@ -11808,11 +11782,14 @@ public class GatewayServer extends NanoHTTPD {
         if(t==null||ms<=0)return;long until=System.currentTimeMillis()+Math.min(ms,CooldownFeedback.MAX_MS);
         clientRateCooldowns().merge(restKeyOf(t),until,Math::max);
     }
+    static String zcodeSiteForBase(String base) {
+        return base!=null && base.contains("bigmodel") ? "bigmodel" : "zai";
+    }
     private Response visibleCooldown(Attempt attempt,RouteTarget target,ContextGuard.Result guard) {
         if(attempt==null||attempt.ok||attempt.response==null||attempt.executionUnknown||!CooldownFeedback.limited(attempt.status,attempt.body))return attempt==null?null:attempt.response;
         // Trae names quota and rate answers with the same HTTP 429. Only 4011 is a
         // confirmed rate rejection; keep its existing per-instance adapter cooldown.
-        if(target!=null&&"trae-cn".equals(target.providerId)&&!attempt.body.contains("code 4011"))return attempt.response;
+        if(target!=null&&"trae-cn".equals(target.providerId)&&!containsAny(attempt.body,"code 4011"))return attempt.response;
         String hint=attempt.retryAfter;if(hint==null)hint=attempt.response.getHeader("Retry-After");
         if(attempt.localRejection&&ProviderRetryPolicy.safeRetryAfter(hint)==null)return attempt.response;
         long now=System.currentTimeMillis(),remaining=rateRestRemaining(target);
@@ -11863,7 +11840,7 @@ public class GatewayServer extends NanoHTTPD {
             return containsAny(b, "quota", "insufficient", "balance", "credit", "rate limit",
                     "too many requests", "not support", "unsupported", "not found",
                     "no available", "region", "blocked", "banned", "suspended")
-                    || containsAny(b, "额度", "余额", "不足", "限流", "不支持", "已下架", "风控");
+                    || containsAny(b, "额度", "配额", "余额", "不足", "限流", "不支持", "已下架", "风控");
         }
         return false;
     }
@@ -11873,7 +11850,8 @@ public class GatewayServer extends NanoHTTPD {
         if (status != 400 && status != 413 && status != 422) return false;
         return containsAny(b, "context length", "context_length", "too long", "maximum context",
                 "context window", "prompt is too long", "input is too long", "token limit")
-                || containsAny(b, "上下文", "超长", "过长", "超出");
+                || containsAny(b, "上下文超长", "上下文过长", "超出上下文", "上下文长度超", "超过上下文",
+                        "输入过长", "输入超长", "提示词过长", "提示词超长");
     }
 
     private static boolean containsAny(String hay, String... needles) {
@@ -12801,6 +12779,9 @@ public class GatewayServer extends NanoHTTPD {
                     JSONObject safe=new JSONObject().put("error",classified.getJSONObject("error"));errBody=safe.toString();
                 }
                 if ("github-copilot".equals(target.providerId) && errBody.contains("unsupported_api_for_model")) {
+                    if(request!=null)request.detach(conn);
+                    conn.disconnect();conn=null;
+                    if(outboundTicket!=null){outboundTicket.close();outboundTicket=null;}
                     if(RESP_REQUEST.get()!=null && ResponsesBridge.nativeOnlyReason(RESP_REQUEST.get())!=null) { out.status=400; out.body="Responses-only fields cannot be recovered after Chat conversion"; out.response=errorResponse(400,out.body); return out; }
                     try {
                         if(wantsAnthropicOut()) validateAnthropicResponsesInput(NATIVE_REQUEST.get());
@@ -12969,6 +12950,7 @@ public class GatewayServer extends NanoHTTPD {
                             .put("completion_tokens",finalContent.length()/2)
                             .put("total_tokens",10+finalContent.length()/2).put("estimated",true);
                     simulatedResp.put("usage",estimated);
+                    absorbUsage(U_ROW.get(),estimated); // Same explicitly estimated counters as the client.
                 }
 
                 // 这条聚合路径是独立拼装的，不走下面普通非流式那段，
@@ -13135,7 +13117,7 @@ public class GatewayServer extends NanoHTTPD {
                     }
                 }
             } catch (Throwable mwOutErr) {
-                mwOutErr.printStackTrace();
+                logException("response middleware",mwOutErr);
             }
 
             try {
@@ -13178,7 +13160,7 @@ public class GatewayServer extends NanoHTTPD {
         } catch (ProtocolResponseException invalid) {
             return failedProtocolAttempt(out);
         } catch (OutboundRejected rejected) {
-            out.ok=false; out.localRejection=true; RequestDiagnostics.admissionRejected(U_ROW.get()); out.status=rejected.status; out.body=rejected.getMessage();
+            out.ok=false; out.localRejection=!out.sent; RequestDiagnostics.admissionRejected(U_ROW.get()); out.status=rejected.status; out.body=rejected.getMessage();
             out.response=errorResponse(out.status,out.body);
             if(rejected.retryMillis>0) { out.retryAfter=Long.toString((rejected.retryMillis+999)/1000); out.response.addHeader("Retry-After",out.retryAfter); }
             return out;
@@ -13191,7 +13173,7 @@ public class GatewayServer extends NanoHTTPD {
             return out;
         } catch (Exception e) {
             if(request!=null && request.isCancelled()) {
-                out.ok=false; out.localRejection=true; out.status=503; out.body="Request cancelled or deadline exhausted";
+                out.ok=false; out.localRejection=!out.sent; out.status=503; out.body="Request cancelled or deadline exhausted";
                 out.response=errorResponse(503,out.body); return out;
             }
             // 连接/DNS/TLS/超时：状态记 0，让 retryable 认为"换一家可能就通了"
@@ -13202,9 +13184,9 @@ public class GatewayServer extends NanoHTTPD {
                 out.body = "Upstream connection failed; execution outcome unknown";
                 out.response = errorResponse(502, out.body);
             } else {
-                e.printStackTrace();
+                logException("forwardAttempt",e);
                 out.body = scrubUpstreamSecrets(String.valueOf(e.getMessage()), target);
-                String msg = e.getMessage() == null ? "connection failed" : e.getMessage();
+                String msg = out.body.isEmpty() ? "connection failed" : out.body;
                 out.response = errorResponse(502, "upstream " + target.providerId + " failed: " + msg);
             }
             return out;
@@ -14672,7 +14654,7 @@ public class GatewayServer extends NanoHTTPD {
                 out.body = "Upstream connection failed; execution outcome unknown";
                 out.response = errorResponse(502, out.body);
             } else {
-                e.printStackTrace();
+                logException("forwardAnthropic",e);
                 out.body = scrubUpstreamSecrets(e.getMessage() == null ? String.valueOf(e) : e.getMessage(), target);
                 out.response = errorResponse(502, "Anthropic 上游转发失败: " + out.body);
             }
@@ -15772,7 +15754,7 @@ public class GatewayServer extends NanoHTTPD {
                 }
             }
         } catch (Throwable t) {
-            t.printStackTrace();
+            logException("fetchZCodeModels",t);
         } finally {
             if (conn != null) {
                 try { conn.disconnect(); } catch (Throwable ignored) {}
@@ -16239,7 +16221,7 @@ public class GatewayServer extends NanoHTTPD {
             if (!saveConfig(staged)) throw new IOException("配置保存失败，账号未加入账号池");
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("account ingestion",e);
             return "err";
         }
     }
@@ -16307,7 +16289,7 @@ public class GatewayServer extends NanoHTTPD {
             if (!saveConfig(staged)) throw new IOException("配置保存失败，账号未加入账号池");
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("account ingestion",e);
             return "err";
         }
     }
@@ -16371,7 +16353,49 @@ public class GatewayServer extends NanoHTTPD {
     // Codex (ChatGPT 订阅) 原生协议桥接与账号维护实现
     // =========================================================================
 
+    /** Manual raw codes require an explicit flow id; URL state must agree with it when present. */
+    private static Map<String,String> manualOAuthInput(String input) throws Exception {
+        Map<String,String> result=new HashMap<>();
+        if(!input.contains("code=")){result.put("code",input);return result;}
+        String query=input.contains("?")?input.substring(input.indexOf('?')+1):input;
+        int fragment=query.indexOf('#');if(fragment>=0)query=query.substring(0,fragment);
+        for(String pair:query.split("&")) {
+            int at=pair.indexOf('=');if(at<=0)continue;
+            String key=java.net.URLDecoder.decode(pair.substring(0,at),"UTF-8");
+            if(!"code".equals(key)&&!"state".equals(key))continue;
+            if(result.containsKey(key))throw new IllegalArgumentException("Duplicate OAuth callback parameter");
+            result.put(key,java.net.URLDecoder.decode(pair.substring(at+1),"UTF-8"));
+        }
+        if(!result.containsKey("code")||result.get("code").isEmpty())throw new IllegalArgumentException("Missing OAuth code");
+        return result;
+    }
+    private CodexAuth.Flow pendingCodexFlow(String id,String state) {
+        CodexAuth.Flow flow=id.isEmpty()?null:codexFlows.get(id);
+        if(id.isEmpty() && state!=null && !state.isEmpty())for(CodexAuth.Flow f:codexFlows.values())
+            if(constantTimeEquals(f.state,state)){if(flow!=null)return null;flow=f;}
+        if(flow==null || !"pending".equals(flow.status) || flow.verifier==null || flow.verifier.isEmpty())return null;
+        long age=System.currentTimeMillis()-flow.createdAt;
+        if(age<0 || age>10*60*1000L || (state!=null && !constantTimeEquals(flow.state,state)))return null;
+        return flow;
+    }
+    private AntigravityAuth.Flow pendingAntigravityFlow(String id,String state) {
+        AntigravityAuth.Flow flow=id.isEmpty()?null:antigravityFlows.get(id);
+        if(id.isEmpty() && state!=null && !state.isEmpty())for(AntigravityAuth.Flow f:antigravityFlows.values())
+            if(constantTimeEquals(f.state,state)){if(flow!=null)return null;flow=f;}
+        if(flow==null || !"pending".equals(flow.status) || flow.verifier==null || flow.verifier.isEmpty())return null;
+        long age=System.currentTimeMillis()-flow.createdAt;
+        if(age<0 || age>CALLBACK_SESSION_MILLIS || (state!=null && !constantTimeEquals(flow.state,state)))return null;
+        return flow;
+    }
+    static boolean allowedAntigravityDiagnosticHost(String host) {
+        if(host==null)return false;
+        return java.util.Arrays.asList("cloudcode-pa.googleapis.com","daily-cloudcode-pa.googleapis.com",
+                "oauth2.googleapis.com","www.googleapis.com","accounts.google.com").contains(host.toLowerCase(java.util.Locale.ROOT));
+    }
+
     private Response handleCodexHttpCallback(IHTTPSession session) {
+        if(!isLocalRequest(session))return errorResponse(403,"OAuth callback is loopback only");
+        if(session.getMethod()!=Method.GET)return errorResponse(405,"OAuth callback requires GET");
         Map<String, List<String>> params = session.getParameters();
         String code = (params.containsKey("code") && !params.get("code").isEmpty()) ? params.get("code").get(0) : "";
         String state = (params.containsKey("state") && !params.get("state").isEmpty()) ? params.get("state").get(0) : "";
@@ -16381,13 +16405,7 @@ public class GatewayServer extends NanoHTTPD {
         String errMsg = "";
 
         if (!code.isEmpty()) {
-            CodexAuth.Flow matchedFlow = null;
-            for (CodexAuth.Flow f : codexFlows.values()) {
-                if (f.state.equals(state)) {
-                    matchedFlow = f;
-                    break;
-                }
-            }
+            CodexAuth.Flow matchedFlow = pendingCodexFlow("",state);
             String verifier = matchedFlow != null ? matchedFlow.verifier : "";
             if (!verifier.isEmpty()) {
                 try {
@@ -16424,10 +16442,14 @@ public class GatewayServer extends NanoHTTPD {
                 + "p{color:#9ca3af;font-size:0.95rem;line-height:1.6;margin-bottom:20px;}"
                 + ".btn{display:inline-block;padding:10px 24px;border-radius:20px;background:#10a37f;color:#fff;text-decoration:none;font-weight:600;font-size:0.9rem;}"
                 + "</style></head><body><div class='box'><h1>" + (ok ? "⚡ Codex 订阅连接成功！" : "❌ 授权遇到问题") + "</h1>"
-                + "<p>" + (ok ? "已成功连接账号 <b>" + accName + "</b>。<br>您可以关闭此窗口，返回控制台开始使用。" : ("授权换取失败: " + errMsg)) + "</p>"
+                + "<p>" + (ok ? "已成功连接账号 <b>" + escapeCallbackText(accName) + "</b>。<br>您可以关闭此窗口，返回控制台开始使用。" : ("授权换取失败: " + escapeCallbackText(errMsg))) + "</p>"
                 + "<a class='btn' href='/'>返回 All In 控制台</a>"
                 + "</div></body></html>";
         Response resp = newFixedLengthResponse(Status.OK, "text/html; charset=UTF-8", html);
+        resp.addHeader("Cache-Control","no-store");
+        resp.addHeader("X-Content-Type-Options","nosniff");
+        resp.addHeader("Referrer-Policy","no-referrer");
+        resp.addHeader("Content-Security-Policy","default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
         addCorsHeaders(resp);
         return resp;
     }
@@ -16486,6 +16508,8 @@ public class GatewayServer extends NanoHTTPD {
 
         HttpURLConnection conn = null;
         RequestContext nativeContext=REQUEST_CONTEXT.get();
+        NativeResponseLifecycle lifecycle=NativeResponseLifecycle.begin("github-copilot",modelRef,upstreamModel,pickSession(headers),nativeContext);
+        lifecycle.account(acc.optString("id",""));
         boolean handedOff = false;
         try {
             body.put("model", upstreamModel);
@@ -16517,6 +16541,7 @@ public class GatewayServer extends NanoHTTPD {
 
             byte[] nativeBytes=body.toString().getBytes("UTF-8");
             conn.setFixedLengthStreamingMode(nativeBytes.length);
+            lifecycle.markSent();
             OutputStream os = conn.getOutputStream();
             os.write(nativeBytes);
             os.flush();
@@ -16532,20 +16557,22 @@ public class GatewayServer extends NanoHTTPD {
                 Response resp = errorResponse(status <= 0 ? 502 : status,
                         "Copilot responses: " + (err.isEmpty() ? "上游没有返回响应体" : err));
                 copyProviderRetryAfter(conn,resp);
-                try { conn.disconnect(); } catch (Throwable ignored) {}
+                resp.setData(lifecycle.wrap(resp.getData(),null,status<=0?502:status));
                 return resp;
             }
 
             Response resp;
             if (stream) {
-                resp = nativeResponsesStream(conn.getInputStream(),nativeMask,nativeGuard,conn);
+                resp = nativeResponsesStream(conn.getInputStream(),nativeMask,nativeGuard,conn,lifecycle);
                 handedOff = true;
             } else {
                 JSONObject result=new JSONObject(drainText(conn.getInputStream()));
                 String outcome=result.optString("status");
                 if(!"completed".equals(outcome) && !"incomplete".equals(outcome))throw new IOException("Invalid native Responses terminal state");
+                absorbUsage(lifecycle.row,result.optJSONObject("usage"));
                 unmaskJson(result,nativeMask);
                 resp = newFixedLengthResponse(Status.OK,"application/json; charset=UTF-8",result.toString());
+                resp.setData(lifecycle.wrap(resp.getData(),null,200));
             }
             RESP_NATIVE_RESULT.set(Boolean.TRUE);
             applyGuardHeaders(resp,nativeGuard);
@@ -16555,6 +16582,7 @@ public class GatewayServer extends NanoHTTPD {
         } catch (Exception e) {
             return errorResponse(502,"Copilot Responses failed or execution outcome unknown; request was not replayed");
         } finally {
+            if(!lifecycle.handedOff)lifecycle.complete(502,"Copilot native response failed or execution outcome unknown",null);
             if (conn != null && !handedOff) {
                 try { conn.disconnect(); } catch (Throwable ignored) {}
                 if(nativeContext!=null)nativeContext.detach(conn);
@@ -16563,11 +16591,18 @@ public class GatewayServer extends NanoHTTPD {
     }
 
     private Response handleCodexNative(IHTTPSession session, String uri, String method, Map<String, String> headers, String rawBody) {
-        return handleCodexNative(session, uri, method, headers, rawBody, 0);
+        NativeResponseLifecycle lifecycle=null;
+        if(uri.contains("/responses") && "POST".equalsIgnoreCase(method)) {
+            String model="";try{model=new JSONObject(rawBody).optString("model","");}catch(Exception ignored){}
+            lifecycle=NativeResponseLifecycle.begin("codex",model,model,pickSession(headers),REQUEST_CONTEXT.get());
+        }
+        Response response=handleCodexNative(session,uri,method,headers,rawBody,0,lifecycle);
+        if(lifecycle!=null && !lifecycle.handedOff)lifecycle.complete(response.getStatus().getRequestStatus(),"Codex native request failed before response handoff",null);
+        return response;
     }
 
     /** attempt 只用来把 401 重试限死一次：刷新成功但上游仍拒，就不要再递归下去 */
-    private Response handleCodexNative(IHTTPSession session, String uri, String method, Map<String, String> headers, String rawBody, int attempt) {
+    private Response handleCodexNative(IHTTPSession session, String uri, String method, Map<String, String> headers, String rawBody, int attempt, NativeResponseLifecycle lifecycle) {
         JSONObject prov = getProviderById("codex");
         if (prov == null) {
             return errorResponse(404, "Codex 供应商尚未初始化");
@@ -16589,6 +16624,7 @@ public class GatewayServer extends NanoHTTPD {
             return errorResponse(401, "请先在 All In 控制台登录或配置 Codex 订阅账号");
         }
 
+        if(lifecycle!=null)lifecycle.account(activeAcc.optString("id",""));
         CodexAuth.SignInInfo info = new CodexAuth.SignInInfo();
         info.accessToken = activeAcc.optString("access", activeAcc.optString("token", ""));
         info.refreshToken = activeAcc.optString("refresh", "");
@@ -16625,6 +16661,9 @@ public class GatewayServer extends NanoHTTPD {
         }
 
         if (uri.contains("/responses") && "POST".equalsIgnoreCase(method)) {
+            HttpURLConnection conn=null;
+            boolean streamHandoff=false;
+            RequestContext nativeContext=REQUEST_CONTEXT.get();
             try {
                 JSONObject codexInbound=new JSONObject(rawBody);
                 ContextGuard.Config nativeGuard=ContextGuard.Config.fromJson(configJson.optJSONObject("guard"));
@@ -16647,11 +16686,17 @@ public class GatewayServer extends NanoHTTPD {
                 String targetUrl = uri.endsWith("/compact") 
                         ? CodexAuth.CODEX_BASE + "/responses/compact" 
                         : CodexAuth.CODEX_RESPONSES;
-                HttpURLConnection conn = openVendorConnection(targetUrl);
+                conn = openVendorConnection(targetUrl);
+                conn.setInstanceFollowRedirects(false);
                 conn.setRequestMethod("POST");
                 conn.setDoOutput(true);
                 conn.setConnectTimeout(60000);
                 conn.setReadTimeout(180000);
+                if(nativeContext!=null) {
+                    nativeContext.check();nativeContext.attach(conn);
+                    conn.setConnectTimeout((int)Math.max(1,Math.min(60000,nativeContext.remainingMillis())));
+                    conn.setReadTimeout((int)Math.max(1,Math.min(180000,nativeContext.remainingMillis())));
+                }
                 conn.setRequestProperty("Content-Type", "application/json");
                 conn.setRequestProperty("Accept", "text/event-stream, application/json");
                 conn.setRequestProperty("Authorization", "Bearer " + info.accessToken);
@@ -16664,6 +16709,7 @@ public class GatewayServer extends NanoHTTPD {
                 addCodexSessionHeaders(conn,new JSONObject(rawBody),headers);
                 byte[] nativeBytes=rawBody.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                 conn.setFixedLengthStreamingMode(nativeBytes.length);
+                lifecycle.markSent();
                 OutputStream os = conn.getOutputStream();
                 os.write(nativeBytes);
                 os.flush();
@@ -16671,25 +16717,26 @@ public class GatewayServer extends NanoHTTPD {
 
                 int code = conn.getResponseCode();
                 if (code == 401 && attempt < 1 && !info.refreshToken.isEmpty()) {
-                    conn.disconnect();
+                    conn.disconnect();if(nativeContext!=null)nativeContext.detach(conn);conn=null;
                     CodexAuth.refreshToken(info, "unauthorized_recovery");
                     if (attempt < 1) {
-                        return handleCodexNative(session, uri, method, headers, rawBody, attempt + 1);
+                        return handleCodexNative(session, uri, method, headers, rawBody, attempt + 1,lifecycle);
                     }
                     // 刷新成功仍然 401：不再递归，把上游的 401 原样交给下面处理
                 }
 
-                InputStream is = (code >= 200 && code < 400) ? conn.getInputStream() : conn.getErrorStream();
-                if (code >= 200 && code < 400) {
-                    Response resp = newChunkedResponse(Status.OK, "text/event-stream; charset=UTF-8", is);
+                if(code>=300 && code<400)return errorResponse(502,"Codex upstream redirect refused");
+                InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
+                if (code >= 200 && code < 300) {
+                    String upstreamMime=conn.getContentType();
+                    boolean json=uri.endsWith("/compact") || (upstreamMime!=null && upstreamMime.toLowerCase(java.util.Locale.ROOT).startsWith("application/json"));
+                    String mime=json?"application/json; charset=UTF-8":"text/event-stream; charset=UTF-8";
+                    Response resp = newChunkedResponse(Status.OK,mime,lifecycle.wrap(is,conn,code));
+                    streamHandoff=true;
                     addCorsHeaders(resp);
                     return resp;
                 } else {
-                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                    byte[] buf = new byte[2048];
-                    int n;
-                    while ((n = is.read(buf)) != -1) bos.write(buf, 0, n);
-                    is.close();
+                    String errorBody=drainText(is);
                     Response.IStatus nativeStatus=Status.lookup(code);
                     if(nativeStatus==null) {
                         final int upstreamCode=code;
@@ -16699,7 +16746,8 @@ public class GatewayServer extends NanoHTTPD {
                         };
                     }
                     Response resp = newFixedLengthResponse(nativeStatus,
-                            "application/json; charset=UTF-8", bos.toString("UTF-8"));
+                            "application/json; charset=UTF-8", errorBody);
+                    resp.setData(lifecycle.wrap(resp.getData(),null,code));
                     copyProviderRetryAfter(conn,resp);
                     addCorsHeaders(resp);
                     return resp;
@@ -16712,6 +16760,10 @@ public class GatewayServer extends NanoHTTPD {
                 return errorResponse(400,invalid.getMessage()==null?"Invalid Codex request":invalid.getMessage());
             } catch (Exception e) {
                 return errorResponse(502, "Codex 原生转发失败");
+            } finally {
+                if(conn!=null && !streamHandoff) {
+                    try{conn.disconnect();}finally{if(nativeContext!=null)nativeContext.detach(conn);}
+                }
             }
         }
 
@@ -16761,10 +16813,18 @@ public class GatewayServer extends NanoHTTPD {
     /** Native SSE retains each event and all vendor fields, while validating terminal state. */
     private Response nativeResponsesStream(final InputStream source, final PrivacyMasker.Session mask,
                                            ContextGuard.Result guard, final HttpURLConnection conn) {
-        final UsageLedger.Row row=U_ROW.get(); final Long start=U_START.get(); final String clientModel=CLIENT_MODEL.get();
-        final RequestContext affinityRequest=REQUEST_CONTEXT.get();
+        Long start=U_START.get();
+        return nativeResponsesStream(source,mask,guard,conn,new NativeResponseLifecycle(U_ROW.get(),
+                start==null?System.currentTimeMillis():start,REQUEST_CONTEXT.get()));
+    }
+    private Response nativeResponsesStream(final InputStream source, final PrivacyMasker.Session mask,
+                                           ContextGuard.Result guard, final HttpURLConnection conn,
+                                           final NativeResponseLifecycle lifecycle) {
+        lifecycle.handedOff=true;
+        final UsageLedger.Row row=lifecycle.row; final String clientModel=CLIENT_MODEL.get();
+        final RequestContext affinityRequest=lifecycle.context;
         final java.util.concurrent.atomic.AtomicBoolean semantic=affinityRequest==null?null:affinityRequest.affinitySemantic;
-        InputStream processed=new InputStream() {
+        class NativeStream extends InputStream implements fi.iki.elonen.AllInTrackedResponse.WriteCompletion {
             final BufferedReader reader=new BoundedSseReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
             final java.util.Map<String,StreamUnmask> deltas=new java.util.LinkedHashMap<String,StreamUnmask>();
             final java.util.Map<String,JSONObject> deltaTemplates=new java.util.LinkedHashMap<String,JSONObject>();
@@ -16787,23 +16847,21 @@ public class GatewayServer extends NanoHTTPD {
                 } else delta.remove("sequence_number");
                 return "event: "+delta.getString("type")+"\ndata: "+delta.toString()+"\n\n";
             }
-            final java.util.concurrent.atomic.AtomicBoolean finished=new java.util.concurrent.atomic.AtomicBoolean();
+            volatile boolean writeStarted,writeFinished,readComplete,closed;
+            boolean completed;
+            volatile int resultStatus=200;volatile String resultError="";
             final java.util.concurrent.atomic.AtomicBoolean released=new java.util.concurrent.atomic.AtomicBoolean();
             static final int MAX_EVENT_CHARS=1024*1024;
             void release() {
                 if(!released.compareAndSet(false,true)) return;
                 if(conn!=null) try { conn.disconnect(); } catch(Throwable ignored) {}
+                if(affinityRequest!=null && conn!=null)affinityRequest.detach(conn);
+                try { source.close(); } catch(IOException ignored) {}
                 try { reader.close(); } catch(IOException ignored) {}
             }
             void finish(int status, String err) {
-                if(finished.compareAndSet(false,true)) {
-                    if(row!=null) {
-                        row.status=status; row.err=err;
-                        row.ms=System.currentTimeMillis()-(start==null?System.currentTimeMillis():start.longValue());
-                        try { recordUsageRow(row); } catch(Throwable ignored) {}
-                    }
-                }
-                release();
+                synchronized(this){if(resultStatus<400){resultStatus=status;resultError=err;}}
+                release(); // A late parser success cannot erase an already observed failure.
             }
             String boundedLine() throws IOException {
                 StringBuilder line=new StringBuilder(); int ch;
@@ -16826,7 +16884,12 @@ public class GatewayServer extends NanoHTTPD {
             }
             boolean fill() throws IOException {
                 while(offset>=bytes.length) {
-                    if(ended)return false;
+                    if(closed)return false;
+                    if(ended) {
+                        readComplete=true;
+                        if(!writeStarted){if(semantic!=null)semantic.set(completed && resultStatus==200);lifecycle.complete(resultStatus,resultError,null);}
+                        return false;
+                    }
                     String result="";
                     try {
                         String line; StringBuilder data=new StringBuilder(); String eventName=""; int eventChars=0;
@@ -16846,13 +16909,13 @@ public class GatewayServer extends NanoHTTPD {
                             if(type.isEmpty())throw new IOException("missing event type");
                             JSONObject response=event.optJSONObject("response");
                             if(response!=null && clientModel!=null && response.has("model")) response.put("model",clientModel);
-                            if(response!=null) { lastResponse=response; JSONObject usage=response.optJSONObject("usage"); if(row!=null && usage!=null) absorbUsage(row,usage); }
+                            if(response!=null) { lastResponse=response; JSONObject usage=response.optJSONObject("usage"); if(row!=null && usage!=null)synchronized(this){if(!closed)absorbUsage(row,usage);} }
                             if("error".equals(type)) throw new IOException("upstream Responses error");
                             if("response.completed".equals(type) || "response.incomplete".equals(type) || "response.failed".equals(type)) {
                                 if("response.completed".equals(type) || "response.incomplete".equals(type)) for(String key:new java.util.ArrayList<String>(deltas.keySet())) result+=flushDelta(key);
                                 if(("response.completed".equals(type) || "response.incomplete".equals(type)) && (response==null || !type.substring(9).equals(response.optString("status")))) throw new IOException("invalid terminal response status");
                                 terminal=true; ended=true;
-                                if(semantic!=null) semantic.set("response.completed".equals(type));
+                                completed="response.completed".equals(type);
                             }
                             if(event.opt("delta") instanceof String) {
                                 String key=type+":"+event.optString("item_id","")+":"+event.optInt("output_index",0)+":"+event.optInt("content_index",event.optInt("summary_index",0));
@@ -16872,13 +16935,32 @@ public class GatewayServer extends NanoHTTPD {
                         ended=true; terminal=false; if(semantic!=null) semantic.set(false); try { result=failure("Invalid or interrupted Responses stream"); } catch(Exception ignored) { finish(502,"Invalid or interrupted Responses stream"); throw new IOException(ex); }
                         }
                     if(ended && !terminal) finish(502,"Invalid or interrupted Responses stream");
+                    if(closed)return false;
                     if(!result.isEmpty()) { bytes=result.getBytes(java.nio.charset.StandardCharsets.UTF_8); offset=0; return true; }
                 } return true;
             }
             public int read() throws IOException {return fill()?bytes[offset++]&255:-1;}
             public int read(byte[] b,int off,int len) throws IOException {if(len==0)return 0;if(!fill())return -1;int n=Math.min(len,bytes.length-offset);System.arraycopy(bytes,offset,b,off,n);offset+=n;return n;}
-            public void close() throws IOException { ended=true; finish(499,"Client cancelled Responses stream"); }
-        };
+            public void onWriteStart(){writeStarted=true;}
+            public void onWriteComplete(boolean success){
+                writeFinished=true;
+                if(!success && resultStatus<400)finish(lifecycle.cancelledStatus(),"Native downstream write failed or cancelled");
+                else if(!readComplete && resultStatus<400)finish(502,"Incomplete native Responses delivery");
+                if(semantic!=null)semantic.set(success && readComplete && completed && resultStatus==200);
+                lifecycle.complete(resultStatus,resultError,success && readComplete && resultStatus==200);release();
+            }
+            public void close() throws IOException {
+                synchronized(this) {
+                    if(closed)return;
+                    if(!readComplete && resultStatus<400){resultStatus=lifecycle.cancelledStatus();resultError="Client cancelled Responses stream";}
+                    closed=true;ended=true;
+                }
+                release();
+                if(semantic!=null && !readComplete)semantic.set(false);
+                if(!writeStarted || writeFinished)lifecycle.complete(resultStatus,resultError,readComplete?null:Boolean.FALSE);
+            }
+        }
+        InputStream processed=new NativeStream();
         Response resp=newChunkedResponse(Status.OK,"text/event-stream; charset=UTF-8",processed);
         addCorsHeaders(resp); applyGuardHeaders(resp,guard); return resp;
     }
@@ -17665,7 +17747,7 @@ public class GatewayServer extends NanoHTTPD {
             }
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addCodexAccount",e);
             return "err";
         }
     }
@@ -17877,10 +17959,10 @@ public class GatewayServer extends NanoHTTPD {
         } catch (ProtocolResponseException invalid) {
             return failedProtocolAttempt(out);
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("forwardAntigravity",e);
             out.ok = false;
             out.status = 502;
-            out.body = "Antigravity upstream failed: " + e.getMessage();
+            out.body = "Antigravity upstream failed: " + scrubUpstreamSecrets(e.getMessage(),target);
             out.response = errorResponse(502, out.body);
             return out;
         }
@@ -18022,7 +18104,7 @@ public class GatewayServer extends NanoHTTPD {
             }
             return accId;
         } catch (Exception e) {
-            e.printStackTrace();
+            logException("addAntigravityAccount",e);
             throw new RuntimeException("写入 Antigravity 账号失败: " + e.getMessage(), e);
         }
     }
@@ -18162,7 +18244,8 @@ public class GatewayServer extends NanoHTTPD {
                             try { socket.close(); } catch (Throwable ignored) { }
                         }
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable failure) {
+                    if(!stopping)logException("OAuth callback listener",failure);
                 } finally {
                     if (server != null) try { server.close(); } catch (Throwable ignored) { }
                 }

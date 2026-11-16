@@ -255,7 +255,8 @@ public final class RequestDiagnostics {
     static void nativeCompletion(UsageLedger.Row row, boolean success) {
         Observation o=row==null?null:row.diagnosticObservation;
         if(o!=null) synchronized(o) { if(!o.frozen) {
-            if(success) { o.deliveryConfirmed=true; o.executionState="delivered"; }
+            o.deliveryConfirmed=success;
+            if(success) { o.executionState="delivered"; }
             else if(o.transportCovered && o.handedOff) o.executionState="unknown_execution";
         } }
     }
