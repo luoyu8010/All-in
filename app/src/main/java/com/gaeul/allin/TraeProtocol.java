@@ -308,7 +308,14 @@ public final class TraeProtocol {
             long write=count(pd,"cache_write_tokens"),readNative=count(u,"cache_read_input_tokens","cacheReadInputTokens"),writeNative=count(u,"cache_creation_input_tokens","cacheCreationInputTokens");
             // A zero-only cache report is conservatively unknown; it does not prove a miss.
             if(standard>0||write>0){JSONObject detail=new JSONObject();if(standard>0)detail.put("cached_tokens",standard);if(write>0)detail.put("cache_write_tokens",write);v.put("prompt_tokens_details",detail);}
-            else if(readNative>0||writeNative>0){if(readNative>0)v.put("cache_read_input_tokens",readNative);if(writeNative>0)v.put("cache_creation_input_tokens",writeNative);}
+            else if(readNative>0||writeNative>0){
+                if(readNative>0)v.put("cache_read_input_tokens",readNative);if(writeNative>0)v.put("cache_creation_input_tokens",writeNative);
+                // Preserve native names, and make the Chat counters self-consistent for clients.
+                JSONObject normalized=CacheUsage.toChat(u);
+                if(normalized.has("prompt_tokens"))v.put("prompt_tokens",normalized.opt("prompt_tokens"));
+                if(normalized.has("total_tokens"))v.put("total_tokens",normalized.opt("total_tokens"));
+                if(normalized.has("prompt_tokens_details"))v.put("prompt_tokens_details",normalized.opt("prompt_tokens_details"));
+            }
             else v.put("magpie_cache_unknown",true);
             JSONObject cd=u.optJSONObject("completion_tokens_details");long reasoning=Math.max(count(u,"reasoning_tokens"),count(cd,"reasoning_tokens"));if(reasoning>0)v.put("completion_tokens_details",new JSONObject().put("reasoning_tokens",reasoning));usage=v;
         }

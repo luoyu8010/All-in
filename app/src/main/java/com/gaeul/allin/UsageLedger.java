@@ -109,6 +109,7 @@ public class UsageLedger {
         transient int compatBaseIn, compatBaseOut, compatBaseCacheRead, compatBaseCacheWrite, compatBaseReasoning;
         // A bit is set when the current physical send reported that dimension.
         transient int compatUsageSends, compatCurrentMask, compatCompleteMask = 31;
+        transient long compatBaseCacheInput;
         transient boolean compatCacheUnknown, compatCacheEstimated, compatReasoningEstimated;
         void beginCompatUsageSend() {
             if (compatUsageSends > 0) compatCompleteMask &= compatCurrentMask;
@@ -116,6 +117,8 @@ public class UsageLedger {
             compatCurrentMask = 0;
             compatBaseIn=in; compatBaseOut=out; compatBaseCacheRead=cacheRead;
             compatBaseCacheWrite=cacheWrite; compatBaseReasoning=reasoning;
+            compatBaseCacheInput=cacheInputTokens;
+            cacheInputStyleKnown=false;cacheInputExcludesCache=false;
             if (inputKnown || outputKnown) usageSource = "estimated".equals(usageSource) ? "estimated" : "partial";
             if (compatUsageSends > 1) {
                 if (!cacheSource.isEmpty() && !"unknown".equals(cacheSource)) cacheSource = "partial";
@@ -147,7 +150,7 @@ public class UsageLedger {
         // Protocol-normalized cache hit denominator; -1 means unavailable.
         public long cacheInputTokens = -1;
         // In-flight protocol state: Anthropic input excludes cache counters.
-        public transient boolean cacheInputExcludesCache;
+        public transient boolean cacheInputExcludesCache, cacheInputStyleKnown;
         public transient RecentUsageScheduler.Lease recentUsageLease;
         public transient RecentUsageScheduler.Lease accountRoutingLease;
         /** Bounded transport metadata, never prompt/header/credential material. */
@@ -326,6 +329,7 @@ public class UsageLedger {
                 o.put("speed", Math.round(speed() * 10) / 10.0);
                 double[] hr = hitRate();
                 o.put("hitRate", hr[1] > 0 ? Math.round(hr[0] * 1000) / 10.0 : JSONObject.NULL);
+                o.put("hitRateExact", hr[1] > 0 ? hr[0] * 100.0 : JSONObject.NULL);
             } catch (Exception ignored) {
             }
             return o;
@@ -582,7 +586,7 @@ public class UsageLedger {
             r.cacheRead = o.optInt("cr", 0);
             r.cacheWrite = o.optInt("cw", 0);
             r.reasoning = o.optInt("reas", 0);
-            r.cacheUnknown = o.optBoolean("cu", false);
+            r.cacheUnknown = o.optBoolean("cu", false) || (r.isLegacy() && !o.has("cr"));
             r.ttft = o.has("ttft") ? o.optLong("ttft", -1) : -1;
             r.decMs = o.has("decMs") ? o.optLong("decMs", -1) : -1;
             r.decOut = o.optInt("decOut", 0);

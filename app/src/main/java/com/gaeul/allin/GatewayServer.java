@@ -6046,7 +6046,7 @@ public class GatewayServer extends NanoHTTPD {
                     JSONArray clean = new JSONArray();
                     java.util.Set<String> seen = new java.util.HashSet<String>();
                     for (int i = 0; items != null && i < items.length(); i++) {
-                        String v = items.optString(i, "").trim();
+                        String v = QoderModelIdentity.upstreamRef(configJson, items.optString(i, "").trim());
                         if (v.isEmpty() || !known.contains(v) || !seen.add(v)) continue;
                         clean.put(v);
                     }
@@ -8324,6 +8324,7 @@ public class GatewayServer extends NanoHTTPD {
                         if (models != null) {
                             JSONArray loomyAvailable = !listAll && "loomy".equals(pid)
                                     ? GatewayAccessCatalog.build(configJson, System.currentTimeMillis(), ZCodeGiftControl::peekSummary).optJSONArray("models") : null;
+                            QoderModelIdentity identities = QoderModelIdentity.of(p);
                             for (int j = 0; j < models.length(); j++) {
                                 String mName = models.getString(j);
                                 if (loomyAvailable != null) {
@@ -8332,12 +8333,17 @@ public class GatewayServer extends NanoHTTPD {
                                         if ((pid+"/"+mName).equals(available.optJSONObject(k).optString("id"))) { found=true; break; }
                                     if (!found) continue;
                                 }
-                                String fullId = pid + "/" + mName;
-                                if (onlyListed && !allowSet.contains(fullId)) continue;
+                                String rawId = pid + "/" + mName;
+                                String fullId = pid + "/" + identities.publicId(mName);
+                                if (onlyListed && !allowSet.contains(rawId) && !allowSet.contains(fullId)) continue;
                                 JSONObject m = new JSONObject();
                                 m.put("id", fullId);
                                 m.put("object", "model");
                                 m.put("owned_by", pid);
+                                if ("qoder".equals(p.optString("protocol"))) {
+                                    m.put("name", identities.name(mName));
+                                    m.put("display_name", identities.name(mName));
+                                }
                                 arr.put(m);
                             }
                         }
@@ -9742,8 +9748,11 @@ public class GatewayServer extends NanoHTTPD {
             @Override public void onComplete(boolean success) {
                 if(semantic!=null) semantic.set(success);
                 if (row == null) return;
-                row.status = success ? 200 : 502;
-                row.err = success ? "" : "Native Anthropic stream incomplete or cancelled";
+                boolean cancelled=affinityRequest!=null && affinityRequest.isCancelled()
+                        && !"finished".equals(affinityRequest.cancelReason());
+                int failedStatus=cancelled?(affinityRequest.remainingMillis()==0 || "deadline".equals(affinityRequest.cancelReason())?504:499):502;
+                row.status = success ? 200 : failedStatus;
+                row.err = success ? "" : cancelled?"Native Anthropic downstream cancelled":"Native Anthropic stream incomplete";
                 row.ms = System.currentTimeMillis() - start;
                 if (first >= 0) { row.ttft = first - start; row.decMs = last - first; row.decOut = row.out; }
                 RequestDiagnostics.nativeCompletion(row,success);
@@ -10391,7 +10400,8 @@ public class GatewayServer extends NanoHTTPD {
             for(java.util.Iterator<String> keys=incoming.keys();keys.hasNext();) {String field=keys.next();merged.put(field,incoming.opt(field));}
             accumulated.put(key,merged);
         }
-        for(String key:new String[]{"cache_read_input_tokens","cache_creation_input_tokens","reasoning_tokens","thoughtsTokenCount"})
+        for(String key:new String[]{"cache_read_input_tokens","cache_creation_input_tokens","cacheReadInputTokens","cacheCreationInputTokens",
+                "prompt_cache_hit_tokens","cached_tokens","num_cached_tokens","magpie_cache_unknown","reasoning_tokens","thoughtsTokenCount"})
             if(reported.has(key)) accumulated.put(key,reported.opt(key));
     }
 
@@ -10416,11 +10426,10 @@ public class GatewayServer extends NanoHTTPD {
         JSONObject completion = u.optJSONObject("completion_tokens_details");
         if (completion == null) completion = u.optJSONObject("output_tokens_details");
         boolean cache = false, cacheReadReported = false, cacheWriteReported = false;
-        if (usageCounter(prompt, "cached_tokens")) { r.cacheRead = prompt.optInt("cached_tokens"); cacheReadReported = true; cache = true; }
-        if (usageCounter(prompt, "cache_write_tokens")) { r.cacheWrite = prompt.optInt("cache_write_tokens"); cacheWriteReported = true; cache = true; }
-        if (usageCounter(u, "cache_read_input_tokens")) { r.cacheRead = u.optInt("cache_read_input_tokens"); cacheReadReported = true; cache = true; }
-        if (usageCounter(u, "cache_creation_input_tokens")) { r.cacheWrite = u.optInt("cache_creation_input_tokens"); cacheWriteReported = true; cache = true; }
-        if (usageCounter(u, "cachedContentTokenCount")) { r.cacheRead = u.optInt("cachedContentTokenCount"); cacheReadReported = true; cache = true; }
+        Long readCache=CacheUsage.read(u),writeCache=CacheUsage.write(u);
+        boolean priorReadKnown="known".equals(r.cacheSource)||"estimated".equals(r.cacheSource);
+        if(readCache!=null && readCache<=Integer.MAX_VALUE){r.cacheRead=readCache.intValue();cacheReadReported=true;cache=true;}
+        if(writeCache!=null && writeCache<=Integer.MAX_VALUE){r.cacheWrite=writeCache.intValue();cacheWriteReported=true;cache=true;}
         if (cache) {
             if (cacheReadReported) r.cacheRead = (int)Math.min(Integer.MAX_VALUE,(long)r.cacheRead + r.compatBaseCacheRead);
             if (cacheWriteReported) r.cacheWrite = (int)Math.min(Integer.MAX_VALUE,(long)r.cacheWrite + r.compatBaseCacheWrite);
@@ -10429,7 +10438,8 @@ public class GatewayServer extends NanoHTTPD {
                 if ("estimated".equals(source)) r.compatCacheEstimated = true;
                 r.cacheSource = (r.compatCacheUnknown || (r.compatUsageSends > 1 && !r.compatComplete(12)))
                         ? "partial" : (r.compatCacheEstimated ? "estimated" : "known");
-            } else r.cacheSource = source;
+            } else r.cacheSource = cacheReadReported || priorReadKnown ? source : "partial";
+            if(r.compatUsageSends>0 && (r.compatCurrentMask & 4)==0)r.cacheSource="partial";
         }
         if (u.optBoolean("magpie_cache_unknown",false)) {
             if (r.compatUsageSends > 0) {
@@ -10449,15 +10459,19 @@ public class GatewayServer extends NanoHTTPD {
                 r.reasoningSource = !r.compatComplete(16) ? "partial" : (r.compatReasoningEstimated ? "estimated" : "known");
             }
         }
-        if (usageCounter(u, "cache_read_input_tokens") || usageCounter(u, "cache_creation_input_tokens"))
-            r.cacheInputExcludesCache = true;
+        Boolean excludes=CacheUsage.excludesCache(u);
+        if(excludes!=null && (hasInput || !r.cacheInputStyleKnown)) {
+            r.cacheInputExcludesCache=excludes; r.cacheInputStyleKnown=true;
+        }
         if (r.compatUsageSends > 1 && (!r.compatComplete(1) || !r.compatComplete(12) || r.compatCacheUnknown)) {
             r.cacheInputTokens = -1;
         } else if (r.compatUsageSends > 0 && r.compatCacheUnknown) {
             r.cacheInputTokens = -1;
         } else if (r.inputKnown && !r.cacheSource.isEmpty() && !"unknown".equals(r.cacheSource)) {
-            if (r.cacheInputExcludesCache) r.cacheInputTokens = (long) r.in + r.cacheRead + r.cacheWrite;
-            else if (hasInput && (prompt != null || r.cacheInputTokens < 0)) r.cacheInputTokens = r.in;
+            long input=r.in,read=r.cacheRead,write=r.cacheWrite;
+            if(r.compatUsageSends>0){input-=r.compatBaseIn;read-=r.compatBaseCacheRead;write-=r.compatBaseCacheWrite;}
+            long denominator=input+(r.cacheInputExcludesCache?read+write:0);
+            r.cacheInputTokens=(r.compatUsageSends>1?Math.max(0,r.compatBaseCacheInput):0)+denominator;
         }
     }
 
@@ -11905,7 +11919,7 @@ public class GatewayServer extends NanoHTTPD {
         if (!providerHasCredential(p)) return false;
         JSONArray models = p.optJSONArray("models");
         if (models == null || models.length() == 0) return true;   // 未同步清单时不做模型名校验
-        String m = modelRef.substring(pid.length() + 1);
+        String m = QoderModelIdentity.of(p).upstreamId(modelRef.substring(pid.length() + 1));
         for (int i = 0; i < models.length(); i++) {
             if (m.equals(models.optString(i))) return true;
         }
@@ -15391,6 +15405,8 @@ public class GatewayServer extends NanoHTTPD {
         }
 
         if (chosenProvider == null || !chosenProvider.optBoolean("enabled", true)) return null;
+        // Client-facing Qoder labels reverse to the saved official slot before account selection.
+        mName = QoderModelIdentity.of(chosenProvider).upstreamId(mName);
 
         String selectedKey = "";
         JSONArray keys = chosenProvider.optJSONArray("keys");
@@ -15743,7 +15759,7 @@ public class GatewayServer extends NanoHTTPD {
             JSONObject provider = getProviderById(pid);
             if (provider == null || !provider.optBoolean("enabled", true)) return null;
             if (!"qoder".equals(provider.optString("protocol", ""))) return null;
-            String model = modelRef.substring(pid.length() + 1).trim();
+            String model = QoderModelIdentity.of(provider).upstreamId(modelRef.substring(pid.length() + 1).trim());
             if (model.isEmpty()) return null;
 
             JSONArray accounts = provider.optJSONArray("accounts");
@@ -17041,7 +17057,13 @@ public class GatewayServer extends NanoHTTPD {
         final RequestContext affinityRequest=lifecycle.context;
         final java.util.concurrent.atomic.AtomicBoolean semantic=affinityRequest==null?null:affinityRequest.affinitySemantic;
         class NativeStream extends InputStream implements fi.iki.elonen.AllInTrackedResponse.WriteCompletion {
-            final BufferedReader reader=new BoundedSseReader(new InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));
+            // Cancellation must close the socket before waiting for the reader's lock, while the
+            // reader's later close must not close the same transport body a second time.
+            final InputStream ownedSource=new java.io.FilterInputStream(source) {
+                final java.util.concurrent.atomic.AtomicBoolean closed=new java.util.concurrent.atomic.AtomicBoolean();
+                @Override public void close()throws IOException{if(closed.compareAndSet(false,true))super.close();}
+            };
+            final BufferedReader reader=new BoundedSseReader(new InputStreamReader(ownedSource,java.nio.charset.StandardCharsets.UTF_8));
             final java.util.Map<String,StreamUnmask> deltas=new java.util.LinkedHashMap<String,StreamUnmask>();
             final java.util.Map<String,JSONObject> deltaTemplates=new java.util.LinkedHashMap<String,JSONObject>();
             byte[] bytes=new byte[0]; int offset=0; volatile boolean ended=false; boolean terminal=false; long lastSequence=-1, sequenceOffset=0; boolean sawSequence=false; JSONObject lastResponse;
@@ -17072,7 +17094,7 @@ public class GatewayServer extends NanoHTTPD {
                 if(!released.compareAndSet(false,true)) return;
                 if(conn!=null) try { conn.disconnect(); } catch(Throwable ignored) {}
                 if(affinityRequest!=null && conn!=null)affinityRequest.detach(conn);
-                try { source.close(); } catch(IOException ignored) {}
+                try { ownedSource.close(); } catch(IOException ignored) {}
                 try { reader.close(); } catch(IOException ignored) {}
             }
             void finish(int status, String err) {
@@ -18183,6 +18205,7 @@ public class GatewayServer extends NanoHTTPD {
             }
             JSONObject usageObj = sim.optJSONObject("usage");
             if (usageObj != null) {
+                absorbUsage(U_ROW.get(),usageObj);
                 totalTokens.addAndGet(usageObj.optInt("total_tokens", 0));
             }
 

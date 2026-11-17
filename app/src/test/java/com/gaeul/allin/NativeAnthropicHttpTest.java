@@ -154,7 +154,7 @@ public final class NativeAnthropicHttpTest {
             waitIdle(g); int attemptedRows = rows.size(); // Existing ledger also records a rejected route attempt.
             u.mode = "truncated"; c = post(port, BODY); check(c.getResponseCode() == 200, "truncated stream status"); String truncated = read(c.getInputStream()); c.disconnect(); check(truncated.contains("event: error") && !truncated.contains("event: message_stop"), "truncation error without stop"); waitIdle(g); check(u.calls.get() == before + 1, "truncation no key fallback"); row(rows, attemptedRows + 1, 502, 11, 0, 3, 4);
             u.mode = "error"; c = post(port, BODY); check(c.getResponseCode() == 200, "upstream error status"); check(read(c.getInputStream()).equals(ERROR), "upstream error preserved once"); c.disconnect(); waitIdle(g); row(rows, attemptedRows + 2, 502, 0, 0, 0, 0);
-            u.mode = "cancel"; cancel(port, BODY); waitIdle(g); row(rows, attemptedRows + 3, 502, 11, 0, 3, 4);
+            u.mode = "cancel"; cancel(port, BODY); waitIdle(g); row(rows, attemptedRows + 3, 499, 11, 0, 3, 4);
             System.out.println("NativeAnthropicHttpTest OK");
         } finally {
             UsageLedger.setHooks(null); if (g != null) g.stop(); if (u != null) u.close();

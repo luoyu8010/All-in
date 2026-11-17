@@ -1297,7 +1297,7 @@
             <span class="project-info-text"><span class="project-info-kicker">开源项目</span><span class="project-info-meta">github.com/xunianooo/All-in</span></span><span class="project-info-arrow" aria-hidden="true">↗</span>
           </a>
       </div>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.53-test</p>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.54-test</p>
       <div id="setup-anchor"></div>
       <div class="card checkin-entry" id="checkin-home-entry">
         <div><span class="checkin-kicker">DAILY CHECK-IN</span><h2>每日签到</h2><p id="checkin-home-summary">账号奖励，一处管理</p></div>
@@ -4434,6 +4434,13 @@
       return (Number(n) || 0).toLocaleString('en-US');
     }
 
+    function cacheHitText(stats) {
+      if (!stats || stats.hitRate === null || stats.hitRate === undefined) return '—';
+      const exact = Number(stats.hitRateExact);
+      if (Number(stats.hitRate) === 0 && Number.isFinite(exact) && exact > 0) return '<0.1%';
+      return stats.hitRate + '%';
+    }
+
     let usageRevision = 0;
     let usageHasData = false;
     async function loadUsage(days, group) {
@@ -4510,12 +4517,13 @@
       let reqSub = (t.failed ? fmtFull(t.failed) + ' 次失败' : '全部成功') + ' · 重试后成功 ' + fmtFull(t.retried || 0);
       if (present('attempts')) reqSub += ' · 实际尝试 ' + fmtFull(t.attempts);
       if (present('attemptFailed')) reqSub += ' · 失败尝试 ' + fmtFull(t.attemptFailed);
-      let hitSub = '缓存读 ' + fmtNum(t.cacheRead || 0);
+      let hitSub = t.cacheKnown === 0 && !t.cacheRead && (t.cacheUnknown > 0 || t.cacheEstimated > 0)
+        ? '缓存读未确认' : '缓存读 ' + fmtNum(t.cacheRead || 0);
       if (present('cacheKnownInputTokens')) hitSub += ' · 已知缓存输入 ' + fmtNum(t.cacheKnownInputTokens);
       if (Object.prototype.hasOwnProperty.call(t, 'cacheCoverage')) hitSub += ' · 尝试覆盖 ' + coverage('cacheCoverage');
       set('uk-tokens', fmtNum(t.tokens), tokenSub);
       set('uk-req', fmtFull(t.requests), reqSub);
-      set('uk-hit', t.hitRate === null || t.hitRate === undefined ? '—' : t.hitRate + '%', hitSub);
+      set('uk-hit', cacheHitText(t), hitSub);
       setHtml('uk-speed', t.speed ? Math.round(t.speed) + '<span class="uk-unit">tok/s</span>' : '—',
         (t.timed || 0) + ' 次计时');
       setHtml('uk-ttft', t.meanTtft ? (t.meanTtft / 1000).toFixed(1) + '<span class="uk-unit">秒</span>' : '—',
@@ -4555,7 +4563,7 @@
             const parts = [];
             parts.push(fmtFull(g.requests) + ' 个请求');
             if (g.meanTtft) parts.push('首字 ' + (g.meanTtft / 1000).toFixed(1) + ' 秒');
-            if (g.hitRate !== null && g.hitRate !== undefined) parts.push('命中率 ' + g.hitRate + '%');
+            if (g.hitRate !== null && g.hitRate !== undefined) parts.push('命中率 ' + cacheHitText(g));
             if (g.speed) parts.push(Math.round(g.speed) + ' tok/秒');
             if (g.failed) parts.push(g.failed + ' 次失败');
             return '<div class="usage-bar-row">'

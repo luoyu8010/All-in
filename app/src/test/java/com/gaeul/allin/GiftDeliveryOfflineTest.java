@@ -28,7 +28,7 @@ public final class GiftDeliveryOfflineTest {
         };
         send.invoke(tracked, sink); tracked.close(); tracked.close();
         check(rows.contains(row) && Collections.frequency(rows, row) == 1, "delivery result recorded once");
-        check(row.status == (writeFailure ? 502 : 200) && released.get() == 1, "HTTP write result and request release");
+        check(row.status == (writeFailure ? 499 : 200) && released.get() == 1, "downstream final flush failure is cancelled (499), never delivered; request released once");
     }
     static void cacheOrder() throws Exception {
         Method absorb = GatewayServer.class.getDeclaredMethod("absorbUsage", UsageLedger.Row.class, JSONObject.class); absorb.setAccessible(true);

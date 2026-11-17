@@ -174,15 +174,17 @@ final class GatewayAccessCatalog {
                     if(giftOnly && summary==null) unknown++;
                 }
             }
+            QoderModelIdentity identities=QoderModelIdentity.of(p);
             for (String m:candidates) {
                 boolean usable="zcode".equals(id) ? (gifts.contains(m) || (!giftOnly && accountUsable(p,m,now))) : accountUsable(p,m,now);
                 if (!usable) continue;
                 String full=id+"/"+m;
-                available.put(full,new JSONObject().put("id",full).put("name",m).put("provider",id).put("providerName",p.optString("name",id)).put("kind","model"));
+                available.put(full,new JSONObject().put("id",id+"/"+identities.publicId(m)).put("name",identities.name(m)).put("provider",id).put("providerName",p.optString("name",id)).put("kind","model"));
             }
         }
         JSONArray result=new JSONArray();
-        for(java.util.Map.Entry<String,JSONObject> e:available.entrySet()) if(!filtered || contains(whitelist,e.getKey())) result.put(e.getValue());
+        for(java.util.Map.Entry<String,JSONObject> e:available.entrySet())
+            if(!filtered || contains(whitelist,e.getKey()) || contains(whitelist,e.getValue().optString("id"))) result.put(e.getValue());
         JSONObject routing=cfg.optJSONObject("routing"); JSONArray groups=cfg.optJSONArray("groups");
         if(routing!=null && routing.optBoolean("groupsEnabled",false)) for(int i=0; groups!=null && i<groups.length(); i++) {
             JSONObject g=groups.optJSONObject(i); if(g==null || !g.optBoolean("enabled",true)) continue;
@@ -191,9 +193,9 @@ final class GatewayAccessCatalog {
             JSONArray targets=g.optJSONArray("targets"); boolean live=false;
             if ("manual".equals(g.optString("strategy", "order"))) {
                 String pick=g.optString("pick", "");
-                live=!pick.isEmpty() && contains(targets,pick) && available.containsKey(pick);
+                live=!pick.isEmpty() && contains(targets,pick) && available.containsKey(QoderModelIdentity.upstreamRef(cfg,pick));
             } else {
-                for(int j=0; targets!=null && j<targets.length(); j++) if(available.containsKey(targets.optString(j,""))) { live=true; break; }
+                for(int j=0; targets!=null && j<targets.length(); j++) if(available.containsKey(QoderModelIdentity.upstreamRef(cfg,targets.optString(j,"")))) { live=true; break; }
             }
             if(live) result.put(new JSONObject().put("id",full).put("name",g.optString("name",id)).put("provider","group").put("providerName","路由组").put("kind","group"));
         }

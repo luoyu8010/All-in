@@ -737,10 +737,13 @@ final class AnthropicBridge {
     // bridge, cache writes. Keep absent cache fields absent, not invented.
     private static final class UsageCounts {
         long prompt, output, read, write;
-        boolean hasRead, hasWrite;
+        boolean hasRead, hasWrite, cacheUnknown, estimated;
 
         void merge(JSONObject usage) {
             if (usage == null) return;
+            usage=CacheUsage.toChat(usage);
+            if(usage.has("magpie_cache_unknown"))cacheUnknown=usage.optBoolean("magpie_cache_unknown",false);
+            if(usage.optBoolean("estimated",false))estimated=true;
             if (usage.has("prompt_tokens") && !usage.isNull("prompt_tokens"))
                 prompt = Math.max(0L, usage.optLong("prompt_tokens", 0));
             if (usage.has("completion_tokens") && !usage.isNull("completion_tokens"))
@@ -762,6 +765,8 @@ final class AnthropicBridge {
             JSONObject out = new JSONObject().put("input_tokens", input).put("output_tokens", output);
             if (hasRead) out.put("cache_read_input_tokens", read);
             if (hasWrite) out.put("cache_creation_input_tokens", write);
+            if(cacheUnknown)out.put("magpie_cache_unknown",true);
+            if(estimated)out.put("estimated",true);
             return out;
         }
     }

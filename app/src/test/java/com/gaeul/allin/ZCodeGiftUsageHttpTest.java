@@ -59,6 +59,9 @@ public final class ZCodeGiftUsageHttpTest {
                     int call = calls.incrementAndGet(); String current = mode; OutputStream out = s.getOutputStream();
                     int status = (current.equals("fail") || current.equals("fail-usage")) ? 503 : current.equals("retry") && (call % 2 == 1) ? 405 : 200;
                     String content = status != 200 ? (current.equals("fail-usage") ? "{\"error\":{\"message\":\"fixture failure\"},\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}" : "fixture failure") : current.equals("generic") ? "{\"id\":\"m\",\"object\":\"chat.completion\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"hello\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1}}" : current.startsWith("json-") ? json(current.substring(5)) : current.equals("retry") ? json("full") : stream(current.equals("partial") ? "partial" : current.equals("none") ? "none" : current.equals("nulls") ? "nulls" : current.equals("cache") ? "cache" : current.equals("cacheonly") ? "cacheonly" : "full", !current.equals("truncated") && !current.equals("cancel"));
+                    // Keep the text block open while the cancellation fixture keeps sending deltas.
+                    // A delta after content_block_stop is a protocol error (502), not cancellation.
+                    if(current.equals("cancel"))content=content.replace(event("content_block_stop",",\"index\":0"),"");
                     byte[] data = content.getBytes(StandardCharsets.UTF_8);
                     String headers = "HTTP/1.1 " + status + (status == 200 ? " OK" : " Error") + "\r\nContent-Type: " + (current.startsWith("json-") || current.equals("retry") || current.equals("generic") || status != 200 ? "application/json" : "text/event-stream") + "\r\n" + (current.equals("cancel") ? "" : "Content-Length: " + data.length + "\r\n") + "Connection: close\r\n\r\n";
                     out.write(headers.getBytes(StandardCharsets.UTF_8)); out.write(data); out.flush();
@@ -296,7 +299,7 @@ public final class ZCodeGiftUsageHttpTest {
                 for (boolean messages : new boolean[]{false, true}) {
                     final boolean m = messages;
                     runCase((m ? "messages" : "chat") + " truncated", failures, () -> { mock.mode = "truncated"; int before = rows.size(); request(g, m, true, 200); idle(g); verify(rows, before, 1, 502); });
-                    runCase((m ? "messages" : "chat") + " cancel", failures, () -> { mock.mode = "cancel"; int before = rows.size(), closed = mock.disconnected.get(); cancel(g, m); idle(g); verify(rows, before, 1, 502); long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5); while (mock.disconnected.get() == closed && System.nanoTime() < end) Thread.sleep(10); check(mock.disconnected.get() > closed, "cancel closes upstream socket"); });
+                    runCase((m ? "messages" : "chat") + " cancel", failures, () -> { mock.mode = "cancel"; int before = rows.size(), closed = mock.disconnected.get(); cancel(g, m); idle(g); verify(rows, before, 1, 499); long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(5); while (mock.disconnected.get() == closed && System.nanoTime() < end) Thread.sleep(10); check(mock.disconnected.get() > closed, "cancel closes upstream socket"); });
                 }
                 runCase("unmatched fallback and next request", failures, () -> {
                     mock.allowed = false; mock.mode = "generic"; int before = rows.size(), opened = t.dressed.size();

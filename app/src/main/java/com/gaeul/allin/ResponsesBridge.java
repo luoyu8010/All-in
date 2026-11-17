@@ -489,10 +489,14 @@ final class ResponsesBridge {
         return result;
     }
     static JSONObject responsesUsage(JSONObject u) throws Exception {
+        u=CacheUsage.toChat(u);
         JSONObject out=new JSONObject().put("input_tokens",u.optInt("prompt_tokens",0)).put("output_tokens",u.optInt("completion_tokens",0));
         out.put("total_tokens",u.optInt("total_tokens",out.getInt("input_tokens")+out.getInt("output_tokens")));
         JSONObject p=u.optJSONObject("prompt_tokens_details"), c=u.optJSONObject("completion_tokens_details");
-        if(p!=null) out.put("input_tokens_details",p); if(c!=null) out.put("output_tokens_details",c); return out;
+        if(p!=null) out.put("input_tokens_details",p); if(c!=null) out.put("output_tokens_details",c);
+        if(u.optBoolean("magpie_cache_unknown",false))out.put("magpie_cache_unknown",true);
+        if(u.optBoolean("estimated",false))out.put("estimated",true);
+        return out;
     }
     static JSONObject messageItem(String text) throws Exception { return new JSONObject().put("id","msg_"+java.util.UUID.randomUUID().toString().replace("-", "")).put("type","message").put("status","completed").put("role","assistant").put("content",new JSONArray().put(new JSONObject().put("type","output_text").put("text",text).put("annotations",new JSONArray()))); }
     static JSONObject refusalItem(String text) throws Exception { return new JSONObject().put("id","msg_"+java.util.UUID.randomUUID().toString().replace("-", "")).put("type","message").put("status","completed").put("role","assistant").put("content",new JSONArray().put(new JSONObject().put("type","refusal").put("refusal",text))); }
@@ -676,7 +680,7 @@ final class ResponsesBridge {
         JSONObject out=new JSONObject().put("id",response.optString("id","chatcmpl-"+System.currentTimeMillis())).put("object","chat.completion").put("created",response.optLong("created_at",System.currentTimeMillis()/1000)).put("model",model).put("choices",new JSONArray().put(new JSONObject().put("index",0).put("message",msg).put("finish_reason",finish)));
         JSONObject u=response.optJSONObject("usage"); if(u!=null)out.put("usage",chatUsage(u)); return out;
     }
-    static JSONObject chatUsage(JSONObject u) throws Exception { JSONObject out=new JSONObject().put("prompt_tokens",u.optInt("input_tokens",0)).put("completion_tokens",u.optInt("output_tokens",0)).put("total_tokens",u.optInt("total_tokens",u.optInt("input_tokens",0)+u.optInt("output_tokens",0))); if(u.has("input_tokens_details"))out.put("prompt_tokens_details",u.get("input_tokens_details")); if(u.has("output_tokens_details"))out.put("completion_tokens_details",u.get("output_tokens_details")); return out; }
+    static JSONObject chatUsage(JSONObject u) throws Exception { JSONObject out=new JSONObject().put("prompt_tokens",u.optInt("input_tokens",0)).put("completion_tokens",u.optInt("output_tokens",0)).put("total_tokens",u.optInt("total_tokens",u.optInt("input_tokens",0)+u.optInt("output_tokens",0))); if(u.has("input_tokens_details"))out.put("prompt_tokens_details",u.get("input_tokens_details")); if(u.has("output_tokens_details"))out.put("completion_tokens_details",u.get("output_tokens_details")); if(u.optBoolean("magpie_cache_unknown",false))out.put("magpie_cache_unknown",true);if(u.optBoolean("estimated",false))out.put("estimated",true); return out; }
     static java.io.InputStream responsesStreamToChat(final java.io.InputStream source, final String model) {
         return new java.io.InputStream() {
             final java.io.BufferedReader in=new BoundedSseReader(new java.io.InputStreamReader(source,java.nio.charset.StandardCharsets.UTF_8));

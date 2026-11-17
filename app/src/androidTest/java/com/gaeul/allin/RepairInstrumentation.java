@@ -17,8 +17,8 @@ import java.util.UUID;
 /** Runs on Android's actual class loader and socket stack, without accounts or vendor traffic. */
 public final class RepairInstrumentation extends Instrumentation {
     private int checks;
-    private boolean audit52;
-    @Override public void onCreate(Bundle arguments){super.onCreate(arguments);audit52=arguments!=null&&arguments.getString("audit52","").equals("true");start();}
+    private boolean audit52, qoderNamesOnly;
+    @Override public void onCreate(Bundle arguments){super.onCreate(arguments);audit52=arguments!=null&&arguments.getString("audit52","").equals("true");qoderNamesOnly=arguments!=null&&arguments.getString("qoderNames","").equals("true");start();}
     private void check(boolean value,String label){checks++;if(!value)throw new AssertionError(label);}
     private Object call(String type,String method,Class<?>[] types,Object... args)throws Exception {
         Method m=Class.forName("com.gaeul.allin."+type).getDeclaredMethod(method,types);m.setAccessible(true);return m.invoke(null,args);
@@ -251,7 +251,16 @@ public final class RepairInstrumentation extends Instrumentation {
         AppUpdateCore core=new AppUpdateCore(new AppUpdateCore.Store(){public JSONObject read(){return memory[0];}public void write(JSONObject x){memory[0]=new JSONObject(x.toString());}},(url,limit)->{calls.incrementAndGet();return new AppUpdateCore.Reply(200,release.toString(),0);},()->time[0],50,"1.2.44-test");
         JSONObject first=core.check(false);check(first.getBoolean("showPrompt"),"Android newer release prompts");core.dismiss(first.getString("releaseKey"));check(!core.snapshot(false).getBoolean("showPrompt"),"Android dismissal survives cached checks");check(core.snapshot(true).getBoolean("showPrompt"),"Android manual bypasses dismissal");time[0]+=AppUpdateCore.INTERVAL-1;core.check(false);check(calls.get()==1,"Android cache holds before exact 9-hour boundary");time[0]++;core.check(false);check(calls.get()==2,"Android exact nine hours rechecks");
         android.app.job.JobScheduler jobs=(android.app.job.JobScheduler)target.getSystemService(Context.JOB_SCHEDULER_SERVICE);android.app.job.JobInfo previous=jobs.getPendingJob(AppUpdateManager.JOB_ID);
-        try{AppUpdateManager.schedule(target);android.app.job.JobInfo job=jobs.getPendingJob(AppUpdateManager.JOB_ID);check(job!=null&&!job.isPeriodic()&&job.getMinLatencyMillis()>=AppUpdateCore.INTERVAL-1000&&job.getMinLatencyMillis()<=AppUpdateCore.INTERVAL,"Actual Android JobScheduler has a 9-hour due-time job");check(job.isPersisted()&&job.getNetworkType()==android.app.job.JobInfo.NETWORK_TYPE_ANY,"Update job persists and requires network");AppUpdateManager.schedule(target);check(jobs.getAllPendingJobs().stream().filter(j->j.getId()==AppUpdateManager.JOB_ID).count()==1,"Scheduling does not duplicate update jobs");}finally{if(previous==null)jobs.cancel(AppUpdateManager.JOB_ID);}
+        // A persisted real update/429 backoff is not a fresh nine-hour fixture. Keep the actual
+        // JobScheduler assertion, but give the manager an independent empty state and restore it.
+        java.lang.reflect.Field shared=AppUpdateManager.class.getDeclaredField("instance");shared.setAccessible(true);
+        Object savedCore=shared.get(null);final JSONObject[] scheduleState={new JSONObject()};
+        AppUpdateCore scheduleCore=new AppUpdateCore(new AppUpdateCore.Store(){
+            public JSONObject read(){return new JSONObject(scheduleState[0].toString());}
+            public void write(JSONObject state){scheduleState[0]=new JSONObject(state.toString());}
+        },(url,limit)->{throw new IOException("Scheduling fixture must not fetch");},System::currentTimeMillis,59,"1.2.53-test");
+        jobs.cancel(AppUpdateManager.JOB_ID);shared.set(null,scheduleCore);
+        try{AppUpdateManager.schedule(target);android.app.job.JobInfo job=jobs.getPendingJob(AppUpdateManager.JOB_ID);check(job!=null&&!job.isPeriodic()&&job.getMinLatencyMillis()>=AppUpdateCore.INTERVAL-1000&&job.getMinLatencyMillis()<=AppUpdateCore.INTERVAL,"Actual Android JobScheduler has a 9-hour due-time job");check(job.isPersisted()&&job.getNetworkType()==android.app.job.JobInfo.NETWORK_TYPE_ANY,"Update job persists and requires network");AppUpdateManager.schedule(target);check(jobs.getAllPendingJobs().stream().filter(j->j.getId()==AppUpdateManager.JOB_ID).count()==1,"Scheduling does not duplicate update jobs");}finally{shared.set(null,savedCore);jobs.cancel(AppUpdateManager.JOB_ID);if(previous!=null)jobs.schedule(previous);}
         final android.content.Intent[] opened={null};Context capture=new ContextWrapper(target){@Override public void startActivity(android.content.Intent i){opened[0]=i;}};check(AppUpdateManager.openBrowser(capture),"Production browser action dispatches");check(opened[0]!=null&&android.content.Intent.ACTION_VIEW.equals(opened[0].getAction())&&AppUpdateCore.DOWNLOAD.equals(opened[0].getDataString()),"Exact trusted GitHub latest download page used");
     }
     private void alarms(Context context) {
@@ -271,11 +280,15 @@ public final class RepairInstrumentation extends Instrumentation {
             Context target=getTargetContext();
             if(!target.getPackageName().endsWith(".repairtest"))throw new SecurityException("Runtime tests require the isolatedTestInstall package");
             if(audit52){result.putString("stream","AUDIT_ANDROID 05_webview "+Audit52WebView.run(this)+"\n");finish(Activity.RESULT_OK,result);return;}
+            if(qoderNamesOnly){checks=QoderModelNamesRuntime.run(target);result.putString("stream","ANDROID_QODER_NAMES_PASS checks="+checks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);return;}
             accountRoutingRuntime();jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);accountManagementRuntime(target);alarms(target);
             checks += AntigravityCompatibilityRuntime.run();
             checks += CallEvidenceRuntime.run(target);
             checks += AntigravityRequestParityRuntime.run();
-            result.putString("stream","ANDROID_REPAIR_PASS checks="+checks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);
+            int qoderNamesChecks = QoderModelNamesRuntime.run(target);
+            checks += qoderNamesChecks;
+            int cacheChecks=CacheAccountingRuntime.run(target)+CacheAccountingRuntime.webView(this);checks+=cacheChecks;
+            result.putString("stream","ANDROID_REPAIR_PASS checks="+checks+" qoderNames="+qoderNamesChecks+" cacheChecks="+cacheChecks+" api="+android.os.Build.VERSION.SDK_INT+"\n");finish(Activity.RESULT_OK,result);
         } catch(Throwable failure) {
             StringWriter trace=new StringWriter();failure.printStackTrace(new PrintWriter(trace));result.putString("stream","ANDROID_REPAIR_FAIL checks="+checks+"\n"+trace);finish(Activity.RESULT_CANCELED,result);
         }

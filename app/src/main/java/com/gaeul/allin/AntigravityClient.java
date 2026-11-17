@@ -614,6 +614,7 @@ public class AntigravityClient {
         public int outputTokens;
         public int thoughtTokens;
         public int cachedTokens;
+        final JSONObject reportedUsage=new JSONObject();
         public String providerError = "";
         public boolean complete;
         public String modelVersion = "";
@@ -644,7 +645,8 @@ public class AntigravityClient {
                     boolean sawProviderError = false;
                     boolean saidSomething = false;
                     int toolIndex = -1;
-                    int promptTokens = 0, outputTokens = 0, thoughtTokens = 0, cachedTokens = 0;
+                    JSONObject reportedUsage=new JSONObject();
+                    String usageSent="";
                     while ((line = br.readLine()) != null) {
                         if (!line.startsWith("data:")) continue;
                         String data = line.substring(5).trim();
@@ -679,10 +681,7 @@ public class AntigravityClient {
                         if (resp == null) resp = ev;
                         JSONObject usage = resp.optJSONObject("usageMetadata");
                         if (usage != null) {
-                            promptTokens = usage.optInt("promptTokenCount", promptTokens);
-                            cachedTokens = usage.optInt("cachedContentTokenCount", cachedTokens);
-                            outputTokens = usage.optInt("candidatesTokenCount", outputTokens);
-                            thoughtTokens = usage.optInt("thoughtsTokenCount", thoughtTokens);
+                            mergeGeminiUsage(reportedUsage,usage);
                         }
                         if (!started) {
                             started = true;
@@ -738,8 +737,9 @@ public class AntigravityClient {
                                 sawFinishReason = true;
                                 String stop = openAiFinishReason(fr);
                                 if (toolIndex >= 0 && "stop".equals(stop)) stop = "tool_calls";
-                                pos.write(wrapFinish(stop, promptTokens, cachedTokens, outputTokens, thoughtTokens, model, chunkId)
+                                pos.write(wrapFinish(stop, reportedUsage, model, chunkId)
                                         .getBytes(StandardCharsets.UTF_8));
+                                usageSent=reportedUsage.toString();
                                 pos.flush();
                             }
                         }
@@ -754,6 +754,10 @@ public class AntigravityClient {
                     if (!saidSomething) {
                         pos.write(wrapDelta("content", "", "", model, chunkId).getBytes(StandardCharsets.UTF_8));
                         pos.flush();
+                    }
+                    if(reportedUsage.length()>0 && !reportedUsage.toString().equals(usageSent)) {
+                        JSONObject tail=chunkSkeleton(model,chunkId).put("choices",new JSONArray()).put("usage",geminiUsage(reportedUsage));
+                        pos.write(("data: "+tail+"\n\n").getBytes(StandardCharsets.UTF_8));
                     }
                     pos.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
                     pos.flush();
@@ -798,11 +802,8 @@ public class AntigravityClient {
         c0.put("finish_reason", stop);
         choices.put(c0);
         out.put("choices", choices);
-        JSONObject usage = new JSONObject();
-        usage.put("prompt_tokens", Math.max(0, d.promptTokens - d.cachedTokens));
-        usage.put("completion_tokens", d.outputTokens + d.thoughtTokens);
-        usage.put("total_tokens", Math.max(0, d.promptTokens - d.cachedTokens) + d.outputTokens + d.thoughtTokens);
-        out.put("usage", usage);
+        JSONObject usage=geminiUsage(d.reportedUsage);
+        if(usage.length()>0)out.put("usage",usage);
         return out;
     }
 
@@ -843,6 +844,7 @@ public class AntigravityClient {
             if (!mv.isEmpty()) d.modelVersion = mv;
             JSONObject usage = resp.optJSONObject("usageMetadata");
             if (usage != null) {
+                mergeGeminiUsage(d.reportedUsage,usage);
                 d.promptTokens = usage.optInt("promptTokenCount", d.promptTokens);
                 d.cachedTokens = usage.optInt("cachedContentTokenCount", d.cachedTokens);
                 d.outputTokens = usage.optInt("candidatesTokenCount", d.outputTokens);
@@ -957,15 +959,32 @@ public class AntigravityClient {
         return "data: " + o.toString() + "\n\n";
     }
 
-    private static String wrapFinish(String stop, int prompt, int cached, int out, int thought, String model, String id) {
+    private static void mergeGeminiUsage(JSONObject target,JSONObject reported) {
+        for(String key:new String[]{"promptTokenCount","cachedContentTokenCount","candidatesTokenCount","thoughtsTokenCount"}) {
+            Long count=CacheUsage.count(reported,key);if(count!=null)target.put(key,count);
+        }
+    }
+
+    // Google's promptTokenCount already includes cachedContentTokenCount, as OpenAI's does.
+    // Never turn an absent cache/usage field into a known zero.
+    private static JSONObject geminiUsage(JSONObject counts) {
+        JSONObject out=new JSONObject();Long prompt=CacheUsage.count(counts,"promptTokenCount");
+        Long output=CacheUsage.count(counts,"candidatesTokenCount"),thought=CacheUsage.count(counts,"thoughtsTokenCount");
+        Long cached=CacheUsage.count(counts,"cachedContentTokenCount");
+        if(prompt!=null)out.put("prompt_tokens",prompt);
+        if(output!=null)out.put("completion_tokens",output+(thought==null?0:thought));
+        if(prompt!=null&&output!=null)out.put("total_tokens",prompt+output+(thought==null?0:thought));
+        if(cached!=null)out.put("prompt_tokens_details",new JSONObject().put("cached_tokens",cached));
+        if(thought!=null)out.put("completion_tokens_details",new JSONObject().put("reasoning_tokens",thought));
+        return out;
+    }
+
+    private static String wrapFinish(String stop, JSONObject counts, String model, String id) {
         JSONObject o = chunkSkeleton(model, id);
         try {
             o.put("choices", choices(new JSONObject(), stop));
-            JSONObject usage = new JSONObject();
-            usage.put("prompt_tokens", Math.max(0, prompt - cached));
-            usage.put("completion_tokens", out + thought);
-            usage.put("total_tokens", Math.max(0, prompt - cached) + out + thought);
-            o.put("usage", usage);
+            JSONObject usage=geminiUsage(counts);
+            if(usage.length()>0)o.put("usage",usage);
         } catch (Exception ignored) {
         }
         return "data: " + o.toString() + "\n\n";

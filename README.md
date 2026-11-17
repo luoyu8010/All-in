@@ -7,7 +7,7 @@ All In 将不同供应商的账号、API 密钥和模型集中到一个本地服
 
 项目由 [Gaeul](https://github.com/xunianooo) 开发。All In 参考并移植了 Magpie 和社区插件的部分设计与实现；感谢原项目及各位贡献者，详见下方[致谢](#致谢)。
 
-> 当前正式版为 **All In 1.2.53 正式版（59）**，新增各供应商独立的「轮流使用 / 用量均衡 / 到期优先」，见[账号路由说明](docs/ACCOUNT_ROUTING.md)、[59版正式发布说明](docs/RELEASE_1.2.53-test.md)及[正式版下载](https://github.com/xunianooo/All-in/releases/tag/v1.2.53-test)。为保持已验收原签名包完全不变，APK内部版本名保留 **1.2.53-test**；发布级别为正式版，不是预发布。
+> 当前正式版为 **All In 1.2.54 正式版（60）**，包含Qoder官方模型名称、缓存用量统计与取消资源释放修补，见[60版说明](docs/RELEASE_1.2.54-test.md)及[正式版下载](https://github.com/xunianooo/All-in/releases/tag/v1.2.54-test)。APK内部保留版本名 **1.2.54-test**，发行级别为正式版。
 
 > 上一轮已发布 **All In 1.2.52 正式版**（包内 1.2.52-test / 58），见[发行页](https://github.com/xunianooo/All-in/releases/tag/v1.2.52-test)。供应商服务、客户端协议和系统后台策略可能变化；兼容与测试边界见该轮说明。
 
@@ -21,7 +21,7 @@ All In 将不同供应商的账号、API 密钥和模型集中到一个本地服
 
 **All In 1.2.48 正式版（54）** 在53版基础上复核并修补后续审查问题，见 [1.2.48 正式版说明](docs/RELEASE_1.2.48-test.md)。DNS 四槽与总连接期限只覆盖 `NetworkPolicy.connectTunnel` 原始 Socket 路径；`HttpURLConnection / openHttp` 仍使用平台 DNS，不受该四槽保护。平台 DNS 不响应中断时会继续占用原槽，网关不会无限增线程；管理状态接口的 `connections.outboundDns` 提供活动槽、饱和、超时和拒绝计数。
 
-> 本版本保留账号 JSON 文件导入/导出、签到、限流、供应商适配及流式能力。安装包、源码、更新清单与校验文件见 [1.2.53 正式版发布页](https://github.com/xunianooo/All-in/releases/tag/v1.2.53-test)。保留原证书，可从旧版覆盖升级；请勿卸载或清除应用数据。
+> 本版本保留账号 JSON 文件导入/导出、签到、限流、供应商适配及流式能力。安装包、源码、更新清单与校验文件见 [1.2.54 正式版发布页](https://github.com/xunianooo/All-in/releases/tag/v1.2.54-test)。保留原证书，可从旧版覆盖升级；请勿卸载或清除应用数据。
 
 ## All In 能做什么
 
