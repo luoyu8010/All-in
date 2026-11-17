@@ -544,7 +544,7 @@ public class QoderAuth {
             si.access = deviceToken;
             si.refresh = si.deviceRefresh;
             si.deviceChat = true;
-            si.expiresAt = expiresAt(dt);
+            si.expiresAt = refreshExpiry(dt, true);
         }
 
         // 读用户信息补 uid / 邮箱 / 昵称
@@ -572,32 +572,9 @@ public class QoderAuth {
         return pr;
     }
 
-    /** token 到期时间；Qoder 可能给 expire_time / expires_at / expires_in，都没有就按一天算 */
+    /** Job token expiry: fixed plugin contract uses milliseconds, shared with refresh. */
     private static long expiresAt(JSONObject o) {
-        long fallback = System.currentTimeMillis() + 24 * 60 * 60 * 1000L;
-        try {
-            Object et = o.opt("expire_time");
-            if (et == null) et = o.opt("expires_at");
-            if (et instanceof Number) {
-                long v = ((Number) et).longValue();
-                return v > 1000000000000L ? v : v * 1000L;
-            }
-            if (et instanceof String) {
-                String s = ((String) et).trim();
-                if (!s.isEmpty()) {
-                    long v = Long.parseLong(s);
-                    return v > 1000000000000L ? v : v * 1000L;
-                }
-            }
-            Object ei = o.opt("expires_in");
-            if (ei instanceof Number) {
-                long ms = ((Number) ei).longValue();
-                if (ms < 100000000000L) ms *= 1000L;
-                return System.currentTimeMillis() + ms;
-            }
-        } catch (Exception ignored) {
-        }
-        return fallback;
+        return refreshExpiry(o, false);
     }
 
     // ================= 聊天（OpenAI 请求 → Qoder 信封 → 事件流）=================
@@ -1261,6 +1238,20 @@ public class QoderAuth {
 
     private static long parseEpoch(Object value) {
         if (value == null || value == JSONObject.NULL) return 0;
+        // Preserve integral precision; JSON decimal/scientific numbers are also Number values,
+        // not date strings. The fixed plugin whenSaid() handles these before parsing text.
+        if (value instanceof Byte || value instanceof Short || value instanceof Integer || value instanceof Long) {
+            long n = ((Number) value).longValue();
+            return n > 0 && n < 1000000000000L ? n * 1000L : n;
+        }
+        if (value instanceof Number) {
+            double n = ((Number) value).doubleValue();
+            if (!Double.isNaN(n) && !Double.isInfinite(n) && n > 0) {
+                double ms = n < 1000000000000L ? n * 1000L : n;
+                if (ms > 0 && ms < Long.MAX_VALUE) return (long) ms;
+            }
+            return 0;
+        }
         String text = String.valueOf(value).trim();
         try { long n = Long.parseLong(text); return n > 0 && n < 1000000000000L ? n * 1000L : n; }
         catch (Exception ignored) { }

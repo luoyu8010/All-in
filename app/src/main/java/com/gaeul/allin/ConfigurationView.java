@@ -44,7 +44,7 @@ public final class ConfigurationView {
         if(normalized.endsWith("token") || normalized.endsWith("secret") || normalized.equals("devicerefresh")) return true;
         switch (normalized) {
             case "token": case "access": case "accesstoken": case "refresh":
-            case "refreshtoken": case "jwt": case "apikey": case "authkey":
+            case "refreshtoken": case "jwt": case "giftjwt": case "apikey": case "authkey":
             case "password": case "passwd": case "secret": case "clientsecret":
             case "idtoken": case "cookie": case "authorization": case "sessionid": case "session":
             case "sid": case "credential": case "accesskey": case "privatekey": return true;

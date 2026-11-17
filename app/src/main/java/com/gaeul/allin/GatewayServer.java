@@ -386,7 +386,7 @@ public class GatewayServer extends NanoHTTPD {
                     } catch(Exception ignored) { }
                 }
                 if(response.status<200 || response.status>=300)
-                    throw new RaccoonAccountService.Failure("Raccoon upstream failed",response.complete && (response.status==401 || response.status==403));
+                    throw new RaccoonAccountService.Failure("Raccoon upstream failed",response.complete && response.status==401);
                 if(!response.complete || response.json==null) throw new IOException("Raccoon upstream response incomplete");
                 return response.json;
             }
@@ -5095,7 +5095,7 @@ public class GatewayServer extends NanoHTTPD {
         clearUsageThreadState(); // Includes early failures on a reused keep-alive worker.
         try (NetworkPolicy.Scope ignored = NetworkPolicy.use(NetworkPolicy.capture())) {
             Response response=serveWithNetworkScope(session);
-            if(response!=null && session.getMethod()==Method.HEAD && GatewayAccessPolicy.staticRoute(session.getUri())) {
+            if(response!=null && session.getMethod()==Method.HEAD) {
                 // NanoHTTPD 2.3.1 writes fixed-length HEAD bodies. Keep GET metadata, but hand its
                 // writer an empty stream and never generate a gzip trailer for this HEAD request.
                 InputStream body=response.getData();
@@ -17901,11 +17901,15 @@ public class GatewayServer extends NanoHTTPD {
             for (int i = 0; i < accounts.length(); i++) {
                 JSONObject a = accounts.optJSONObject(i);
                 if (a != null) {
-                    JSONObject identity=new JSONObject().put("accountId",info.accountId).put("email",info.email).put("authMode",info.authMode);
+                    JSONObject identity=new JSONObject().put("accountId",info.accountId).put("email",info.email).put("authMode",info.authMode)
+                            .put("type", "chatgpt".equals(info.authMode) ? "oauth" : "apikey")
+                            .put("access", info.accessToken).put("token", info.accessToken);
                     if (AccountPoolPolicy.same(a,identity,"codex")) {
+                        if ("apikey".equals(info.authMode) && targetAcc != null)
+                            throw new IOException("Ambiguous Codex API key records");
                         targetAcc = a;
                         accId = a.optString("id");
-                        break;
+                        if (!"apikey".equals(info.authMode)) break;
                     }
                 }
             }
@@ -17945,7 +17949,12 @@ public class GatewayServer extends NanoHTTPD {
             }
             if (!keyExists) keys.put(info.accessToken);
 
-            if (!saveConfig(staged)) throw new IOException("Codex account save failed");
+            if ("apikey".equals(info.authMode)) {
+                // A static key has not consumed an OAuth exchange. Failed admission must leave
+                // both disk and memory unchanged; do not retain it as a spent-login recovery.
+                GatewayAccessCatalog.preserveAccountScope(configJson, staged);
+                persistConfigStrict(staged);
+            } else if (!saveConfig(staged)) throw new IOException("Codex account save failed");
             bindCodexPersistence(targetAcc, info);
             List<String> liveModels = CodexAuth.syncModels(info);
             staged = new JSONObject(configJson.toString());

@@ -75,7 +75,23 @@ public final class AccountTokenCoordinatorOfflineTest {
         s.value.put("enabled", false); check(c.ensure("p", "a", 0, null, s, refreshing(calls)) == null);
         s.value.put("enabled", true).put("access", ""); check(c.ensure("p", "a", 0, null, s, (x, f) -> null) == null);
     }
+    static void differentTokenRecovery() throws Exception {
+        long now = System.currentTimeMillis();
+        for (long expires : new long[]{1L, now + 500L, now + 600000L, 0L}) {
+            AccountTokenCoordinator c = new AccountTokenCoordinator();
+            FakeStore s = new FakeStore(account("changed-token", expires));
+            AtomicInteger calls = new AtomicInteger();
+            JSONObject result = c.ensure("p", "a", 1000L, "failed-token", s, (snapshot, force) -> {
+                check(force); return refreshing(calls).refresh(snapshot, force);
+            });
+            boolean reusable = expires <= 0 || expires > now + 1000L;
+            check(calls.get() == (reusable ? 0 : 1));
+            check((reusable ? "changed-token" : "new").equals(result.optString("access")));
+            check((reusable ? "changed-token" : "new").equals(s.value.optString("access")));
+        }
+    }
     public static void main(String[] args) throws Exception {
+        differentTokenRecovery();
         concurrent(); conflicts(); persistenceAndReuse(); System.out.println("AccountTokenCoordinatorOfflineTest passed");
     }
 }

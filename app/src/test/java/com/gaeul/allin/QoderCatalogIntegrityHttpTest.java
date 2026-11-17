@@ -32,7 +32,58 @@ public final class QoderCatalogIntegrityHttpTest {
         for(int i=0;i<12;i++) app.put(entry("synthetic"+i, i<2 || paidEnabled, i<2 ? 0 : 1));
         return new JSONObject().put("app",app).put("chat",new JSONArray().put(entry("synthetic0",true,5))).toString();
     }
+    /** Fixed local plugin index.mjs:240-278: initial job milliseconds, device seconds. */
+    static void initialExpiryContract() throws Exception {
+        java.lang.reflect.Method initial = QoderAuth.class.getDeclaredMethod("expiresAt", JSONObject.class);
+        initial.setAccessible(true);
+        long before = System.currentTimeMillis();
+        long end = (Long) initial.invoke(null, new JSONObject().put("expires_in", 3600000));
+        check(end >= before + 3600000 && end <= System.currentTimeMillis() + 3600000,
+                "initial job expiry must be one hour in milliseconds, not multiplied by 1000");
+        long epoch = System.currentTimeMillis() + 7200000;
+        String iso = java.time.Instant.ofEpochMilli(epoch).toString();
+        end = (Long) initial.invoke(null, new JSONObject().put("expires_at", iso).put("expires_in", 3600000));
+        check(end == epoch, "initial job honors the explicit ISO expiry before duration");
+        java.lang.reflect.Method device = QoderAuth.class.getDeclaredMethod("refreshExpiry", JSONObject.class, boolean.class);
+        device.setAccessible(true);
+        before = System.currentTimeMillis();
+        end = (Long) device.invoke(null, new JSONObject().put("expires_in", 3600), true);
+        check(end >= before + 3600000 && end <= System.currentTimeMillis() + 3600000,
+                "device expiry remains seconds");
+    }
+    static int numericExpiryContract() throws Exception {
+        java.lang.reflect.Method initial = QoderAuth.class.getDeclaredMethod("expiresAt", JSONObject.class);
+        java.lang.reflect.Method device = QoderAuth.class.getDeclaredMethod("refreshExpiry", JSONObject.class, boolean.class);
+        java.lang.reflect.Method parse = QoderAuth.class.getDeclaredMethod("parseEpoch", Object.class);
+        initial.setAccessible(true); device.setAccessible(true); parse.setAccessible(true);
+        long wanted = (System.currentTimeMillis() + 7200000L) / 1000L * 1000L;
+        long seconds = wanted / 1000L; int checks = 0;
+        Object integralSeconds = Long.valueOf(seconds);
+        if (seconds >= Integer.MIN_VALUE && seconds <= Integer.MAX_VALUE) integralSeconds = Integer.valueOf((int) seconds);
+        Object[] values = {Long.valueOf(wanted), Double.valueOf(wanted), new java.math.BigDecimal(wanted + ".0"),
+                integralSeconds, Long.valueOf(seconds), Double.valueOf(seconds), new java.math.BigDecimal(seconds + ".0"),
+                Long.toString(wanted), Long.toString(seconds), java.time.Instant.ofEpochMilli(wanted).toString()};
+        for (Object value : values) {
+            check((Long) initial.invoke(null, new JSONObject().put("expire_time", value)) == wanted,
+                    "initial job accepts a valid absolute timestamp regardless of numeric representation"); checks++;
+            check((Long) device.invoke(null, new JSONObject().put("expires_at", value), true) == wanted,
+                    "device keeps valid absolute timestamp compatibility"); checks++;
+        }
+        String scientific = new java.math.BigDecimal(wanted).scaleByPowerOfTen(-12).toPlainString() + "e12";
+        for (String number : new String[]{wanted + ".0", scientific}) {
+            JSONObject job = new JSONObject("{\"expire_time\":" + number + "}");
+            JSONObject dev = new JSONObject("{\"expires_at\":" + number + "}");
+            check((Long) initial.invoke(null, job) == wanted, "actual decimal/scientific JSON job response accepted"); checks++;
+            check((Long) device.invoke(null, dev, true) == wanted, "actual decimal/scientific JSON device response accepted"); checks++;
+        }
+        check((Long) parse.invoke(null, Long.valueOf(Long.MAX_VALUE)) == Long.MAX_VALUE, "integer epoch handling does not lose precision"); checks++;
+        check((Long) parse.invoke(null, new java.math.BigDecimal("1e40")) == 0L, "unrepresentable numeric epoch stays invalid"); checks++;
+        check((Long) parse.invoke(null, "1e40") == 0L, "invalid scientific strings are not guessed into dates"); checks++;
+        return checks;
+    }
     public static void main(String[] args) throws Exception {
+        initialExpiryContract();
+        System.out.println("Qoder numeric expiry checks=" + numericExpiryContract());
         QoderAuth.SignIn old = new QoderAuth.SignIn(); old.uid="uid"; old.machineId="machine"; old.access="old-access"; old.refresh="old-refresh"; old.deviceToken="old-access"; old.deviceRefresh="old-refresh"; old.deviceChat=true; old.expiresAt=1;
         Transport first=new Transport(200,listing(false));
         QoderAuth.Catalog initial=QoderAuth.readCatalog(old,first);

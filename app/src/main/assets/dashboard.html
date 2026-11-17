@@ -2515,8 +2515,21 @@
       try {
         const q = new URLSearchParams(location.search);
         k = q.get('key') || '';
-        if (!k && location.hash && location.hash.indexOf('#key=') === 0) {
-          k = decodeURIComponent(location.hash.slice(5));
+        const originalHash = location.hash || '';
+        const legacyKeyFragment = originalHash.indexOf('#key=') === 0;
+        // Remove credentials before touching storage; preserve unrelated query/management state.
+        if (q.has('key') || legacyKeyFragment) {
+          q.delete('key');
+          const cleanQuery = q.toString();
+          const cleanUrl = location.pathname + (cleanQuery ? '?' + cleanQuery : '')
+            + (legacyKeyFragment ? '' : originalHash);
+          try {
+            if (window.history && typeof window.history.replaceState === 'function')
+              window.history.replaceState(null, '', cleanUrl);
+          } catch (e) {}
+        }
+        if (!k && legacyKeyFragment) {
+          k = decodeURIComponent(originalHash.slice(5));
         }
         if (k) sessionStorage.setItem('magpieAuthKey', k);
         else k = sessionStorage.getItem('magpieAuthKey') || '';
@@ -4519,13 +4532,13 @@
         chart.innerHTML = daily.map(d => {
           const h = Math.max(2, Math.round((d.tokens || 0) / max * 130));
           const empty = !d.tokens;
-          return '<div class="usage-col' + (empty ? ' empty' : '') + '" title="' + d.day + ' · '
-            + fmtFull(d.tokens) + ' tokens · ' + d.requests + ' 次请求">'
+          return '<div class="usage-col' + (empty ? ' empty' : '') + '" title="' + esc(d.day + ' · '
+            + fmtFull(d.tokens) + ' tokens · ' + d.requests + ' 次请求') + '">'
             + '<i style="height:' + (empty ? 2 : h) + 'px"></i></div>';
         }).join('');
         axis.innerHTML = daily.map(d => {
-          const p = d.day.split('-');
-          return '<div class="usage-axis-cell">' + p[1] + '/' + p[2] + '</div>';
+          const p = String(d.day || '').split('-');
+          return '<div class="usage-axis-cell">' + esc(p[1]) + '/' + esc(p[2]) + '</div>';
         }).join('');
       }
 
@@ -4565,7 +4578,7 @@
           const hh = v ? Math.max(4, Math.round(v / hmax * 60)) : 3;
           return '<i class="' + (v ? '' : 'zero') + '" style="height:' + hh + 'px;'
             + (v ? 'opacity:' + (0.35 + (v / hmax) * 0.65).toFixed(2) : '') + '"'
-            + ' title="' + h.hour + ' 点 · ' + fmtFull(v) + ' tokens · ' + h.requests + ' 次"></i>';
+            + ' title="' + esc(h.hour + ' 点 · ' + fmtFull(v) + ' tokens · ' + h.requests + ' 次') + '"></i>';
         }).join('')
           + '</div><div class="usage-hour-axis">'
           + hrs.map(h => '<span>' + (h.hour % 6 === 0 ? h.hour : '') + '</span>').join('');

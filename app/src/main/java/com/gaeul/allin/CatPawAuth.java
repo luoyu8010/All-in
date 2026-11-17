@@ -425,11 +425,7 @@ public final class CatPawAuth {
                 if (status < 200 || status >= 300) return new ChatResponse(status, null);
                 InputStream input = conn.getInputStream();
                 if (input == null) throw new java.io.IOException("empty stream");
-                try (InputStream in = input; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                    byte[] buf = new byte[8192]; int n;
-                    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
-                    return new ChatResponse(status, out.toByteArray());
-                }
+                return new ChatResponse(status, readAll(input, timeout).getBytes("UTF-8"));
             } finally { conn.disconnect(); }
         }
     };
@@ -631,12 +627,18 @@ public final class CatPawAuth {
             conn.setInstanceFollowRedirects(false);conn.setRequestMethod("GET");conn.setConnectTimeout(Math.min(timeoutMs,15000));conn.setReadTimeout(timeoutMs);
             if(headers!=null)for(Map.Entry<String,String> e:headers.entrySet())conn.setRequestProperty(e.getKey(),e.getValue());
             int status=conn.getResponseCode();
-            String body=readAll(status>=200&&status<300?conn.getInputStream():conn.getErrorStream());
             if(status<200||status>=300) {
                 Integer code=null;
-                try { Object raw=new JSONObject(body).opt("code");if(raw instanceof Number){double n=((Number)raw).doubleValue();if(Double.isFinite(n)&&n==Math.rint(n)&&n>=0&&n<=Integer.MAX_VALUE)code=(int)n;} }catch(Exception ignored){}
+                // The HTTP refusal is already known. A bounded/invalid/timed-out diagnostic
+                // body cannot erase it or turn an authentication rejection into a read failure.
+                try {
+                    String body=readAll(conn.getErrorStream(), timeoutMs);
+                    Object raw=new JSONObject(body).opt("code");
+                    if(raw instanceof Number){double n=((Number)raw).doubleValue();if(Double.isFinite(n)&&n==Math.rint(n)&&n>=0&&n<=Integer.MAX_VALUE)code=(int)n;}
+                } catch(Exception unavailableDiagnostic) { }
                 throw new AccountFailure(status,code);
             }
+            String body=readAll(conn.getInputStream(), timeoutMs);
             return new JSONObject(body.isEmpty()?"{}":body);
         } finally { conn.disconnect(); }
     }
@@ -660,7 +662,7 @@ public final class CatPawAuth {
         os.close();
         int code = conn.getResponseCode();
         InputStream is = code >= 200 && code < 400 ? conn.getInputStream() : conn.getErrorStream();
-        String text = readAll(is);
+        String text = readAll(is, timeoutMs);
         if (code < 200 || code >= 400) throw new Exception("HTTP " + code + " " + cut(text));
         return text;
     }
@@ -683,27 +685,16 @@ public final class CatPawAuth {
         os.close();
         int code = conn.getResponseCode();
         if (code < 200 || code >= 400) {
-            String text = readAll(conn.getErrorStream());
+            String text = readAll(conn.getErrorStream(), timeoutMs);
             throw new Exception("妙手 turn 失败：HTTP " + code + " " + cut(text));
         }
         InputStream is = conn.getInputStream();
         if (is == null) throw new Exception("妙手 turn 返回了空流");
-        ByteArrayOutputStream bo = new ByteArrayOutputStream();
-        byte[] buf = new byte[8192];
-        int n;
-        while ((n = is.read(buf)) != -1) bo.write(buf, 0, n);
-        is.close();
-        return bo.toByteArray();
+        return readAll(is, timeoutMs).getBytes("UTF-8");
     }
 
-    private static String readAll(InputStream is) throws Exception {
-        if (is == null) return "";
-        BufferedReader br = new BufferedReader(new InputStreamReader(is, "UTF-8"));
-        StringBuilder sb = new StringBuilder();
-        char[] buf = new char[4096];
-        int n;
-        while ((n = br.read(buf)) != -1) sb.append(buf, 0, n);
-        br.close();
-        return sb.toString();
+    /** Ordinary/required-validation buffers only; CatPawStream remains incremental without a total cap. */
+    private static String readAll(InputStream is, int timeoutMs) throws Exception {
+        return BoundedResponse.readUtf8(is, BoundedResponse.MAX_BYTES, timeoutMs);
     }
 }

@@ -59,7 +59,15 @@ public final class CodexPersistenceOfflineTest {
         check(a.optString("refresh").equals("new-refresh"),"refresh"); check(a.optString("idToken").equals("new-id"),"idToken");
         check(a.optLong("expires")==200 && a.optLong("lastRefresh")==20,"timestamps");
     }
+    static void apiKeyLabelDoesNotDisclose() throws Exception {
+        String key = "sk-fixture-codex-label-only-0000";
+        CodexAuth.SignInInfo info = CodexAuth.parseCredentials(key);
+        check("apikey".equals(info.authMode) && key.equals(info.accessToken), "API key credential unchanged");
+        check("Codex API Key".equals(info.email), "API key account uses a fixed non-secret label");
+        check(!info.email.contains(key.substring(0, 10)), "API key prefix must not enter public identity");
+    }
     public static void main(String[] args) throws Exception {
+        apiKeyLabelDoesNotDisclose();
         Fixture good=new Fixture(); CodexAuth.SignInInfo one=good.bind();
         one.refreshCommit.commit(oldInfo(),candidate());
         checkNew(good.account());

@@ -62,9 +62,9 @@ public final class AccountTokenCoordinator {
             long expires = expected.optLong("expires", 0L);
             long now = System.currentTimeMillis();
             if (!token.isEmpty()) {
-                if (failedAccess != null && !token.equals(failedAccess)) return copy(expected);
-                if (failedAccess == null && (expires <= 0 ||
-                        (expires > now && expires - now > marginMs))) return copy(expected);
+                boolean reusable = expires <= 0 || (expires > now && expires - now > marginMs);
+                if (failedAccess != null && !token.equals(failedAccess) && reusable) return copy(expected);
+                if (failedAccess == null && reusable) return copy(expected);
             }
             JSONObject candidate = refresher.refresh(copy(expected), failedAccess != null);
             if (candidate == null) return null;

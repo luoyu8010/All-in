@@ -196,7 +196,7 @@ public class CodexAuth {
             // API Key 模式
             info.accessToken = text;
             info.authMode = "apikey";
-            info.email = "API-Key-" + text.substring(0, Math.min(10, text.length())) + "...";
+            info.email = "Codex API Key";
             return info;
         } else {
             // 单独的 refresh_token 或 access_token

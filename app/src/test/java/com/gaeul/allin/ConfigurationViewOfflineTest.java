@@ -11,7 +11,31 @@ public class ConfigurationViewOfflineTest {
         view.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(index).put("devicePrivateKey", value);
         return view;
     }
+    static void giftJwtContract() {
+        String salt = "fixture-gift-view-salt";
+        for (String field : new String[]{"giftJwt", "gift_jwt", "gift-jwt", "GiftJWT"}) {
+            String credential = "fixture-gift-jwt-value-0000";
+            JSONObject account = new JSONObject().put("id", "gift-account").put(field, credential);
+            JSONObject source = new JSONObject().put("providers", new JSONArray().put(new JSONObject()
+                    .put("id", "zcode").put("accounts", new JSONArray().put(account))))
+                    .put("keyId", "public-key-id").put("releaseKey", "public-release-id");
+            JSONObject original = copy(source), view = ConfigurationView.redact(source, salt);
+            check(!view.toString().contains(credential), "gift JWT must not appear in public config: " + field);
+            String ref = view.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts")
+                    .getJSONObject(0).getString(field);
+            check(ref.startsWith("allin-secret-ref:"), "gift JWT has a bound reference");
+            check(ConfigurationView.restore(view, source, salt).similar(source), "gift JWT round trip");
+            check(source.similar(original), "gift JWT source unchanged");
+            check("public-key-id".equals(view.getString("keyId"))
+                    && "public-release-id".equals(view.getString("releaseKey")), "public identifiers preserved");
+            JSONObject changed = copy(source);
+            changed.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts")
+                    .getJSONObject(0).put(field, "fixture-gift-rotated");
+            reject(() -> ConfigurationView.restore(view, changed, salt));
+        }
+    }
     public static void main(String[] args) {
+        giftJwtContract();
         String salt = "test-private-salt";
         JSONObject original = new JSONObject("{\"providers\":[{\"id\":\"p1\",\"keys\":[\"fake-key-one\",{\"key\":\"fake-key-two\",\"label\":\"work\"}],\"accounts\":[{\"id\":\"a1\",\"refresh_token\":\"fake-refresh-one\"},{\"id\":\"a2\",\"refreshToken\":\"fake-refresh-two\"}],\"models\":[\"visible-model\"],\"modelMeta\":{\"price\":1.25},\"quota\":42},{\"id\":\"p2\",\"token\":{\"access\":\"fake-access\"}}],\"server\":{\"authorization\":\"fake-server-auth\"},\"proxy\":{\"password\":\"fake-proxy-password\"},\"empty\":{\"secret\":\"\"},\"sessionId\":\"visible-session\"}");
         JSONObject before = copy(original), view = ConfigurationView.redact(original, salt);

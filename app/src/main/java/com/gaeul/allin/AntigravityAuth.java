@@ -63,15 +63,24 @@ public class AntigravityAuth {
         return REQ_BASE.equals(chatBase) ? LOAD_BASE : REQ_BASE;
     }
 
-    /** 转发路径自适应：换过的 base 记住，下次直接用 */
-    public static void switchChatBase(String base) {
-        if (base != null && base.startsWith("https://")) chatBase = base.replaceAll("/+$", "");
+    /** Only the two official origins from the fixed local plugin may receive credentials. */
+    private static String officialBase(String base) {
+        if (base == null) return null;
+        String normalized = base.replaceAll("/+$", "");
+        return REQ_BASE.equals(normalized) || LOAD_BASE.equals(normalized) ? normalized : null;
     }
 
-    /** 从配置里恢复上次探测选出的 base */
+    /** 转发路径自适应：换过的官方 base 记住，下次直接用 */
+    public static void switchChatBase(String base) {
+        String accepted = officialBase(base);
+        if (accepted != null) chatBase = accepted;
+    }
+
+    /** 从配置里恢复上次探测选出的官方 base；未知地址不接收凭据。 */
     public static void applyBases(String chat, String load) {
-        if (chat != null && chat.startsWith("https://")) chatBase = chat.replaceAll("/+$", "");
-        if (load != null && load.startsWith("https://")) loadBase = load.replaceAll("/+$", "");
+        String acceptedChat = officialBase(chat), acceptedLoad = officialBase(load);
+        if (acceptedChat != null) chatBase = acceptedChat;
+        if (acceptedLoad != null) loadBase = acceptedLoad;
     }
     public static final String STREAM_PATH = "/v1internal:streamGenerateContent?alt=sse";
 

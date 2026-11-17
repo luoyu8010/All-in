@@ -23,8 +23,30 @@ final class AccountPoolPolicy {
         }
         return true;
     }
+    private static boolean apiKeyAccount(JSONObject account) {
+        return "apikey".equalsIgnoreCase(value(account, "authMode"))
+                || "apikey".equalsIgnoreCase(value(account, "type"));
+    }
+    private static String apiKeyMaterial(JSONObject account) {
+        for (String key : new String[]{"access", "token", "apiKey", "key"}) {
+            String credential = value(account, key);
+            if (!credential.isEmpty()) return credential;
+        }
+        return "";
+    }
     static boolean same(JSONObject a, JSONObject b, String provider) {
         if (a == null || b == null || !scope(a,b)) return false;
+        // Codex API keys have no verified OAuth owner: labels (including legacy email labels)
+        // cannot identify them. Match complete credential material, within the existing scope.
+        if ("codex".equals(provider) && (apiKeyAccount(a) || apiKeyAccount(b))) {
+            if (!apiKeyAccount(a) || !apiKeyAccount(b)) return false;
+            for (String key : new String[]{"accountId", "uid", "subject"}) {
+                String x = value(a, key), y = value(b, key);
+                if (!x.isEmpty() && !y.isEmpty() && !x.equals(y)) return false;
+            }
+            String x = apiKeyMaterial(a), y = apiKeyMaterial(b);
+            return !x.isEmpty() && x.equals(y);
+        }
         String[] identity = "codex".equals(provider)
                 ? new String[]{"accountId", "uid", "subject", "githubLogin", "email"}
                 : new String[]{"uid", "userId", "userID", "subject", "accountId", "githubLogin", "login", "email"};
