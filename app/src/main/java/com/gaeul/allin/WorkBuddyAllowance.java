@@ -21,6 +21,9 @@ final class WorkBuddyAllowance {
         return !"api".equals(a.optString("type")) && !key.startsWith("ck_") && !key.startsWith("pt_");
     }
     static JSONObject fetch(String provider, JSONObject a, WorkBuddyLogin.ConnectionFactory factory) throws Exception {
+        return fetch(provider,a,factory,false);
+    }
+    static JSONObject fetch(String provider, JSONObject a, WorkBuddyLogin.ConnectionFactory factory,boolean expiryDetails) throws Exception {
         if(!eligible(a)) throw new Failure("key_not_supported",false);
         String path=WorkBuddyLogin.enterpriseValue(a).isEmpty()?SUMMARY:ENTERPRISE;
         String url=WorkBuddyAuth.origin(provider)+path;
@@ -53,7 +56,12 @@ final class WorkBuddyAllowance {
             JSONObject env=new JSONObject(new String(bytes.toByteArray(),StandardCharsets.UTF_8));
             if(env.optInt("code",-1)!=0)throw new Failure("unavailable",false);
             JSONObject data=env.optJSONObject("data");
-            return ENTERPRISE.equals(path)?enterprise(data):summary(data);
+            JSONObject allowance=ENTERPRISE.equals(path)?enterprise(data):summary(data);
+            if(expiryDetails && SUMMARY.equals(path) && allowance!=null) {
+                try { allowance=withExpiry(allowance,data,packages(provider,headers,factory),System.currentTimeMillis(),"workbuddy-ai".equals(provider)); }
+                catch(Exception unavailable) { allowance.put("expiryKnown",false); }
+            }
+            return allowance;
         } finally { if(c!=null)c.disconnect(); }
     }
     private static Double number(Object v) {
@@ -97,6 +105,10 @@ final class WorkBuddyAllowance {
         if(windows.length()>0)out.put("windows",windows);
         else if(total>0)out.optJSONArray("windows").put(window("Credits",total,left));
         if(balance>0 || total==0)out.optJSONArray("windows").put(new JSONObject().put("name","Prepaid credits").put("remaining",balance).put("unit","credits"));
+        if(balance==0&&total>0) {
+            out.put("total",total);
+            for(int i=0;i<out.getJSONArray("windows").length();i++)out.getJSONArray("windows").getJSONObject(i).put("aside",true);
+        }
         return out;
     }
     static JSONObject enterprise(JSONObject data) {
@@ -104,6 +116,83 @@ final class WorkBuddyAllowance {
         Double total=number(data.opt("limitNum")), used=number(data.opt("credit"));
         if(total==null || total<=0 || used==null || used>total)return null;
         double left=total-used; JSONObject out=base().put("remaining",left);
-        out.optJSONArray("windows").put(window("Team credits",total,left)); return out;
+        JSONObject w=window("Team credits",total,left);
+        long reset=AccountRoutingPolicy.time(data.opt("cycleResetTime"));if(reset>0)w.put("resetAt",reset);
+        out.optJSONArray("windows").put(w); return out;
+    }
+
+    private static final String[] PAID={"002_AkiJS3ZHF5","005_maRGyrHhw1","003_FAnt7lcmRT","023_4xbGhMrE6q","026_BaESVICNoi","027_0FCGVA6vSa","043_6oIkxT7Z0S","009_0XmEQc2xOf","038_OhvqZtiPKr","036_lupO5WgNdG"};
+    private static final String[] FREE={"001_PqouKr6QWV","008_cfWoLwvjU4","035_ArVxJcGDsm","006_DbXS0lrypC","039_KRcQj7wUat","040_mi9rCYg46x","007_nzdH5h4Nl0","028_NtpWi0jzXs","037_WxOD3MpI2o","029_6wCGEWquYy","030_BjSt89qTvr"};
+    private static JSONArray packages(String provider,Map<String,String> headers,WorkBuddyLogin.ConnectionFactory factory)throws Exception {
+        JSONArray out=new JSONArray();long deadline=System.nanoTime()+12000000000L;int textBudget=2*1048576;
+        for(int kind=0;kind<2;kind++) {
+            JSONArray codes=new JSONArray();for(String code:kind==0?PAID:FREE)codes.put("TCACA_code_"+code);
+            for(int page=1;page<=10;page++) {
+                long left=(deadline-System.nanoTime())/1000000;if(left<=0)throw new Failure("unavailable",false);
+                JSONObject body=new JSONObject().put("PackageCodes",codes).put("PageNumber",page).put("PageSize",200).put("Status",new JSONArray().put(0).put(3));
+                if(kind==0)body.put("NeedRenewInfo",true);
+                else {java.text.SimpleDateFormat df=new java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.US);df.setTimeZone(java.util.TimeZone.getTimeZone("GMT+08:00"));String day=df.format(new java.util.Date());body.put("SlicePeriodStartTime",day+" 00:00:00").put("SlicePeriodEndTime",day+" 23:59:59");}
+                String path="/billing/meter/get-user-resource-"+(kind==0?"paid":"free")+"-packages";
+                HttpURLConnection c=factory.open(WorkBuddyAuth.origin(provider)+path);
+                try {
+                    c.setInstanceFollowRedirects(false);c.setRequestMethod("POST");c.setConnectTimeout((int)Math.min(4000,left));c.setReadTimeout((int)Math.min(4000,left));
+                    for(Map.Entry<String,String> h:headers.entrySet())c.setRequestProperty(h.getKey(),h.getValue());
+                    c.setRequestProperty("Content-Type","application/json");c.setDoOutput(true);byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);c.setFixedLengthStreamingMode(bytes.length);
+                    try(OutputStream os=c.getOutputStream()){os.write(bytes);}
+                    if(c.getResponseCode()!=200)throw new Failure("unavailable",false);
+                    String text=BoundedResponse.readUtf8(c.getInputStream(),1048576,Math.max(1,(deadline-System.nanoTime())/1000000));textBudget-=text.length();if(textBudget<0)throw new Failure("incomplete",false);JSONObject env=new JSONObject(text);
+                    JSONObject data=env.optJSONObject("data");if(env.optInt("code",-1)!=0||data==null||data.optJSONArray("Accounts")==null)throw new Failure("unavailable",false);
+                    JSONArray rows=data.getJSONArray("Accounts");if(rows.length()>200||out.length()+rows.length()>2000)throw new Failure("incomplete",false);for(int i=0;i<rows.length();i++)out.put(rows.opt(i));
+                    if(rows.length()<200||page*200>=data.optInt("TotalCount",Integer.MAX_VALUE))break;
+                    if(page==10)throw new Failure("incomplete",false);
+                }finally{c.disconnect();}
+            }
+        }
+        return out;
+    }
+    static JSONObject withExpiry(JSONObject allowance,JSONObject sum,JSONArray packages,long now) {return withExpiry(allowance,sum,packages,now,false);}
+    static JSONObject withExpiry(JSONObject allowance,JSONObject sum,JSONArray packages,long now,boolean international) {
+        JSONObject out=new JSONObject(allowance.toString());
+        java.util.Set<String> counted=new java.util.HashSet<>();JSONArray summarized=sum.optJSONArray("Packages");
+        for(int i=0;summarized!=null&&i<summarized.length();i++){JSONObject p=summarized.optJSONObject(i);if(p!=null)counted.add(p.optString("PackageCode"));}
+        JSONArray ws=out.optJSONArray("windows");double total=0,left=0;
+        for(int i=0;ws!=null&&i<ws.length();i++){JSONObject w=ws.optJSONObject(i);Double t=w==null?null:number(w.opt("total")),r=w==null?null:number(w.opt("remaining"));if(t!=null&&r!=null){total+=t;left+=r;}}
+        java.util.Set<String> extra=new java.util.HashSet<>();
+        for(String code:new String[]{"028_NtpWi0jzXs","037_WxOD3MpI2o","009_0XmEQc2xOf","038_OhvqZtiPKr","036_lupO5WgNdG","007_nzdH5h4Nl0","029_6wCGEWquYy","030_BjSt89qTvr"})extra.add("TCACA_code_"+code);
+        if(international){extra.add("TCACA_code_008_cfWoLwvjU4");extra.add("TCACA_code_006_DbXS0lrypC");}
+        double detailTotal=0,detailLeft=0;java.util.Set<JSONObject> includedExtras=java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<JSONObject,Boolean>());
+        // Extra rewards missing from summary.Packages are real credits too (fixed plugin's
+        // listedExtra). Never infer them from TotalCredits or add summary packages twice.
+        for(int i=0;packages!=null&&i<packages.length();i++){
+            JSONObject p=packages.optJSONObject(i);if(p==null||!extra.contains(p.optString("PackageCode"))||counted.contains(p.optString("PackageCode")))continue;
+            long end=AccountRoutingPolicy.time(p.opt("DeductionEndTime"));if(end<=0)end=AccountRoutingPolicy.time(p.opt("ExpiredTime"));if(end<=0)end=AccountRoutingPolicy.time(p.opt("CycleEndTime"));if(end>0&&end<=now)continue;
+            boolean slice="4".equals(String.valueOf(p.opt("CapacityType")));JSONArray parts=p.optJSONArray("SlicePeriodUsageDetails");JSONObject values=slice?(parts==null?null:parts.optJSONObject(0)):p;
+            Double t=values==null?null:number(values.opt(slice?"SlicePeriodCapacitySizePrecise":"CycleCapacitySizePrecise"));
+            Double r=values==null?null:number(values.opt(slice?"SlicePeriodCapacityRemainPrecise":"CycleCapacityRemainPrecise"));
+            if(t!=null&&r!=null&&t>0&&r<=t){detailTotal+=t;detailLeft+=r;includedExtras.add(p);}
+        }
+        if(detailTotal>0&&Double.isFinite(detailTotal)&&Double.isFinite(detailLeft)){
+            total+=detailTotal;left+=detailLeft;ws.put(window("Listed extra credits",detailTotal,detailLeft));
+            out.put("remaining",out.optDouble("remaining",0)+detailLeft);
+        }
+        long soonest=0,reset=0;double expiring=0;
+        String subscription=sum.optString("SubscriptionPackageCode");
+        for(int i=0;packages!=null&&i<packages.length();i++) {
+            JSONObject p=packages.optJSONObject(i);if(p==null)continue;
+            String code=p.optString("PackageCode");boolean slice="4".equals(String.valueOf(p.opt("CapacityType")));
+            if((!subscription.isEmpty()&&subscription.equals(code))||(subscription.isEmpty()&&slice)) {long cycle=AccountRoutingPolicy.time(p.opt("CycleEndTime"));if(cycle>now)reset=cycle;}
+            if(slice||"TCACA_code_001_PqouKr6QWV".equals(code))continue;
+            Double r=number(p.has("CycleCapacityRemainPrecise")?p.opt("CycleCapacityRemainPrecise"):p.opt("CycleCapacityRemain"));
+            long end=AccountRoutingPolicy.time(p.opt("DeductionEndTime"));if(end<=0)end=AccountRoutingPolicy.time(p.opt("ExpiredTime"));if(end<=0)end=AccountRoutingPolicy.time(p.opt("CycleEndTime"));
+            if(r==null||r<=0||end<=now||(!counted.contains(code)&&!includedExtras.contains(p)))continue;
+            if(soonest==0||end<soonest){soonest=end;expiring=r;}else if(end==soonest)expiring+=r;
+        }
+        if(total>0&&Double.isFinite(total)&&Double.isFinite(left)) {
+            JSONObject all=window("Total credits",total,left);if(reset>now)all.put("resetAt",reset);
+            if(soonest>now&&Double.isFinite(expiring))all.put("runsOutAt",soonest).put("runsOut",Math.min(left,expiring));
+            JSONArray combined=new JSONArray().put(all);for(int i=0;ws!=null&&i<ws.length();i++)combined.put(ws.getJSONObject(i).put("aside",true));out.put("windows",combined);
+        }
+        if(out.has("total"))out.put("total",total);
+        return out.put("expiryKnown",soonest>now||reset>now);
     }
 }

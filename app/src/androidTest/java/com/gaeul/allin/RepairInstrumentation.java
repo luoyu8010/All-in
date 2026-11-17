@@ -23,6 +23,22 @@ public final class RepairInstrumentation extends Instrumentation {
     private Object call(String type,String method,Class<?>[] types,Object... args)throws Exception {
         Method m=Class.forName("com.gaeul.allin."+type).getDeclaredMethod(method,types);m.setAccessible(true);return m.invoke(null,args);
     }
+    private void accountRoutingRuntime()throws Exception {
+        long now=System.currentTimeMillis();AccountRoutingPolicy policy=new AccountRoutingPolicy();
+        java.util.List<AccountRoutingPolicy.Seat> seats=new java.util.ArrayList<>();java.util.List<RecentUsageScheduler.Lease> leases=new java.util.ArrayList<>();java.util.Set<String> picked=new java.util.HashSet<>();
+        for(int i=0;i<4;i++)seats.add(new AccountRoutingPolicy.Seat("android/account/"+i,"fixture-"+i));
+        for(int i=0;i<4;i++){RecentUsageScheduler.Lease lease=policy.select("usage",seats,"m",now);leases.add(lease);picked.add(lease.target);}
+        check(picked.size()==4,"Android concurrent reservations spread over four accounts");for(RecentUsageScheduler.Lease lease:leases)lease.cancel();
+        JSONObject window=new JSONObject().put("name","Credits").put("total",100).put("remaining",80).put("remainingPercent",80).put("runsOut",20).put("runsOutAt",now+3600000);
+        JSONObject allowance=new JSONObject().put("unit","credits").put("windows",new JSONArray().put(window));policy.observe(seats.get(2),allowance,now);
+        RecentUsageScheduler.Lease urgent=policy.select("pace",seats,"m",now);check(urgent.target.equals(seats.get(2).ref),"Android expiry pressure picks actual expiring credits");urgent.cancel();
+        check(policy.basis(seats,"m",now+AccountRoutingPolicy.FRESH_MS+1,"pace").equals("recent_tokens"),"Android stale expiry falls back");
+        check(AccountRoutingPolicy.time("2026-11-17 12:00:00")==AccountRoutingPolicy.time("2026-11-17T04:00:00Z"),"Android UTC+8 parser");
+        check(AccountRoutingPolicy.time("2026-02-31T00:00:00Z")==0,"Android invalid date rejected");
+        JSONObject summary=new JSONObject().put("Packages",new JSONArray().put(new JSONObject().put("PackageCode","fixture-gift")));
+        JSONObject merged=WorkBuddyAllowance.withExpiry(allowance,summary,new JSONArray().put(new JSONObject().put("PackageCode","fixture-gift").put("CycleCapacityRemainPrecise",20).put("DeductionEndTime",now+3600000)),now);
+        check(merged.getJSONArray("windows").getJSONObject(0).getDouble("runsOut")==20,"Android expiring portion not the full balance");
+    }
     private void jsonRuntime()throws Exception {
         check(!JSONObject.class.equals(Class.forName("org.json.JSONObject")),"App JSON must not be Android framework JSON");
         JSONObject a=new JSONObject("{\"a\":[{\"b\":null},2],\"c\":true}"),b=new JSONObject("{\"c\":true,\"a\":[{\"b\":null},2]}");
@@ -255,7 +271,7 @@ public final class RepairInstrumentation extends Instrumentation {
             Context target=getTargetContext();
             if(!target.getPackageName().endsWith(".repairtest"))throw new SecurityException("Runtime tests require the isolatedTestInstall package");
             if(audit52){result.putString("stream","AUDIT_ANDROID 05_webview "+Audit52WebView.run(this)+"\n");finish(Activity.RESULT_OK,result);return;}
-            jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);accountManagementRuntime(target);alarms(target);
+            accountRoutingRuntime();jsonRuntime();advisoryRuntime();gzipRuntime();asyncRuntime();updatesRuntime(target);gateway(target);accountManagementRuntime(target);alarms(target);
             checks += AntigravityCompatibilityRuntime.run();
             checks += CallEvidenceRuntime.run(target);
             checks += AntigravityRequestParityRuntime.run();

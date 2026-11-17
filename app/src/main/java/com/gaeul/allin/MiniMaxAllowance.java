@@ -89,7 +89,7 @@ final class MiniMaxAllowance {
     }
     static JSONObject fromCredits(JSONArray rows, long now) throws Exception {
         if (rows == null) throw new IOException("MiniMax credit rows missing");
-        BigDecimal sum = BigDecimal.ZERO;
+        BigDecimal sum = BigDecimal.ZERO,total=BigDecimal.ZERO,expiring=BigDecimal.ZERO;long soonest=0;
         for (int i = 0; i < rows.length(); i++) {
             JSONObject row = rows.optJSONObject(i);
             if (row == null) throw new IOException("MiniMax credit row invalid");
@@ -104,11 +104,15 @@ final class MiniMaxAllowance {
             if (at <= now) continue;
             BigDecimal granted = amount(row.opt("granted_amount"), false);
             BigDecimal left = amount(row.opt("remaining_amount"), true).min(granted);
-            sum = sum.add(left);
+            sum = sum.add(left);total=total.add(granted);
+            if(left.signum()>0){if(soonest==0||at<soonest){soonest=at;expiring=left;}else if(at==soonest)expiring=expiring.add(left);}
         }
         double remaining = sum.doubleValue();
         if (!Double.isFinite(remaining)) throw new IOException("MiniMax credit balance invalid");
-        return new JSONObject().put("kind", "allowance").put("scope", "account").put("unit", "credits")
+        JSONObject out=new JSONObject().put("kind", "allowance").put("scope", "account").put("unit", "credits")
                 .put("remaining", remaining).put("windows", new JSONArray()).put("observedAt", now);
+        double cap=total.doubleValue();if(Double.isFinite(cap)&&cap>0)out.put("total",cap);
+        if(soonest>now&&Double.isFinite(expiring.doubleValue()))out.put("runsOutAt",soonest).put("runsOut",expiring.doubleValue());
+        return out;
     }
 }

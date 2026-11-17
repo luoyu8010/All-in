@@ -1297,7 +1297,7 @@
             <span class="project-info-text"><span class="project-info-kicker">开源项目</span><span class="project-info-meta">github.com/xunianooo/All-in</span></span><span class="project-info-arrow" aria-hidden="true">↗</span>
           </a>
       </div>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.52-test</p>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.53-test</p>
       <div id="setup-anchor"></div>
       <div class="card checkin-entry" id="checkin-home-entry">
         <div><span class="checkin-kicker">DAILY CHECK-IN</span><h2>每日签到</h2><p id="checkin-home-summary">账号奖励，一处管理</p></div>
@@ -5698,6 +5698,7 @@
       const c = providerCounts(p), desc = document.createElement('p'); desc.textContent = '账号 ' + c.accounts + ' · Key ' + c.keys + ' · 模型 ' + c.models + '（配置） · ' + (providerConfigured(p) ? '已配置' : '待接入'); info.appendChild(desc);
       if (c.accounts) { const b = document.createElement('button'); b.className = 'btn btn-outline'; b.textContent = '管理账号'; b.onclick = () => manageProviderAccounts(p.id); info.appendChild(b); }
       if (p.id === 'loomy') { const login = document.createElement('button'); login.className = 'btn btn-outline'; login.textContent = '短信登录'; login.onclick = showLoomyLogin; info.appendChild(login); }
+      renderAccountRouting(info, p);
       renderProviderBilling(info, p.id);
       const hasCard = cards && Array.from(cards.children).some(x => !x.hidden), hasCommercial = details && !details.hidden;
       if (!hasCard && !hasCommercial && p.id === 'loomy') { const sync = document.createElement('button'); sync.className = 'btn btn-outline'; sync.textContent = '🔄 同步官方模型'; sync.onclick = () => syncUniversalModels('loomy'); info.appendChild(sync); }
@@ -5706,6 +5707,47 @@
       if (!hasCard && !hasCommercial && ACCOUNT_FILE_PROVIDERS.has(p.id)) ensureAccountFileButtons(info, p.id);
       if (!hasCard && !hasCommercial && !ACCOUNT_FILE_PROVIDERS.has(p.id)) { const note = document.createElement('p'); note.textContent = '当前未提供该类型配置入口'; info.appendChild(note); }
     }
+    const accountRoutingExpanded = new Set();
+    const ACCOUNT_ROUTING_MODES = {rotate:'轮流使用',usage:'用量均衡',pace:'到期优先'};
+    function renderAccountRouting(container, provider) {
+      const area = document.createElement('details'); area.className = 'account-routing-settings'; area.style.cssText = 'margin:14px 0;padding:12px;border:1px solid var(--card-border);border-radius:14px;';
+      if (accountRoutingExpanded.has(provider.id)) area.open = true;
+      const mode = Object.prototype.hasOwnProperty.call(ACCOUNT_ROUTING_MODES,provider.accountRouting) ? provider.accountRouting : 'rotate';
+      const summary = document.createElement('summary'); summary.textContent = '账号路由 · ' + ACCOUNT_ROUTING_MODES[mode]; summary.style.cursor = 'pointer'; area.appendChild(summary);
+      const options = document.createElement('div'); options.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;';
+      Object.entries(ACCOUNT_ROUTING_MODES).forEach(([value,label]) => {
+        const button = document.createElement('button'); button.type = 'button'; button.className = 'btn ' + (value === mode ? 'btn-primary' : 'btn-outline'); button.textContent = label;
+        button.setAttribute('aria-pressed',String(value === mode)); button.disabled = providerWrites.has(provider.id) || providerUnknown.has(provider.id);
+        button.onclick = () => saveAccountRouting(provider.id,value); options.appendChild(button);
+      }); area.appendChild(options);
+      const help = document.createElement('p'); help.style.cssText = 'font-size:.76rem;line-height:1.7;color:var(--text-muted);margin:0;';
+      help.textContent = '轮流按请求分配。均衡优先使用额度比例较充足的账号；数据不全时按近期可信 Token 和在途负载分配。到期优先按将作废的额度与剩余时间排序，缺少到期数据时回退均衡。每笔请求用量不同，不能保证积分严格等额。设置只作用于本供应商，单账号仍可保存。'; area.appendChild(help);
+      const status = document.createElement('p'); status.setAttribute('role','status'); status.style.cssText = 'font-size:.74rem;color:var(--text-muted);overflow-wrap:anywhere;'; status.textContent = '展开后可查看当前分配依据。'; area.appendChild(status);
+      area.ontoggle = async () => { if (!area.open) { accountRoutingExpanded.delete(provider.id); return; } accountRoutingExpanded.add(provider.id); status.textContent = '正在读取分配依据…';
+        try { const response = await fetch(API_BASE + '/api/providers/account-routing?provider=' + encodeURIComponent(provider.id)); const data = await response.json();
+          if (!area.isConnected || !response.ok || data.ok !== true || data.providerId !== provider.id) return;
+          const names = {requests:'按请求轮流',allowance:'新鲜的账号额度比例',expiry:'已确认的到期／重置数据',recent_tokens:'近期可信 Token 与在途负载（额度或到期数据不足，已回退）'};
+          status.textContent = '当前依据：' + (names[data.basis] || '尚不可用') + (data.model ? ' · 参考模型：' + data.model : '') + '。部分供应商首次调用后才取得额度；本机负载在重启后重置。';
+        } catch (_) { if (area.isConnected) status.textContent = '分配依据暂不可用，请稍后重新展开。'; }
+      }; container.appendChild(area);
+    }
+    async function saveAccountRouting(id, mode) {
+      if (!Object.prototype.hasOwnProperty.call(ACCOUNT_ROUTING_MODES,mode) || providerWrites.has(id) || providerUnknown.has(id)) return;
+      const token = providerToken(id); providerWrites.add(id); providerWriteRevision++; let unknown = false;
+      applyProviderView();
+      try {
+        let response; try { response = await fetch(API_BASE + '/api/providers/account-routing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(withProviderToken({providerId:id,mode},token))}); } catch (_) { unknown = true; throw new Error('保存结果未确认'); }
+        if (response.status === 409) throw new Error('账号状态已变化，请刷新后重试');
+        let data; try { data = await response.json(); } catch (_) { unknown = true; throw new Error('保存响应无法解析'); }
+        if (!response.ok || data.ok !== true) throw new Error('账号路由保存失败');
+        if (data.providerId !== id || data.mode !== mode || typeof data.stateToken !== 'string') { unknown = true; throw new Error('保存回执不完整'); }
+        acknowledgeProviderToken(id,data.stateToken);
+        const current = (appConfig.providers || []).find(p => p.id === id); if (current) current.accountRouting = mode;
+        showToast('账号路由已设为：' + ACCOUNT_ROUTING_MODES[mode]);
+      } catch (error) { if (unknown) providerUnknown.add(id); showToast(error.message); }
+      finally { providerWrites.delete(id); providerWriteRevision++; await loadConfig(); applyProviderView(); }
+    }
+
     const providerBillingCache = Object.create(null);
     function billingSnapshot(previous, data, now) {
       if (!data || data.ok !== true || !Array.isArray(data.accounts) || !data.models || typeof data.models !== 'object' || Array.isArray(data.models))
@@ -5756,6 +5798,10 @@
           if (!w) return;
           const amount = billingAllowanceText(w, allowance.unit);
           if (amount) parts.push(String(w.name || '额度') + (w.scope === 'model' ? '（模型额度）' : '') + ' 剩 ' + amount + ((w.resetAt || w.resetsAt) ? ' · 重置 ' + String(w.resetAt || w.resetsAt) : ''));
+        });
+        (Array.isArray(allowance.windows) ? allowance.windows : []).forEach(w => {
+          if (!w || !Number.isFinite(w.runsOut) || w.runsOut <= 0 || !w.runsOutAt) return;
+          const due = new Date(w.runsOutAt); if (!isNaN(due.getTime())) parts.push('其中 ' + w.runsOut + ' ' + (w.unit || allowance.unit || '') + ' 到期：' + due.toLocaleString());
         });
         const observed = allowance.observedAt || a.snapshotAt;
         if (observed) { const date = new Date(observed); if (!isNaN(date.getTime())) parts.push('时间 ' + date.toLocaleString()); }

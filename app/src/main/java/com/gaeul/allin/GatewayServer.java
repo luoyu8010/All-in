@@ -152,6 +152,7 @@ public class GatewayServer extends NanoHTTPD {
         List<RequestContext> requests;
         synchronized(this) {
             stopping=true;
+            if(routingReads!=null)routingReads.shutdownNow();
             minimaxLifecycle().retire();
             closeTrae();
             if(dailyCheckin!=null)dailyCheckin.close();
@@ -2440,6 +2441,87 @@ public class GatewayServer extends NanoHTTPD {
     }
 
 
+    private volatile AccountRoutingPolicy accountRouter;
+    private AccountRoutingPolicy accountRouter() {
+        if(accountRouter==null)synchronized(this){if(accountRouter==null)accountRouter=new AccountRoutingPolicy();}
+        return accountRouter;
+    }
+    private static String routingHash(String value) {
+        try { byte[] b=java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder s=new StringBuilder();for(byte v:b)s.append(String.format(java.util.Locale.ROOT,"%02x",v&255));return s.toString();
+        } catch(Exception impossible){throw new IllegalStateException(impossible);}
+    }
+    private static AccountRoutingPolicy.Seat routingSeat(String provider,JSONObject a) {
+        String id=a.optString("id","");if(id.isEmpty())id=routingHash(storedAccess(a));
+        return new AccountRoutingPolicy.Seat(provider+"/account/"+id,routingHash(a.toString()));
+    }
+    private void rememberAccountLease(RecentUsageScheduler.Lease lease) {
+        if(lease==null)return;
+        RequestContext req=REQUEST_CONTEXT.get();
+        if(req==null){lease.cancel();return;}
+        synchronized(req.accountRoutingLeases){RecentUsageScheduler.Lease old=req.accountRoutingLeases.put(lease.target,lease);if(old!=null)old.cancel();}
+        req.onClose(lease::cancel);
+    }
+    private int routingAccountIndex(String id,List<JSONObject> accounts,String model) {
+        JSONObject provider=getProviderById(id);String mode=AccountRoutingPolicy.mode(provider);
+        if("rotate".equals(mode)||accounts.size()<2)return nextAccountIndex(id,accounts.size());
+        List<AccountRoutingPolicy.Seat> seats=new ArrayList<>();List<Integer> indices=new ArrayList<>();
+        for(int i=0;i<accounts.size();i++) {
+            JSONObject a=accounts.get(i);RouteTarget t=new RouteTarget();t.providerId=id;t.account=a;t.apiKey=storedAccess(a);t.upstreamModel=model;
+            t.baseUrl=provider.optString("baseUrl","");t.protocol=provider.optString("protocol","openai");
+            if(!isResting(t)){seats.add(routingSeat(id,a));indices.add(i);}
+        }
+        if(seats.isEmpty())for(int i=0;i<accounts.size();i++){seats.add(routingSeat(id,accounts.get(i)));indices.add(i);}
+        if(REQUEST_CONTEXT.get()!=null)warmAccountRouting(id,accounts);
+        RecentUsageScheduler.Lease lease=accountRouter().select(mode,seats,model,System.currentTimeMillis());
+        if(lease==null)return nextAccountIndex(id,accounts.size());
+        rememberAccountLease(lease);
+        for(int i=0;i<seats.size();i++)if(seats.get(i).ref.equals(lease.target))return indices.get(i);
+        lease.cancel();return 0;
+    }
+    private static AccountRoutingPolicy.Seat routingKeySeat(String id,CommercialKeyPool.Credential c) {
+        return new AccountRoutingPolicy.Seat(id+"/key/"+c.credentialId,c.credentialId);
+    }
+    private CommercialKeyPool.Credential routingKey(String id,String model,List<CommercialKeyPool.Credential> candidates,Set<String> excluded) {
+        List<AccountRoutingPolicy.Seat> seats=new ArrayList<>();List<CommercialKeyPool.Credential> live=new ArrayList<>();
+        for(CommercialKeyPool.Credential c:candidates)if(!excluded.contains(c.credentialId)){seats.add(routingKeySeat(id,c));live.add(c);}
+        RecentUsageScheduler.Lease lease=accountRouter().select(AccountRoutingPolicy.mode(getProviderById(id)),seats,model,System.currentTimeMillis());
+        if(lease==null)return null;rememberAccountLease(lease);
+        for(int i=0;i<seats.size();i++)if(seats.get(i).ref.equals(lease.target))return live.get(i);
+        lease.cancel();return null;
+    }
+    private volatile java.util.concurrent.ThreadPoolExecutor routingReads;
+    private Map<String,Long> routingReadAfter;
+    private Set<String> routingReadBusy;
+    // Explicitly exclude balance APIs whose fallback can claim a gift (Raccoon) and
+    // gift/paid-plan APIs. These accounts still use local load until a manual reading.
+    private static boolean routingReadOnlyMeter(String id) {
+        return java.util.Arrays.asList("workbuddy","workbuddy-ai","trae-cn","qoder_cn","codex","cline","github-copilot","catpaw","loomy","minimax-code").contains(id);
+    }
+    private void warmAccountRouting(String id,List<JSONObject> accounts) {
+        if(stopping||!routingReadOnlyMeter(id))return;
+        for(JSONObject a:accounts) {
+            final JSONObject snapshot=new JSONObject(a.toString());final AccountRoutingPolicy.Seat seat=routingSeat(id,a);
+            synchronized(this) {
+                if(routingReadAfter==null){routingReadAfter=new LinkedHashMap<>();routingReadBusy=new HashSet<>();}
+                long now=System.currentTimeMillis();Long after=routingReadAfter.get(seat.ref);
+                if(routingReadBusy.contains(seat.ref)||(after!=null&&now<after))continue;
+                if(routingReadAfter.size()>=512&&!routingReadAfter.containsKey(seat.ref))routingReadAfter.remove(routingReadAfter.keySet().iterator().next());
+                routingReadAfter.put(seat.ref,now+60000);routingReadBusy.add(seat.ref);
+                if(routingReads==null)routingReads=new java.util.concurrent.ThreadPoolExecutor(0,2,30,java.util.concurrent.TimeUnit.SECONDS,
+                        new java.util.concurrent.ArrayBlockingQueue<Runnable>(16),r->{Thread t=new Thread(r,"account-routing-meter");t.setDaemon(true);return t;});
+                try { routingReads.execute(()->{
+                    try {
+                        synchronized(GatewayServer.this){JSONObject p=getProviderById(id);if(stopping||p==null||"rotate".equals(AccountRoutingPolicy.mode(p))||!billingAccountCurrent(id,snapshot))return;}
+                        JSONObject allowance=safeAllowance(id,fetchBillingAllowance(id,snapshot));
+                        synchronized(GatewayServer.this){if(!stopping&&billingAccountCurrent(id,snapshot))accountRouter().observe(routingSeat(id,snapshot),allowance,System.currentTimeMillis());}
+                    } catch(Exception unavailable) { /* Missing readings fall back to local load. */ }
+                    finally {synchronized(GatewayServer.this){routingReadBusy.remove(seat.ref);}}
+                });} catch(java.util.concurrent.RejectedExecutionException full){routingReadBusy.remove(seat.ref);}
+            }
+        }
+    }
+
     /** Qoder 进行中的登录流程（flowId -> Flow），进程内保存即可 */
         /** Cline (cline.bot) 进行中的设备流登录（flowId -> Flow） */
     /** Codex 进行中的 OAuth 登录流程（flowId -> Flow） */
@@ -2585,12 +2667,12 @@ public class GatewayServer extends NanoHTTPD {
             if(!WorkBuddyAllowance.eligible(account)) throw new WorkBuddyAllowance.Failure("key_not_supported",false);
             JSONObject fresh=ensureStoredToken(provider,account,null), result;
             billingAdoptWorkBuddyRefresh(account,fresh);
-            try { result=WorkBuddyAllowance.fetch(provider,fresh,this::openVendorConnection); }
+            try { result=WorkBuddyAllowance.fetch(provider,fresh,this::openVendorConnection,"pace".equals(AccountRoutingPolicy.mode(getProviderById(provider)))); }
             catch(WorkBuddyAllowance.Failure refused) {
                 if(!refused.invalidToken || !"oauth".equals(fresh.optString("type")) || fresh.optString("refresh","").isEmpty())throw refused;
                 fresh=ensureStoredToken(provider,fresh,storedAccess(fresh));
                 billingAdoptWorkBuddyRefresh(account,fresh);
-                result=WorkBuddyAllowance.fetch(provider,fresh,this::openVendorConnection);
+                result=WorkBuddyAllowance.fetch(provider,fresh,this::openVendorConnection,"pace".equals(AccountRoutingPolicy.mode(getProviderById(provider))));
             }
             synchronized(this) {
                 JSONObject current=storedTokenAccount(configJson,provider,storedTokenIdentity(account));
@@ -2678,6 +2760,16 @@ public class GatewayServer extends NanoHTTPD {
         if(traeUnlimited) out.put("unlimited",true);
         Object remaining=raw.opt("remaining");
         if(remaining instanceof Number && Double.isFinite(((Number)remaining).doubleValue()) && ((Number)remaining).doubleValue()>=0) out.put("remaining",remaining);
+        Object declaredTotal=raw.opt("total");
+        if(declaredTotal instanceof Number&&remaining instanceof Number) {
+            double t=((Number)declaredTotal).doubleValue(),r=((Number)remaining).doubleValue();
+            if(Double.isFinite(t)&&t>0&&Double.isFinite(r)&&r>=0&&r<=t)out.put("total",t);
+        }
+        long runsOutAt=AccountRoutingPolicy.time(raw.opt("runsOutAt"));Object runsOut=raw.opt("runsOut");
+        if(runsOutAt>0&&runsOut instanceof Number&&remaining instanceof Number) {
+            double n=((Number)runsOut).doubleValue(),r=((Number)remaining).doubleValue();
+            if(Double.isFinite(n)&&n>=0&&n<=r)out.put("runsOutAt",runsOutAt).put("runsOut",n);
+        }
         JSONArray windows=new JSONArray(), src=raw.optJSONArray("windows");
         for(int i=0;src!=null && i<src.length() && i<20;i++) {
             JSONObject w=src.optJSONObject(i); if(w==null) continue; String name=w.optString("name","");
@@ -2710,6 +2802,10 @@ public class GatewayServer extends NanoHTTPD {
                 }
                 Object reset=w.opt("resetAt");
                 if(reset instanceof String && ((String)reset).matches("[0-9TtZz:+.-]{4,40}"))clean.put("resetAt",reset);
+                if(reset instanceof Number&&AccountRoutingPolicy.time(reset)>0)clean.put("resetAt",AccountRoutingPolicy.time(reset));
+                long expires=AccountRoutingPolicy.time(w.opt("runsOutAt"));Object expiring=w.opt("runsOut");
+                if(expires>0&&expiring instanceof Number&&Double.isFinite(((Number)expiring).doubleValue())&&((Number)expiring).doubleValue()>=0)
+                    clean.put("runsOutAt",expires).put("runsOut",expiring);
                 if(Boolean.TRUE.equals(w.opt("aside")))clean.put("aside",true);
                 windows.put(clean);continue;
             }
@@ -2870,7 +2966,7 @@ public class GatewayServer extends NanoHTTPD {
                                 try { currentAccount=uniqueRaccoonAccount(current,a.optString("id","")); } catch(IOException ignored) { }
                                 if(currentAccount!=null) try { billingAdoptRefresh(a,currentAccount); } catch(Exception changed) { continue; }
                             }
-                            if(billingAccountCurrent(id,a)) filtered.put(row);
+                            if(billingAccountCurrent(id,a)) {filtered.put(row);accountRouter().observe(routingSeat(id,a),row.optJSONObject("allowance"),System.currentTimeMillis());}
                             break;
                         }
                     }
@@ -7378,6 +7474,35 @@ public class GatewayServer extends NanoHTTPD {
                 }
             }
 
+            if ("/api/providers/account-routing".equals(uri)) {
+                if("GET".equalsIgnoreCase(method)) {
+                    String id=session.getParms().get("provider");if(id==null||id.trim().isEmpty())return errorResponse(400,"Provider required");
+                    synchronized(this){JSONObject p=getProviderById(id);if(p==null)return errorResponse(404,"Provider unavailable");
+                        List<AccountRoutingPolicy.Seat> seats=new ArrayList<>();for(JSONObject a:AccountPoolPolicy.routingAccounts(p))seats.add(routingSeat(id,a));
+                        if(seats.isEmpty())for(CommercialKeyPool.Credential c:CommercialKeyPool.list(p.optJSONArray("keys")))seats.add(routingKeySeat(id,c));
+                        String model=p.optJSONArray("models")==null?"":p.optJSONArray("models").optString(0,"");
+                        return jsonResponse(new JSONObject().put("ok",true).put("providerId",id).put("mode",AccountRoutingPolicy.mode(p))
+                            .put("basis",accountRouter().basis(seats,model,System.currentTimeMillis(),AccountRoutingPolicy.mode(p))).put("model",model).put("stateToken",providerStateToken(p)));
+                    }
+                }
+                if(!"POST".equalsIgnoreCase(method))return errorResponse(405,"POST required");
+                JSONObject req;try{req=new JSONObject(rawBody);}catch(Exception invalid){return errorResponse(400,"Invalid JSON");}
+                Object idRaw=req.opt("providerId"),modeRaw=req.opt("mode");
+                if(!(idRaw instanceof String)||!(modeRaw instanceof String)||!AccountRoutingPolicy.valid((String)modeRaw)
+                        ||!validExpectedStateToken(req)||req.length()!=(req.has("expectedStateToken")?3:2))return errorResponse(400,"Invalid account routing settings");
+                String id=(String)idRaw;
+                synchronized(this){
+                    JSONObject staged=new JSONObject(configJson.toString()),target=null;JSONArray providers=staged.optJSONArray("providers");
+                    for(int i=0;providers!=null&&i<providers.length();i++){JSONObject p=providers.optJSONObject(i);if(p!=null&&id.equals(p.optString("id"))){if(target!=null)return errorResponse(409,"Duplicate provider");target=p;}}
+                    if(target==null)return errorResponse(404,"Provider unavailable");
+                    if(!providerStateMatches(req,target))return errorResponse(409,"Provider changed; refresh first");
+                    target.put("accountRouting",modeRaw);
+                    if(!saveConfig(staged))return errorResponse(500,"Account routing save failed");
+                    advanceProviderStateRevision(id);
+                    return jsonResponse(new JSONObject().put("ok",true).put("providerId",id).put("mode",modeRaw).put("stateToken",providerStateToken(target)));
+                }
+            }
+
             if ("/api/providers/enabled".equals(uri)) {
                 if (!"POST".equalsIgnoreCase(method)) return errorResponse(405, "POST required");
                 JSONObject req;
@@ -10209,12 +10334,18 @@ public class GatewayServer extends NanoHTTPD {
         beginUsage(prov, reqModel, upModel, null);
     }
     private static void beginUsage(String prov, String reqModel, String upModel, JSONObject account) {
+        UsageLedger.Row previous=U_ROW.get();
         UsageLedger.Row r = new UsageLedger.Row();
-        String accountId = account == null ? "" : account.optString("id", "");
+        if(account==null&&previous!=null&&prov.equals(previous.prov)){r.accountRoutingLease=previous.accountRoutingLease;}
+        String accountId = account == null ? (previous!=null&&prov.equals(previous.prov)?previous.accountId:"") : account.optString("id", "");
         boolean safeAccountId = accountId.length() <= 256;
         for (int i = 0; i < accountId.length(); i++) if (accountId.charAt(i) < 32 || accountId.charAt(i) == 127) safeAccountId = false;
         if (safeAccountId) r.accountId = accountId;
         r.recentUsageLease = ATTEMPT_LEASE.get();
+        RequestContext routingRequest=REQUEST_CONTEXT.get();
+        if(routingRequest!=null&&account!=null)synchronized(routingRequest.accountRoutingLeases){
+            r.accountRoutingLease=routingRequest.accountRoutingLeases.remove(routingSeat(prov,account).ref);
+        }
         LogicalRequest logical = LOGICAL.get();
         if (logical != null) {
             r.requestId = logical.id;
@@ -11358,8 +11489,14 @@ public class GatewayServer extends NanoHTTPD {
                         if(!readyKeys.isEmpty()) for(CommercialKeyPool.Credential c:target.commercialCandidates) if(!readyKeys.contains(c)) selectionExclusions.add(c.credentialId);
                         CommercialKeyPool.Credential credential = preferred==null?null:affinityCredential(target,preferred);
                         if(credential!=null && selectionExclusions.contains(credential.credentialId)) credential=null;
-                        if(credential==null) credential = pool.choose(scope, target.upstreamModel,
-                                target.commercialCandidates, selectionExclusions);
+                        if(credential==null) {
+                            if("rotate".equals(AccountRoutingPolicy.mode(getProviderById(target.providerId))))
+                                credential=pool.choose(scope,target.upstreamModel,target.commercialCandidates,selectionExclusions);
+                            else {
+                                for(CommercialKeyPool.Credential c:target.commercialCandidates)if(!pool.available(scope,target.upstreamModel,c))selectionExclusions.add(c.credentialId);
+                                credential=routingKey(target.providerId,target.upstreamModel,target.commercialCandidates,selectionExclusions);
+                            }
+                        }
                         if(credential!=null) attempted.add(credential.credentialId);
                         if (credential == null) {
                             for (CommercialKeyPool.Credential c : target.commercialCandidates) {
@@ -12379,6 +12516,17 @@ public class GatewayServer extends NanoHTTPD {
         }
         beginUsage(target.providerId, requestedModel, target.upstreamModel, target.account);
         UsageLedger.Row evidenceRow=U_ROW.get();
+        if(evidenceRow!=null&&evidenceRow.accountRoutingLease==null&&target.account==null&&REQUEST_CONTEXT.get()!=null) {
+            CommercialKeyPool.Credential key=target.commercialCredential;
+            if(key==null){List<CommercialKeyPool.Credential> keys=CommercialKeyPool.list(new JSONArray().put(target.apiKey));if(!keys.isEmpty())key=keys.get(0);}
+            if(key!=null)synchronized(REQUEST_CONTEXT.get().accountRoutingLeases){evidenceRow.accountRoutingLease=REQUEST_CONTEXT.get().accountRoutingLeases.remove(routingKeySeat(target.providerId,key).ref);}
+        }
+        if(evidenceRow!=null&&evidenceRow.accountRoutingLease==null&&target.account!=null
+                &&!"rotate".equals(AccountRoutingPolicy.mode(currentProvider))) {
+            AccountRoutingPolicy.Seat seat=routingSeat(target.providerId,target.account);
+            evidenceRow.accountRoutingLease=accountRouter().select("usage",java.util.Collections.singletonList(seat),target.upstreamModel,System.currentTimeMillis());
+            if(evidenceRow.accountRoutingLease!=null&&REQUEST_CONTEXT.get()!=null){final RecentUsageScheduler.Lease cleanup=evidenceRow.accountRoutingLease;REQUEST_CONTEXT.get().onClose(cleanup::cancel);}
+        }
         out.callObservation=evidenceRow==null?null:evidenceRow.callObservation;
         if(out.callObservation!=null)out.callObservation.shape(payloadIn,clientWantsStream);
         if(target.commercialCandidates!=null) RequestDiagnostics.coverTransport(U_ROW.get());
@@ -15252,7 +15400,8 @@ public class GatewayServer extends NanoHTTPD {
         boolean accountPoolOwns=!commercial && ((poolAccounts!=null && poolAccounts.length()>0)
                 || (("workbuddy".equals(chosenId) || "workbuddy-ai".equals(chosenId) || "zcode".equals(chosenId)) && keys!=null && keys.length()>0));
         if (!commercial && !accountPoolOwns && keys != null && keys.length() > 0) {
-            selectedKey = keys.optString(nextAccountIndex(chosenId,keys.length()));
+            if("rotate".equals(AccountRoutingPolicy.mode(chosenProvider)))selectedKey=keys.optString(nextAccountIndex(chosenId,keys.length()));
+            else {CommercialKeyPool.Credential c=routingKey(chosenId,mName,CommercialKeyPool.list(keys),java.util.Collections.emptySet());if(c!=null)selectedKey=c.secret();}
         }
         JSONObject pooledAccount=null;
         if(accountPoolOwns && !java.util.Arrays.asList("raccoon","loomy","trae-cn","qoder_cn","cline","catpaw","antigravity","github-copilot","minimax-code").contains(chosenId)
@@ -15264,7 +15413,7 @@ public class GatewayServer extends NanoHTTPD {
                 eligible.removeIf(a -> (scoped || a.has("models")) && !qoderAccountLists(a,wanted));
             }
             if(eligible.isEmpty())return null;
-            pooledAccount=eligible.get(nextAccountIndex(chosenId,eligible.size()));selectedKey=storedAccess(pooledAccount);
+            pooledAccount=eligible.get(routingAccountIndex(chosenId,eligible,mName));selectedKey=storedAccess(pooledAccount);
         }
         if ("zcode".equals(chosenId) && selectedKey.trim().isEmpty()) return null;
         RouteTarget route = new RouteTarget();
@@ -15292,7 +15441,7 @@ public class GatewayServer extends NanoHTTPD {
                 if(qoderEnabled(account) && !storedAccess(account).isEmpty()) eligible.add(account);
             }
             if(!eligible.isEmpty()) {
-                JSONObject account=eligible.get(nextAccountIndex(route.providerId,eligible.size()));
+                JSONObject account=eligible.get(routingAccountIndex(route.providerId,eligible,mName));
                 route.account=account; route.apiKey=storedAccess(account);
                 String stableId=account.optString("id","");
                 if(!stableId.isEmpty()) {
@@ -15312,7 +15461,7 @@ public class GatewayServer extends NanoHTTPD {
                 if (GatewayAccessCatalog.loomyAccountUsable(a, mName, scoped, System.currentTimeMillis())) eligible.add(a);
             }
             if (eligible.isEmpty()) return null;
-            route.account = eligible.get(nextAccountIndex(route.providerId,eligible.size()));
+            route.account = eligible.get(routingAccountIndex(route.providerId,eligible,mName));
             route.apiKey = route.account.optString("token", "");
             return route;
         }
@@ -15334,7 +15483,7 @@ public class GatewayServer extends NanoHTTPD {
                 }
             }
             if (eligible.isEmpty()) return null;
-            route.account = eligible.get(nextAccountIndex(route.providerId,eligible.size()));
+            route.account = eligible.get(routingAccountIndex(route.providerId,eligible,mName));
             route.apiKey = route.account.optString("token", "");
             return route;
         }
@@ -15343,7 +15492,7 @@ public class GatewayServer extends NanoHTTPD {
             JSONArray accounts=chosenProvider.optJSONArray("accounts"); ArrayList<JSONObject> valid=new ArrayList<JSONObject>();
             for (int i=0;accounts!=null && i<accounts.length();i++) { JSONObject a=accounts.optJSONObject(i); if (a!=null && a.optBoolean("enabled",true) && !deepAccountToken(a).isEmpty()) valid.add(a); }
             if (valid.isEmpty()) return null;
-            route.account=valid.get(nextAccountIndex(route.providerId,valid.size()));
+            route.account=valid.get(routingAccountIndex(route.providerId,valid,mName));
             route.apiKey=deepAccountToken(route.account); return route;
         }
         if ("cline".equals(route.providerId) || "cline".equals(route.protocol)) {
@@ -15355,7 +15504,7 @@ public class GatewayServer extends NanoHTTPD {
                     if (a != null && a.optBoolean("enabled",true)) enabled.add(a);
                 }
                 if (!enabled.isEmpty()) {
-                    route.account=enabled.get(nextAccountIndex(route.providerId,enabled.size()));
+                    route.account=enabled.get(routingAccountIndex(route.providerId,enabled,mName));
                     route.apiKey=route.account.optString("token", "");
                 }
             } else if (accs != null && accs.length() > 0) {
@@ -15394,7 +15543,7 @@ public class GatewayServer extends NanoHTTPD {
             JSONArray accs = chosenProvider.optJSONArray("accounts");
             ArrayList<JSONObject> eligible=new ArrayList<>();
             for (int i = 0; accs != null && i < accs.length(); i++) {JSONObject a=accs.optJSONObject(i);if(a!=null && a.optBoolean("enabled",true) && !storedAccess(a).trim().isEmpty())eligible.add(a);}
-            if(!eligible.isEmpty()){route.account=eligible.get(nextAccountIndex(route.providerId,eligible.size()));route.apiKey=storedAccess(route.account);}
+            if(!eligible.isEmpty()){route.account=eligible.get(routingAccountIndex(route.providerId,eligible,mName));route.apiKey=storedAccess(route.account);}
             if (route.account == null) return null;
         }
 
@@ -15410,7 +15559,7 @@ public class GatewayServer extends NanoHTTPD {
                         && a.optString("token", "").trim().isEmpty()) continue;
                 eligibleAccounts.add(a);
             }
-            if(!eligibleAccounts.isEmpty())acc=eligibleAccounts.get(nextAccountIndex(route.providerId,eligibleAccounts.size()));
+            if(!eligibleAccounts.isEmpty())acc=eligibleAccounts.get(routingAccountIndex(route.providerId,eligibleAccounts,mName));
             if (acc == null) return null;
             route.account = acc;
             route.catalogMetadata = acc.optJSONObject("modelMeta") != null

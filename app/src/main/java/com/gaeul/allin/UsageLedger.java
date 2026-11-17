@@ -149,6 +149,7 @@ public class UsageLedger {
         // In-flight protocol state: Anthropic input excludes cache counters.
         public transient boolean cacheInputExcludesCache;
         public transient RecentUsageScheduler.Lease recentUsageLease;
+        public transient RecentUsageScheduler.Lease accountRoutingLease;
         /** Bounded transport metadata, never prompt/header/credential material. */
         public long outboundAt, queuedMs;
         public String failureKind="", upstreamErrorCode="", upstreamRetryAfter="";
@@ -468,6 +469,7 @@ public class UsageLedger {
         RequestDiagnostics.freeze(r);
         CallEvidence.freeze(r);
         if (r.recentUsageLease != null) r.recentUsageLease.complete(r);
+        if (r.accountRoutingLease != null) r.accountRoutingLease.complete(r);
         if (r.t <= 0) r.t = System.currentTimeMillis();
         if (r.hour < 0) {
             java.util.Calendar c = java.util.Calendar.getInstance();

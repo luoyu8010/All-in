@@ -17,6 +17,7 @@ public final class RequestContext implements OutboundLimiter.Cancellation, AutoC
     final long affinityEpoch;
     volatile AtomicBoolean affinitySemantic = new AtomicBoolean();
     private final AtomicBoolean cancelled = new AtomicBoolean();
+    final Map<String,RecentUsageScheduler.Lease> accountRoutingLeases = new HashMap<>();
     private final Set<HttpURLConnection> connections = new HashSet<>();
     private final Set<Runnable> cleanups = new HashSet<>();
     private volatile Phase phase = Phase.UNCOMMITTED;

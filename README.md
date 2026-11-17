@@ -7,9 +7,9 @@ All In 将不同供应商的账号、API 密钥和模型集中到一个本地服
 
 项目由 [Gaeul](https://github.com/xunianooo) 开发。All In 参考并移植了 Magpie 和社区插件的部分设计与实现；感谢原项目及各位贡献者，详见下方[致谢](#致谢)。
 
-> 当前正式发布为 **All In 1.2.49 正式版**（versionCode 55）。为保持已验收原签名安装包完全不变，APK内部版本名保留 **1.2.49-test**；发布级别为正式版，不是预发布。供应商服务、客户端协议和系统后台策略都可能变化，现有测试不代表所有账号、模型和设备均已验证。
+> 当前正式版为 **All In 1.2.53 正式版（59）**，新增各供应商独立的「轮流使用 / 用量均衡 / 到期优先」，见[账号路由说明](docs/ACCOUNT_ROUTING.md)、[59版正式发布说明](docs/RELEASE_1.2.53-test.md)及[正式版下载](https://github.com/xunianooo/All-in/releases/tag/v1.2.53-test)。为保持已验收原签名包完全不变，APK内部版本名保留 **1.2.53-test**；发布级别为正式版，不是预发布。
 
-> 预发布 **1.2.52-test（58）** 提供 Antigravity 接入兼容、调用诊断、工具 schema 和实际变体思考档位改进，见 [58版预发布说明](docs/RELEASE_1.2.52-test.md)及[预发布下载](https://github.com/xunianooo/All-in/releases/tag/v1.2.52-test)。**部分 Agent 请求仍可能被上游以 429 拒绝，本版不宣称已解决全部此类故障。** 正式稳定版仍为上方的 1.2.49（55）；自动更新稳定通道不切换至本预发布。
+> 上一轮已发布 **All In 1.2.52 正式版**（包内 1.2.52-test / 58），见[发行页](https://github.com/xunianooo/All-in/releases/tag/v1.2.52-test)。供应商服务、客户端协议和系统后台策略可能变化；兼容与测试边界见该轮说明。
 
 > 55版修复账户名称辨认、全清失效、镜像凭据残留与删除后刷新问题，支持账号备注与明确的移除确认，详见 [55版正式发布说明](docs/RELEASE_1.2.49-test.md)。
 
@@ -21,7 +21,7 @@ All In 将不同供应商的账号、API 密钥和模型集中到一个本地服
 
 **All In 1.2.48 正式版（54）** 在53版基础上复核并修补后续审查问题，见 [1.2.48 正式版说明](docs/RELEASE_1.2.48-test.md)。DNS 四槽与总连接期限只覆盖 `NetworkPolicy.connectTunnel` 原始 Socket 路径；`HttpURLConnection / openHttp` 仍使用平台 DNS，不受该四槽保护。平台 DNS 不响应中断时会继续占用原槽，网关不会无限增线程；管理状态接口的 `connections.outboundDns` 提供活动槽、饱和、超时和拒绝计数。
 
-> 本版本保留账号 JSON 文件导入/导出、签到、限流、供应商适配及流式能力。安装包、源码、更新清单与校验文件见 [1.2.49 正式版发布页](https://github.com/xunianooo/All-in/releases/tag/v1.2.49-test)。保留原证书，可从旧版覆盖升级；请勿卸载或清除应用数据。
+> 本版本保留账号 JSON 文件导入/导出、签到、限流、供应商适配及流式能力。安装包、源码、更新清单与校验文件见 [1.2.53 正式版发布页](https://github.com/xunianooo/All-in/releases/tag/v1.2.53-test)。保留原证书，可从旧版覆盖升级；请勿卸载或清除应用数据。
 
 ## All In 能做什么
 
