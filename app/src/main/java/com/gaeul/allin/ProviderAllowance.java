@@ -162,16 +162,52 @@ public final class ProviderAllowance {
     /** Loomy 0.1.5: percentage spent and absolute credits spent are different units. */
     static JSONObject fromLoomy(LoomyAuth.Wallets wallet,long at) throws Exception {
         JSONObject out=base("credits",at);JSONArray windows=out.getJSONArray("windows");
-        if(wallet.permanent!=null && wallet.permanent>=0)out.put("remaining",wallet.permanent);
-        if(wallet.dailyLimit!=null && wallet.dailyRemaining!=null && wallet.dailyLimit>=0 && wallet.dailyRemaining>=0) {
-            double total=wallet.dailyLimit,spent=Math.min(total,Math.max(0,total-wallet.dailyRemaining)),left=total-spent;
-            long nextDay=(Math.floorDiv(at+8*3600000L,86400000L)+1)*86400000L-8*3600000L;
-            windows.put(new JSONObject().put("name","daily").put("unit","credits").put("remaining",left).put("total",total)
-                    .put("used",total>0?100*spent/total:0).put("amount",spent).put("limit",total).put("remainingPercent",total>0?100*left/total:0).put("resetAt",nextDay));
-        } else if(wallet.daily!=null && wallet.daily>=0)windows.put(new JSONObject().put("name","daily").put("remaining",wallet.daily).put("unit","credits").put("aside",true));
+        Double permanent = nonnegative(wallet.permanent);
+        Double limit = nonnegative(wallet.dailyLimit);
+        Double left = nonnegative(wallet.dailyRemaining);
+        boolean exact = limit != null && left != null && left <= limit;
+        if (!exact) left = nonnegative(wallet.daily);
+        long midnight = (Math.floorDiv(at + 8 * 3600000L, 86400000L) + 1) * 86400000L - 8 * 3600000L;
+        if (permanent != null) out.put("remaining", permanent);
+        if (left != null) {
+            JSONObject daily = new JSONObject().put("name", "daily").put("unit", "credits").put("remaining", left);
+            if (exact) {
+                double spent = limit - left;
+                daily.put("total", limit).put("limit", limit).put("amount", spent)
+                        .put("used", limit > 0 ? 100 * spent / limit : 0)
+                        .put("remainingPercent", limit > 0 ? 100 * left / limit : 0).put("resetAt", midnight);
+            }
+            if (!exact) daily.put("aside", true);
+            windows.put(daily);
+        }
         return done(out);
     }
 
+
+    /** A routing-only view. The account card still shows the two balances separately. */
+    static JSONObject loomyRouting(JSONObject view) {
+        if (view == null) return null;
+        JSONArray windows = view.optJSONArray("windows");
+        JSONObject daily = windows == null ? null : windows.optJSONObject(0);
+        Double permanent = nonnegative(view.opt("remaining"));
+        Double left = daily == null ? null : nonnegative(daily.opt("remaining"));
+        if (permanent == null || left == null) return view;
+        double remaining = permanent + left;
+        Double spent = nonnegative(daily.opt("amount"));
+        // An unknown daily capacity stays unknown unless both balances are empty.
+        JSONObject wallet = new JSONObject().put("name", "total_wallet");
+        double total = remaining + (spent == null ? 0 : spent);
+        if (!Double.isFinite(total)) return null;
+        if (spent != null && total > 0) wallet.put("remainingPercent", 100 * remaining / total);
+        else if (remaining == 0) wallet.put("remainingPercent", 0);
+        long observed = view.optLong("observedAt");
+        long midnight = (Math.floorDiv(observed + 8 * 3600000L, 86400000L) + 1) * 86400000L - 8 * 3600000L;
+        if (observed > 0 && (spent != null || remaining == 0)) {
+            wallet.put("resetAt", midnight).put("runsOutAt", midnight).put("runsOut", left);
+            if (total > 0) wallet.put("total", total);
+        }
+        return new JSONObject().put("observedAt", observed).put("windows", new JSONArray().put(wallet));
+    }
 
     public static JSONObject fromMiniMax(JSONObject raw) { return fromMiniMax(raw,System.currentTimeMillis()); }
     public static JSONObject fromMiniMax(JSONObject raw,long at) {

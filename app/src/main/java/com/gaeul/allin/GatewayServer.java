@@ -2524,7 +2524,7 @@ public class GatewayServer extends NanoHTTPD {
                     try {
                         synchronized(GatewayServer.this){JSONObject p=getProviderById(id);if(stopping||p==null||"rotate".equals(AccountRoutingPolicy.mode(p))||!billingAccountCurrent(id,snapshot))return;}
                         JSONObject allowance=safeAllowance(id,fetchBillingAllowance(id,snapshot));
-                        synchronized(GatewayServer.this){if(!stopping&&billingAccountCurrent(id,snapshot))accountRouter().observe(routingSeat(id,snapshot),allowance,System.currentTimeMillis());}
+                        synchronized(GatewayServer.this){if(!stopping&&billingAccountCurrent(id,snapshot))accountRouter().observe(routingSeat(id,snapshot),"loomy".equals(id)?ProviderAllowance.loomyRouting(allowance):allowance,System.currentTimeMillis());}
                     } catch(Exception unavailable) { /* Missing readings fall back to local load. */ }
                     finally {synchronized(GatewayServer.this){routingReadBusy.remove(seat.ref);}}
                 });} catch(java.util.concurrent.RejectedExecutionException full){routingReadBusy.remove(seat.ref);}
@@ -2987,7 +2987,7 @@ public class GatewayServer extends NanoHTTPD {
                                 try { currentAccount=uniqueRaccoonAccount(current,a.optString("id","")); } catch(IOException ignored) { }
                                 if(currentAccount!=null) try { billingAdoptRefresh(a,currentAccount); } catch(Exception changed) { continue; }
                             }
-                            if(billingAccountCurrent(id,a)) {filtered.put(row);accountRouter().observe(routingSeat(id,a),row.optJSONObject("allowance"),System.currentTimeMillis());}
+                            if(billingAccountCurrent(id,a)) {filtered.put(row);JSONObject allowance=row.optJSONObject("allowance");accountRouter().observe(routingSeat(id,a),"loomy".equals(id)?ProviderAllowance.loomyRouting(allowance):allowance,System.currentTimeMillis());}
                             break;
                         }
                     }
@@ -11627,7 +11627,7 @@ public class GatewayServer extends NanoHTTPD {
                     if(preferred!=null) { affinity().invalidate(affinityKey,preferred); preferred=null; }
                     terminalStatus = last.status > 0 ? last.status : 502;
                     terminalError = last.body == null ? "upstream failed" : last.body;
-                    if (!enabled || last.localRejection || last.protocolFailure) return last.response;
+                    if (!enabled || (last.localRejection && !last.zcodePlanDenied) || last.protocolFailure) return last.response;
                     if(last.safeZcodeRejection) break;
                     if("raccoon".equals(target.providerId) && last.sent) {
                         if(last.status<=0 || last.failure!=null && last.failure.kind==UpstreamFailure.Kind.UNKNOWN_EXECUTION)
@@ -12656,7 +12656,39 @@ public class GatewayServer extends NanoHTTPD {
             out.response = errorResponse(out.status, out.body);
             return out;
         }
+        Attempt denied = zcodeCodingPlanAdmission(target, guardResult);
+        if (denied != null) return denied;
         return forwardUnheldAttempt(target, payloadIn, clientWantsStream, requestedModel, maskSession, guardCfg, guardResult);
+    }
+
+    private ZCodePlanGate zcodePlanGate;
+    private synchronized ZCodePlanGate zcodePlanGate() {
+        if (zcodePlanGate == null) zcodePlanGate = new ZCodePlanGate();
+        return zcodePlanGate;
+    }
+
+    private Attempt zcodeCodingPlanAdmission(RouteTarget target, ContextGuard.Result guardResult) {
+        if (!"zcode".equals(target.providerId) || target.account == null
+                || target.account.optString("jwt").trim().isEmpty()) return null;
+        String site = target.account.optString("site", "zai");
+        String identity = CredentialIdentity.credential("zcode", target.baseUrl, null, null, target.apiKey);
+        ZCodePlanGate.State state = zcodePlanGate().state(site + "/" + identity, site, target.apiKey, this::openVendorConnection);
+        if (state == ZCodePlanGate.State.ACTIVE) return null;
+        RecentUsageScheduler.Lease lease = ATTEMPT_LEASE.get();
+        if (lease != null) lease.cancel();
+        Attempt out = new Attempt();
+        out.providerId = target.providerId;
+        out.modelRef = target.providerId + "/" + target.upstreamModel;
+        out.localRejection = true;
+        out.zcodePlanDenied = true;
+        out.safeZcodeRejection = true;
+        out.status = state == ZCodePlanGate.State.NO_PLAN ? 402 : 503;
+        out.body = state == ZCodePlanGate.State.NO_PLAN
+                ? "ZCode 账号无有效 Coding Plan，请选择赠送额度支持的模型"
+                : "暂未确认 ZCode Coding Plan，请稍后重试或选择赠送额度支持的模型";
+        out.response = errorResponse(out.status, out.body);
+        applyGuardHeaders(out.response, guardResult);
+        return out;
     }
 
     private Attempt forwardUnheldAttempt(RouteTarget target, JSONObject payloadIn, boolean clientWantsStream,
@@ -15464,6 +15496,7 @@ public class GatewayServer extends NanoHTTPD {
         long workBuddyQuotaReset;
         CallEvidence.Builder callObservation;
         boolean stopFallback; // Terminal adapter result; preserve affinity and do not replay.
+        boolean zcodePlanDenied;
         boolean safeZcodeRejection;
         boolean affinitySemanticComplete;
         boolean ok;

@@ -19,7 +19,12 @@ public final class CatalogReadIntegrityHttpTest {
     static List<String> codex(int code, String body) throws Exception {
         CodexAuth.SignInInfo info = new CodexAuth.SignInInfo();
         info.authMode="chatgpt"; info.accessToken="fixture"; info.expiresAt=0;
-        return CodexAuth.syncModelsStrict(info, url -> new Fake(code, body));
+        List<String> requests = new ArrayList<>();
+        Fake connection = new Fake(code, body);
+        List<String> models = CodexAuth.syncModelsStrict(info, url -> { requests.add(url); return connection; });
+        check(requests.size() == 1 && requests.get(0).endsWith("/models?client_version=0.169.1"), "catalog advertises current compatible version");
+        check(connection.getRequestProperty("User-Agent").contains("/0.169.1 "), "catalog version and user agent agree");
+        return models;
     }
     static Object json(String text) throws Exception { return new JSONTokener(text).nextValue(); }
     public static void main(String[] args) throws Exception {

@@ -164,7 +164,8 @@ public final class CodexRequestPolicy {
         for (String field : CODEX_REMOVED_OUTPUT_FIELDS) body.remove(field);
         for (String field : CODEX_REMOVED_FIELDS) body.remove(field);
         Object tier = body.opt("service_tier");
-        if (!("priority".equals(tier) || "ultrafast".equals(tier))) body.remove("service_tier");
+        if ("fast".equals(tier)) body.put("service_tier", "priority");
+        else if (!("priority".equals(tier) || "ultrafast".equals(tier))) body.remove("service_tier");
 
         body.put("stream", true);
         body.put("store", false);

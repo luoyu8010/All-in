@@ -56,7 +56,43 @@ public final class ZCodeBoundaryGatewayHttpTest {
             } finally { g.stop(); ZCodeGift.setFixtureBase(null); ZCodeGift.resetBusyForTests(); ZCodeGift.resetCooldownForTests(); }
         }
     }
+    static void checkSubscriptionGate() throws Exception {
+        for (int scenario : new int[]{200, 503, 204}) {
+            java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.atomic.AtomicInteger paid = new java.util.concurrent.atomic.AtomicInteger();
+            try (VendorPolicyGatewayHttpTest.Upstream u = new VendorPolicyGatewayHttpTest.Upstream((request, n) -> {
+                if (request.path.endsWith("/api/biz/subscription/list")) {
+                    reads.incrementAndGet();
+                    int status = scenario == 503 ? 503 : 200;
+                    String reply = scenario == 200 ? "{\"data\":[{\"status\":\"VALID\"}]}" : "{\"data\":[]}";
+                    return new VendorPolicyGatewayHttpTest.Reply(status, "application/json", reply);
+                }
+                paid.incrementAndGet();
+                return new VendorPolicyGatewayHttpTest.Reply(200, "application/json", VendorPolicyGatewayHttpTest.CHAT);
+            })) {
+                JSONObject config = ZCodeGiftUsageHttpTest.config(u.server.getLocalPort());
+                config.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0)
+                        .put("id", "zcode-test-session").put("token", "fixture-key");
+                ZCodeGiftBusyGatewayHttpTest.Transport gift = new ZCodeGiftBusyGatewayHttpTest.Transport();
+                gift.allowed = false;
+                ZCodeGiftUsageHttpTest.Gateway gateway = new ZCodeGiftUsageHttpTest.Gateway(config, gift);
+                gateway.gateway.setVendorConnectionsForTests(url -> NetworkPolicy.openHttp("http://127.0.0.1:" + u.server.getLocalPort() + new URL(url).getFile()));
+                gateway.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true);
+                try {
+                    for (int i = 0; i < 2; i++) {
+                        Reply reply = post(gateway.getListeningPort(), "/v1/responses", false);
+                        int expected = scenario == 204 ? 402 : scenario;
+                        check(reply.status == expected, "subscription state " + scenario + " actual status " + reply.status + " reads=" + reads + " paid=" + paid + " gift=" + gift.opens + " body=" + reply.body);
+                    }
+                    check(reads.get() == 1 && paid.get() == (scenario == 200 ? 2 : 0), "subscription state " + scenario + " exact plan reads and paid requests " + reads + "/" + paid);
+                } finally { gateway.stop(); }
+            }
+        }
+        System.out.println("ZCode plan gate PASS: confirmed, absent and unavailable subscriptions");
+    }
+
     public static void main(String[] args) throws Exception {
+        checkSubscriptionGate();
         List<String> failures = new ArrayList<>();
         for (boolean gift : new boolean[]{true, false}) for (String path : new String[]{"/v1/chat/completions", "/v1/messages", "/v1/responses"})
             for (boolean stream : new boolean[]{false, true}) for (boolean truncated : new boolean[]{false, true}) {

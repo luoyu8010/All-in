@@ -77,6 +77,16 @@ public final class ProviderUpstreamParityOfflineTest {
         check(AntigravityAuth.APP_VERSION.equals(agOracle.getString("clientVersion")),"Antigravity fingerprint follows separately updated 0.2.1 oracle; other providers keep original oracle");
         java.lang.reflect.Method safe=GatewayServer.class.getDeclaredMethod("safeAllowance",String.class,JSONObject.class);safe.setAccessible(true);JSONObject clean=(JSONObject)safe.invoke(null,"qoder_cn",q);check(clean.getJSONArray("windows").getJSONObject(0).getString("resetAt").equals(total.getString("resetAt")),"actual gateway preserves reset");check(clean.getJSONArray("windows").getJSONObject(1).getBoolean("aside"),"actual gateway preserves aside");
         clean=(JSONObject)safe.invoke(null,"loomy",ProviderAllowance.fromLoomy(wallet,1794596400000L));check(clean.getJSONArray("windows").getJSONObject(0).getDouble("amount")==800,"actual gateway keeps spent unit");
+        long now = 1794596400000L;
+        long midnight = (Math.floorDiv(now + 28800000L, 86400000L) + 1) * 86400000L - 28800000L;
+        JSONObject both = ProviderAllowance.loomyRouting(clean);
+        check(Math.abs(AccountRoutingPolicy.remainingPercent(both,"fixture",now)-92)<0.001,"Loomy usage uses combined wallet");
+        check(Math.abs(AccountRoutingPolicy.pressure(both,"fixture",midnight-1)-42)<0.001,"Loomy urgency counts only 4200 daily credits");
+        check(AccountRoutingPolicy.remainingPercent(both,"fixture",midnight)==null,"midnight expires stale combined reading");
+        JSONObject permanentOnly = ProviderAllowance.loomyRouting((JSONObject)safe.invoke(null,"loomy",ProviderAllowance.fromLoomy(new LoomyAuth.Wallets(5000.,0.,5000.,0.),now)));
+        check(AccountRoutingPolicy.pressure(permanentOnly,"fixture",now)<0 && AccountRoutingPolicy.remainingPercent(permanentOnly,"fixture",now)==50,"daily spent, permanent credits present");
+        JSONObject incomplete = ProviderAllowance.loomyRouting((JSONObject)safe.invoke(null,"loomy",ProviderAllowance.fromLoomy(new LoomyAuth.Wallets(5000.,100.,null,null),now)));
+        check(AccountRoutingPolicy.remainingPercent(incomplete,"fixture",now)==null && AccountRoutingPolicy.pressure(incomplete,"fixture",now)<0,"do not invent missing daily capacity");
         System.out.println("ProviderUpstreamParityOfflineTest PASS: "+checks+" checks");
     }
 }

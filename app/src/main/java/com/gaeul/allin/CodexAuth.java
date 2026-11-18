@@ -43,7 +43,7 @@ import java.util.TimeZone;
  * 4. 额度与限额查询：
  *    - https://chatgpt.com/backend-api/wham/usage 获取 Primary/Secondary RateLimit 与 Credits 余额
  * 5. 模型同步：
- *    - https://chatgpt.com/backend-api/codex/models?client_version=0.159.0
+ *    - https://chatgpt.com/backend-api/codex/models?client_version=0.169.1
  * 6. 原生 Responses 与 OpenAI Chat 协议双向桥接：
  *    - 原生 Responses API 转发（POST /backend-api/codex/responses）
  *    - Chat Completions (/v1/chat/completions) 转 Codex Responses 并将 SSE 转回 chat.completion.chunk
@@ -64,6 +64,7 @@ public class CodexAuth {
     public static final String WHAM_USAGE = "https://chatgpt.com/backend-api/wham/usage";
 
     public static final String CODEX_VERSION = "0.159.0";
+    private static final String CATALOG_VERSION = "0.169.1";
     public static final String ORIGINATOR = "codex_cli_rs";
     public static final String USER_AGENT = "codex_cli_rs/0.159.0 (Linux; aarch64) xterm-256color";
 
@@ -707,7 +708,7 @@ public class CodexAuth {
                 catch (Throwable ignored) {}
             }
 
-            String urlStr = CODEX_MODELS + "?client_version=" + URLEncoder.encode(CODEX_VERSION, "UTF-8");
+            String urlStr = CODEX_MODELS + "?client_version=" + URLEncoder.encode(CATALOG_VERSION, "UTF-8");
             HttpURLConnection conn = factory.open(urlStr);
             conn.setInstanceFollowRedirects(false);
             conn.setRequestMethod("GET");
@@ -718,7 +719,7 @@ public class CodexAuth {
                 conn.setRequestProperty("chatgpt-account-id", info.accountId);
             }
             conn.setRequestProperty("originator", ORIGINATOR);
-            conn.setRequestProperty("User-Agent", USER_AGENT);
+            conn.setRequestProperty("User-Agent", USER_AGENT.replace(CODEX_VERSION, CATALOG_VERSION));
             conn.setRequestProperty("Accept", "application/json");
 
             int code = conn.getResponseCode();

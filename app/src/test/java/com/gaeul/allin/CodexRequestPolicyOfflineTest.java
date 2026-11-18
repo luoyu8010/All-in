@@ -29,6 +29,12 @@ public final class CodexRequestPolicyOfflineTest {
         check(original.has("temperature")&&!body.has("temperature")&&!body.has("previous_response_id"),"detached normalization");
         check(body.getBoolean("stream")&&!body.getBoolean("store")&&body.getJSONArray("input").length()==1,"native defaults");
         check(body.getJSONObject("reasoning").getString("effort").equals("max")&&body.getString("service_tier").equals("priority"),"reasoning/tier retained");
+        for (String tier : new String[]{"fast", "priority", "ultrafast", "unknown"}) {
+            JSONObject input = request().put("service_tier", tier);
+            JSONObject wire = CodexRequestPolicy.prepareFinalOutbound(input, CodexRequestPolicy.OutputConstraints.none()).body;
+            String expected = "fast".equals(tier) ? "priority" : "unknown".equals(tier) ? "" : tier;
+            check(expected.equals(wire.optString("service_tier")) && tier.equals(input.optString("service_tier")), "explicit tier " + tier);
+        }
         for(String field:new String[]{"max_tokens","max_completion_tokens","max_output_tokens"}) {
             for(CodexRequestPolicy.OutputConstraints sources:new CodexRequestPolicy.OutputConstraints[]{CodexRequestPolicy.OutputConstraints.none(),CodexRequestPolicy.OutputConstraints.of(128,0)}) {
                 JSONObject limited=CodexRequestPolicy.prepareFinalOutbound(request().put(field,32),sources).body;
