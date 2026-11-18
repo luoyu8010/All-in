@@ -7,6 +7,8 @@ All In 将不同供应商的账号、API 密钥和模型集中到一个本地服
 
 项目由 [Gaeul](https://github.com/xunianooo) 开发。All In 参考并移植了 Magpie 和社区插件的部分设计与实现；感谢原项目及各位贡献者，详见下方[致谢](#致谢)。
 
+> **All In 1.2.55 预发行版（61）** 已将新版界面纳入主线。详见[更新日志](docs/RELEASE_1.2.55-test.md)和[预发行下载](https://github.com/xunianooo/All-in/releases/tag/v1.2.55-test)。
+
 > 当前正式版为 **All In 1.2.54 正式版（60）**，包含Qoder官方模型名称、缓存用量统计与取消资源释放修补，见[60版说明](docs/RELEASE_1.2.54-test.md)及[正式版下载](https://github.com/xunianooo/All-in/releases/tag/v1.2.54-test)。APK内部保留版本名 **1.2.54-test**，发行级别为正式版。
 
 > 上一轮已发布 **All In 1.2.52 正式版**（包内 1.2.52-test / 58），见[发行页](https://github.com/xunianooo/All-in/releases/tag/v1.2.52-test)。供应商服务、客户端协议和系统后台策略可能变化；兼容与测试边界见该轮说明。

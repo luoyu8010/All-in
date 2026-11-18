@@ -3,6 +3,13 @@ const fs=require('fs'),path=require('path'),cp=require('child_process');
 const root=path.resolve(__dirname,'..');
 const scripts=[
   "tests/dashboard-cache-usage.cjs",
+  "tests/dashboard-usage-hours.cjs",
+  "tests/dashboard-usage-range.cjs",
+  "tests/dashboard-dock-lens.cjs",
+  "tests/dashboard-card-morph.cjs",
+  "tests/dashboard-interaction-motion.cjs",
+  "tests/dashboard-disclosure-motion.cjs",
+  "tests/dashboard-gateway-motion.cjs",
   "tests/dashboard-account-routing.cjs",
   "tests/dashboard-audit59.cjs",
   "tests/dashboard-account-management.cjs",

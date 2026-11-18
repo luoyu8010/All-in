@@ -12,6 +12,8 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowManager;
 import android.webkit.*;
 
 import android.widget.FrameLayout;
@@ -25,6 +27,7 @@ public class MainActivity extends Activity {
     private static final int GATEWAY_PORT = 3425;
 
     private WebView webView;
+    private int statusBarInsetPx;
     private final BridgeStreamOwner bridgeStreams = new BridgeStreamOwner();
     private java.util.Set<LocalBridge.Call> bridgeCalls;
     private volatile boolean bridgeDestroyed;
@@ -111,6 +114,17 @@ public class MainActivity extends Activity {
             FrameLayout.LayoutParams.MATCH_PARENT
         );
         webView.setLayoutParams(params);
+        webView.setOnApplyWindowInsetsListener((view, insets) -> {
+            WindowInsets rootInsets = view.getRootWindowInsets();
+            WindowInsets systemInsets = rootInsets != null ? rootInsets : insets;
+            int top = Math.max(systemInsets.getStableInsetTop(), systemInsets.getSystemWindowInsetTop());
+            if (Build.VERSION.SDK_INT >= 28 && systemInsets.getDisplayCutout() != null) {
+                top = Math.max(top, systemInsets.getDisplayCutout().getSafeInsetTop());
+            }
+            statusBarInsetPx = top;
+            updateWebStatusBarInset();
+            return view.onApplyWindowInsets(insets);
+        });
 
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
@@ -260,6 +274,7 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 currentPageUrl = url == null ? "" : url;
+                updateWebStatusBarInset();
                 pushGatewayStateToWeb();
                 view.postDelayed(new Runnable() {
                     @Override
@@ -368,12 +383,9 @@ public class MainActivity extends Activity {
         webView.loadUrl(fileUrl);
 
         setContentView(webView);
+        webView.requestApplyInsets();
     }
 
-    /**
-     * 面板是浅色主题，状态栏 / 导航栏也要跟着变浅，否则顶上会压一条黑边，
-     * 和整体风格割裂。精简 android.jar 没有这些方法，统一走反射。
-     */
     /** 系统当前是否深色模式 */
     private boolean isSystemDark() {
         try {
@@ -385,41 +397,40 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void applySystemBarsInternal(final boolean dark) {
-        try {
-            Window w = getWindow();
-            final int bg = dark ? 0xFF000000 : 0xFFF4F4F7;
-            final int navBg = dark ? 0xFF000000 : 0xFFFFFFFF;
-            try {
-                java.lang.reflect.Method m = Window.class.getMethod("setStatusBarColor", int.class);
-                m.invoke(w, bg);
-            } catch (Throwable ignored) {
-            }
-            try {
-                java.lang.reflect.Method m = Window.class.getMethod("setNavigationBarColor", int.class);
-                m.invoke(w, navBg);
-            } catch (Throwable ignored) {
-            }
-            // Android 16 强制 edge-to-edge，状态栏变透明后透出来的是「窗口底色」。
-            // 不把它也刷成浅色，顶上就会压一条黑带，跟页面割裂。
-            try {
-                w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(bg));
-            } catch (Throwable ignored) {
-            }
-            try {
-                w.getDecorView().setBackgroundColor(bg);
-            } catch (Throwable ignored) {
-            }
-            android.view.View dv = w.getDecorView();
-            // 深色底要用浅色图标（不设 LIGHT_*），浅色底才设 LIGHT_STATUS_BAR / LIGHT_NAVIGATION_BAR
-            try {
-                java.lang.reflect.Method m = android.view.View.class
-                        .getMethod("setSystemUiVisibility", int.class);
-                m.invoke(dv, dark ? 0 : (0x00002000 | 0x00000010));
-            } catch (Throwable ignored) {
-            }
-        } catch (Throwable ignored) {
+    private void updateWebStatusBarInset() {
+        if (webView == null) return;
+        if (!bridgeAllowed() && !"file:///android_asset/licenses.html".equals(currentPageUrl)) return;
+        float density = webView.getResources().getDisplayMetrics().density;
+        int insetDp = (int) Math.ceil(statusBarInsetPx / density);
+        webView.evaluateJavascript("document.documentElement.style.setProperty('--native-status-bar-inset','"
+                + insetDp + "px')", null);
+    }
+
+    private void applySystemBarsInternal(boolean dark) {
+        Window window = getWindow();
+        int background = dark ? android.graphics.Color.BLACK : android.graphics.Color.WHITE;
+        window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);
+        window.setNavigationBarColor(background);
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.setStatusBarContrastEnforced(false);
         }
+        if (Build.VERSION.SDK_INT >= 28) {
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(attributes);
+        }
+        window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(background));
+
+        // Extend the WebView under the status bar, keeping the bottom navigation area reserved.
+        View decor = window.getDecorView();
+        int flags = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_STABLE;
+        if (!dark) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= 26) flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+        }
+        decor.setSystemUiVisibility(flags);
     }
 
     /** ETA 的主 Activity（显式启动用） */

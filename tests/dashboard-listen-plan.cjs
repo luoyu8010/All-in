@@ -37,7 +37,7 @@ function page() {
   vm.createContext(context);
   vm.runInContext(part('    let authKeyVisible = false;', '    /** 一键复制：地址或密钥 */'), context);
   vm.runInContext(part('    async function loadStats() {', '    /**\n     * 配置没变'), context);
-  vm.runInContext(part('    function copyManagementPanelLink() {', '    /** 统一的复制实现'), context);
+  vm.runInContext(part('    function copyManagementPanelLink(button) {', '    /** 统一的复制实现'), context);
   return { c: context, nodes, toasts, copied };
 }
 const response = x => ({ ok: true, json: async () => x });

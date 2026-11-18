@@ -4,6 +4,8 @@ const fileTransferCode=html.slice(html.indexOf('    const ACCOUNT_FILE_PROVIDERS
 const start=html.lastIndexOf('<div class="card"',html.indexOf('data-provider-logo="loomy"'));
 const card=html.slice(start,html.indexOf('<!--',start+1));
 const view=html.slice(html.indexOf('    function applyProviderView()'),html.indexOf('    const providerBillingCache'));
+const logos=html.slice(html.indexOf('    const PROVIDER_ICON_FILES = Object.freeze({'),html.indexOf("    document.querySelectorAll('[data-provider-logo]')"));
+const escape=html.slice(html.indexOf('    function esc(s)'),html.indexOf('    function escHtml(s)'));
 const sync=html.slice(html.indexOf('    async function syncUniversalModels('),html.indexOf('    // 把倍率数字'));
 const models=html.slice(html.indexOf('    // 把倍率数字'),html.indexOf('    function updateProviderKeys('));
 const modelViews=html.slice(html.indexOf('    const groupModelPages = new Map();'),html.lastIndexOf('    /**',html.indexOf('    function groupEsc(')));
@@ -19,6 +21,8 @@ ${modelViews}
 ${models}
 ${ping}
 ${fileTransferCode}
+${escape}
+${logos}
 ${view}
 ${sync}
 function check(x,m){if(!x)throw Error(m)}

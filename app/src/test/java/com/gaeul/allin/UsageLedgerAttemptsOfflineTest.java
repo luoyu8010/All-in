@@ -135,6 +135,28 @@ public class UsageLedgerAttemptsOfflineTest {
                 check(after.isNull("hitRate") == before.isNull("hitRate"),"cache restart null hit rate");
                 if(!before.isNull("hitRate")) check(Math.abs(before.getDouble("hitRate")-after.getDouble("hitRate"))<0.01,"cache restart hit rate");
             }
+            File hourlyDir = Files.createTempDirectory("hourly-token-coverage").toFile();
+            UsageLedger.init(hourlyDir);
+            long yesterday = boundary - 86400000L;
+            UsageLedger.record(row(yesterday + 6 * 3600000L, "zero", 1, true, 200, "known", 0, 0));
+            UsageLedger.record(row(yesterday + 12 * 3600000L, "unknown-hour", 1, true, 200, "unknown", 999, 999));
+            UsageLedger.record(row(yesterday + 18 * 3600000L, "attempt-only", 1, false, 503, "known", 8, 2));
+            for (int read = 0; read < 2; read++) {
+                JSONArray buckets = UsageLedger.summary(2, "model", boundary, utc).getJSONArray("hourly");
+                eq(buckets.length(), 24, "hourly bucket count");
+                JSONObject empty = buckets.getJSONObject(0), zero = buckets.getJSONObject(6);
+                JSONObject missing = buckets.getJSONObject(12), attempt = buckets.getJSONObject(18);
+                check(!empty.getBoolean("hasActivity") && !empty.getBoolean("tokensRecorded"), "empty hour");
+                check(zero.getBoolean("hasActivity") && zero.getBoolean("tokensRecorded"), "explicit zero recorded");
+                eq(zero.getLong("tokens"), 0, "explicit zero total");
+                check(missing.getBoolean("hasActivity") && !missing.getBoolean("tokensRecorded"), "unknown tokens");
+                eq(missing.getLong("requests"), 1, "requests with unknown tokens");
+                eq(missing.getLong("tokens"), 0, "unknown tokens excluded");
+                check(attempt.getBoolean("hasActivity") && attempt.getBoolean("tokensRecorded"), "attempt-only usage recorded");
+                eq(attempt.getLong("requests"), 0, "nonterminal attempt request count");
+                eq(attempt.getLong("tokens"), 10, "nonterminal attempt tokens");
+                if (read == 0) UsageLedger.init(hourlyDir);
+            }
             System.out.println("UsageLedgerAttemptsOfflineTest passed");
         } finally { TimeZone.setDefault(old); }
     }

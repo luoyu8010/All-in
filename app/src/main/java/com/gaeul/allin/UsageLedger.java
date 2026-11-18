@@ -424,7 +424,21 @@ public class UsageLedger {
             if(count<=MAX_RETAINED_ROWS&&retainedBytes<=MAX_RETAINED_BYTES)break;source.remove(oldest);retainedBytes-=estimate(oldest);cacheEvictions++;}
         DAYS.values().removeIf(List::isEmpty);
     }
-    private static final class LostBucket { final Totals totals=new Totals();final HeatCounts heat=new HeatCounts();long rows,min=Long.MAX_VALUE,max;void add(Row r){totals.add(r);heat.add(r);rows++;min=Math.min(min,r.t);max=Math.max(max,r.t);} }
+    private static final class LostBucket {
+        final Totals totals = new Totals();
+        final HeatCounts heat = new HeatCounts();
+        long rows, min = Long.MAX_VALUE, max;
+        boolean tokensRecorded;
+
+        void add(Row row) {
+            totals.add(row);
+            heat.add(row);
+            tokensRecorded |= row.countTokens();
+            rows++;
+            min = Math.min(min, row.t);
+            max = Math.max(max, row.t);
+        }
+    }
     private static void queue(Row r){unpersisted.add(r);pendingBytes+=estimate(r);
         while(unpersisted.size()>MAX_PENDING_ROWS||pendingBytes>MAX_PENDING_BYTES){Row lost=unpersisted.remove(0);pendingBytes-=estimate(lost);droppedPendingRows++;gapsDirty=true;long hour=lost.t/3600000L;
             LostBucket bucket=lostHours.get(hour);if(bucket==null){if(lostHours.size()>=2048){Long first=lostHours.keySet().iterator().next();aggregateOverflowRows+=lostHours.remove(first).rows;}bucket=new LostBucket();lostHours.put(hour,bucket);}bucket.add(lost);}
@@ -631,6 +645,8 @@ public class UsageLedger {
         Map<String, Totals> bySession = new LinkedHashMap<String, Totals>();
         final long[] hourTokens = new long[24];
         final int[] hourReq = new int[24];
+        final boolean[] hourActivity = new boolean[24];
+        final boolean[] hourTokensRecorded = new boolean[24];
         Map<String, Integer> errCount = new LinkedHashMap<String, Integer>();
         final int[] rows = {0};
 
@@ -670,7 +686,11 @@ public class UsageLedger {
                     st.add(r);
 
                     if (r.hour >= 0 && r.hour < 24) {
-                        if (r.countTokens()) hourTokens[r.hour] += r.countedTokens();
+                        hourActivity[r.hour] = true;
+                        if (r.countTokens()) {
+                            hourTokens[r.hour] += r.countedTokens();
+                            hourTokensRecorded[r.hour] = true;
+                        }
                         if (r.isTerminal()) hourReq[r.hour]++;
                     }
                     if (r.isAttempt() && r.failed()) {
@@ -689,7 +709,13 @@ public class UsageLedger {
             rows[0]+=lost.rows;total.merge(lost.totals);
             String day=dayKey(lost.min,zone);Totals d=byDay.get(day);if(d==null){d=new Totals();byDay.put(day,d);}d.merge(lost.totals);
             String key="（落盘失败：明细已丢弃，汇总保留）";Totals g=by.get(key);if(g==null){g=new Totals();by.put(key,g);}g.merge(lost.totals);Totals pg=byProv.get(key);if(pg==null){pg=new Totals();byProv.put(key,pg);}pg.merge(lost.totals);Totals sg=bySession.get(key);if(sg==null){sg=new Totals();bySession.put(key,sg);}sg.merge(lost.totals);
-            Calendar h=Calendar.getInstance(zone);h.setTimeInMillis(lost.min);int hour=h.get(Calendar.HOUR_OF_DAY);hourTokens[hour]+=lost.totals.tokens();hourReq[hour]+=lost.totals.requests;
+            Calendar h = Calendar.getInstance(zone);
+            h.setTimeInMillis(lost.min);
+            int hour = h.get(Calendar.HOUR_OF_DAY);
+            hourTokens[hour] += lost.totals.tokens();
+            hourReq[hour] += lost.totals.requests;
+            hourActivity[hour] = true;
+            hourTokensRecorded[hour] |= lost.tokensRecorded;
         }}
 
         JSONObject out = new JSONObject();
@@ -804,6 +830,8 @@ public class UsageLedger {
                 o.put("hour", h);
                 o.put("tokens", hourTokens[h]);
                 o.put("requests", hourReq[h]);
+                o.put("hasActivity", hourActivity[h]);
+                o.put("tokensRecorded", hourTokensRecorded[h]);
                 hourly.put(o);
             }
             out.put("hourly", hourly);

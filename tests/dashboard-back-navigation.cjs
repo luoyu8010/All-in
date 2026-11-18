@@ -34,7 +34,7 @@ nodes['overview-main-view']={hidden:false};
 nodes['gateway-advanced-heading']={focus:()=>focused++};
 ctx.window.scrollY=420;ctx.window.scrollTo=(...args)=>scrolled.push(args);
 const navStart=html.indexOf('    let gatewayAdvancedScroll = 0;');
-const navEnd=html.indexOf('    function switchTab(',navStart);
+const navEnd=html.indexOf('    const tabMotion =',navStart);
 vm.runInContext(html.slice(navStart,navEnd),ctx);
 ctx.showGatewayAdvanced(true);
 assert.equal(nodes['overview-main-view'].hidden,true);
@@ -45,7 +45,7 @@ assert.equal(nodes['overview-main-view'].hidden,false);
 assert.equal(nodes['gateway-advanced-view'].hidden,true);
 assert.deepEqual(scrolled.at(-1),[0,420],'return restores overview scroll');
 const advancedStart=html.indexOf('<div id="gateway-advanced-view" hidden>');
-const advancedEnd=html.indexOf('</section>',advancedStart);
+const advancedEnd=html.lastIndexOf('</section>',html.indexOf('<section id="tab-gateway"',advancedStart));
 for(const card of ['affinity','resilience','outbound']) {
  const at=html.indexOf('id="card-'+card+'"');
  assert(at>advancedStart&&at<advancedEnd,card+' is only on the secondary page');

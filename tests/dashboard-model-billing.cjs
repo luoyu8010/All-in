@@ -3,7 +3,7 @@ const html=fs.readFileSync('app/src/main/assets/dashboard.html','utf8');
 const slice=(a,b)=>html.slice(html.indexOf(a),html.indexOf(b,html.indexOf(a)));
 const ctx=vm.createContext({Intl,Date,console,zcodeGiftModels:['gift'],document:{createElement:()=>({children:[],style:{},appendChild(x){this.children.push(x)}})},executeModelPingTest(){}});
 vm.runInContext(slice('    function fmtMultiplier(v)','    /** 供应商是否'),ctx);
-vm.runInContext(slice('    function billingSnapshot(', '    const billingRequests'),ctx);
+vm.runInContext(slice('    function billingSnapshot(', '    const billingPending'),ctx);
 const view=(pid,id,meta,now)=>ctx.modelBillingView(pid,id,meta,now);
 for(const [id,price] of Object.entries({fast:.8,lmodel:1,qmodel:.5,qfmodel:0,dmodel:.5,dfmodel:.1,gmodel:.8,gfmodel:.1,kmodel:1,kmodel2:.8,jmodel:.7,mmodel:.1})) assert.equal(view('qoder_cn',id,{raw:{price_factor:price}}).text,price?'×'+price:'免费');
 assert.equal(view('qoder_cn','m',{raw:{price_factor:0,promotion:{active:true,before_promotion_price_factor:1,discount_factor:.1}}}).text,'×0.1');

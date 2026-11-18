@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="glass-ui">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -674,15 +674,21 @@
     .uk-unit { font-size: 11.5px; font-weight: 600; color: var(--text-muted); margin-left: 2px; }
     .usage-bar-row { margin-bottom: 14px; }
     #usage-state { padding-bottom: 6px; }
-    .usage-hours { display: flex; gap: 3px; align-items: flex-end; height: 64px; }
-    .usage-hours i {
-      flex: 1 1 0; min-width: 4px; border-radius: 3px 3px 1px 1px;
-      background: var(--primary); min-height: 3px;
-      transition: height .45s cubic-bezier(.22,1,.36,1), opacity .2s;
-    }
-    .usage-hours i.zero { background: var(--fill-2); }
-    .usage-hour-axis { display: flex; gap: 3px; margin-top: 4px; font-size: 9.5px; color: var(--text-faint); }
-    .usage-hour-axis span { flex: 1 1 0; min-width: 4px; text-align: center; }
+    .usage-hours-plot, .usage-hour-axis { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); }
+    .usage-hours-plot { height: 78px; border-bottom: 1px solid var(--card-border); }
+    .usage-hour { position: relative; display: flex; align-items: end; min-width: 0; padding: 6px 1px 2px; border: 0; background: transparent; cursor: pointer; }
+    .usage-hour-mark { display: block; width: 100%; height: var(--usage-hour-height, 4px); background: var(--primary); border-radius: 3px 3px 1px 1px; }
+    .usage-hour[data-kind="zero"] .usage-hour-mark { background: #8290a4; }
+    .usage-hour[data-kind="missing"] .usage-hour-mark { background: transparent; border: 1px dashed var(--text-muted); }
+    .usage-hour[aria-pressed="true"] { background: var(--primary-weak); border-radius: 5px 5px 0 0; }
+    .usage-hour[aria-pressed="true"] .usage-hour-mark { box-shadow: 0 0 0 1px var(--text); }
+    .usage-hour:focus-visible { z-index: 1; outline-offset: -2px; }
+    .usage-hour-axis { margin-top: 6px; font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    .usage-hour-axis span { justify-self: center; white-space: nowrap; }
+    .usage-hour-axis span:first-child { justify-self: start; }
+    .usage-hour-axis span:last-child { justify-self: end; }
+    .usage-hour-detail { margin-top: 10px; min-height: 2.2em; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+    .usage-hour-empty { padding: 12px; border: 1px dashed var(--card-border); border-radius: 12px; font-size: 12px; text-align: center; color: var(--text-muted); }
     .usage-sub-row {
       display: flex; justify-content: space-between; gap: 10px;
       padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12.5px;
@@ -697,10 +703,46 @@
     .ubr-track { height: 6px; border-radius: 99px; background: var(--fill-2); margin: 6px 0 5px; overflow: hidden; }
     .ubr-fill { height: 100%; border-radius: 99px; background: var(--primary); transition: width .5s cubic-bezier(.22,1,.36,1); }
     .ubr-meta { font-size: 11.5px; color: var(--text-faint); line-height: 1.6; }
-    .usage-col { flex: 1 1 0; min-width: 18px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 3px; height: 100%; }
-    .usage-col i { display: block; width: 100%; border-radius: 5px 5px 2px 2px; background: var(--primary); opacity: .85; min-height: 2px; transition: height .45s cubic-bezier(.22,1,.36,1); }
-    .usage-col.empty i { background: #e6e8ef; opacity: 1; }
-    .usage-axis-cell { flex: 1 1 0; min-width: 18px; text-align: center; }
+    .usage-range {
+      position:relative;isolation:isolate;display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));
+      padding:3px;border:1px solid var(--glass-rim);border-radius:999px;background:var(--glass-top);
+      touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none;
+    }
+    .usage-range-pill {
+      position:absolute;inset:3px auto 3px 3px;width:calc((100% - 6px) / 3);
+      box-sizing:border-box;border:1px solid var(--lens-line);border-radius:999px;pointer-events:none;
+      background:linear-gradient(155deg,var(--lens-light),var(--lens-shade));
+      box-shadow:inset 0 1px var(--lens-glint),0 2px 5px rgba(0,0,0,.10);
+      transform:translateX(calc(var(--usage-range-preview,var(--usage-range-index,1)) * 100%));
+      transition:transform 420ms cubic-bezier(.30,.62,.32,1.16);
+    }
+    .usage-range[data-dragging] .usage-range-pill {transition:none}
+    .usage-range-option {
+      appearance:none;-webkit-appearance:none;z-index:1;margin:0;min-width:53px;min-height:40px;
+      padding:0 9px;border:0;border-radius:999px;background:none;box-shadow:none;
+      color:var(--lens-ink);font:inherit;font-size:12px;font-weight:650;white-space:nowrap;
+      cursor:pointer;-webkit-tap-highlight-color:transparent;
+    }
+    .usage-range-option[aria-pressed="true"] {color:var(--lens-accent)}
+    .usage-range-option:focus-visible {outline:2px solid var(--lens-accent);outline-offset:-3px}
+    #usage-chart,#usage-axis {position:relative;display:flex;gap:clamp(2px,1vw,7px)}
+    #usage-chart {height:150px;align-items:flex-end;margin-top:18px;padding-top:8px;border-top:1px solid var(--line);overflow:hidden}
+    #usage-axis {min-height:18px;margin-top:6px;font-size:10.5px;color:var(--text-muted)}
+    .usage-col,.usage-axis-cell {flex:1 1 0;min-width:0}
+    .usage-col {display:flex;align-items:flex-end;justify-content:center;height:100%}
+    .usage-col i,.usage-retiring-bar {border-radius:5px 5px 2px 2px;background:#2376db;transform-origin:bottom center}
+    html[data-theme="dark"] :is(.usage-col i,.usage-retiring-bar) {background:#5aabff}
+    .usage-col i {display:block;width:min(100%,36px)}
+    .usage-col.empty i {background:var(--line)}
+    .usage-col:last-of-type {justify-content:flex-end}
+    .usage-axis-cell {position:relative;white-space:nowrap}
+    .usage-axis-cell span {position:absolute;left:50%;transform:translateX(-50%)}
+    .usage-axis-cell:first-child span {left:0;transform:none}
+    .usage-axis-cell:last-child span {left:auto;right:0;transform:none}
+    #usage-chart .usage-chart-empty {position:absolute;inset:8px 0 0;display:grid;place-items:center;color:var(--text-muted);text-align:center;font-size:13px}
+    .usage-retiring-bar {position:absolute;pointer-events:none}
+    @media(prefers-reduced-motion:reduce) {.usage-range-pill {transition:none}}
+
 
     /* ---------- 分段控件（外观三选一） ---------- */
     .seg {
@@ -737,15 +779,6 @@
     }
 
     /* Homepage project links: bundled vector icons, readable in both themes. */
-    #project-info-card { padding: 13px 16px; }
-    .project-info-row { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 10px; }
-    .project-info-row + .project-info-row { margin-top: 8px; }
-    .project-info-label { white-space: nowrap; color: var(--text-muted); font-size: 12px; }
-    .project-info-link { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--primary); font-size: 12.5px; line-height: 1.6; text-decoration: none; }
-    .project-info-link:hover { text-decoration: underline; }
-    .project-info-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 4px; }
-    .project-info-text { min-width: 0; overflow-wrap: anywhere; }
-    .project-info-text strong { color: var(--text); }
     .project-github-icon { display: block; width: 20px; height: 20px; flex: 0 0 20px; color: var(--text); }
 
     .eta-field { display:grid; grid-template-columns:minmax(0,1fr); gap:3px; margin-bottom:7px; }
@@ -1045,11 +1078,6 @@
     #provider-detail-info h3 {font-size:22px;line-height:1.4;margin:0 0 8px}
     #provider-detail-info p {line-height:1.8;margin:8px 0}
     #provider-detail-info .btn {margin:6px 6px 0 0}
-    #project-info-card {background:var(--fill-3)!important;padding:14px 17px!important;box-shadow:none!important}
-    .project-info-row {gap:12px}
-    .project-info-row + .project-info-row {margin-top:9px}
-    .project-info-label {font-size:11px}
-    .project-info-link {font-size:12px}
     .project-github-icon {width:18px;height:18px;flex-basis:18px}
     .warn-bar,#auth-warn,#key-warn {border-radius:20px!important;border-color:transparent!important}
     .gateway-entry {background:var(--card-bg)!important;gap:15px}
@@ -1084,7 +1112,6 @@
     .uk-label {font-size:11px;white-space:normal;line-height:1.6}
     .uk-val {font-size:21px;font-weight:650;letter-spacing:-.6px}
     .uk-sub {line-height:1.7}
-    .usage-col.empty {background:var(--fill-2)}
     .exp-head {flex-wrap:wrap}
     .exp-actions {flex-wrap:wrap;max-width:100%}
     .exp-prov {padding:14px 0}
@@ -1146,21 +1173,10 @@
     .gw-toggle {background:transparent!important;border-color:transparent!important;box-shadow:none!important;padding:8px 4px!important;min-height:44px;gap:8px;color:var(--text-muted)!important;font-size:12px!important}
     .gw-toggle:active {box-shadow:none!important;opacity:.7}
     .gw-dot {flex:0 0 7px}
-    #project-info-card {display:flex;align-items:center;gap:12px;background:var(--fill-3)!important;border:1px solid var(--card-border)!important;border-radius:19px!important;padding:12px 15px!important;margin-bottom:16px!important;box-shadow:none!important}
-    #project-info-card .project-info-link {flex:1 1 0;min-width:0;gap:9px;color:var(--text);text-decoration:none}
-    #project-info-card .project-github-icon {width:17px;height:17px;flex:0 0 17px;color:var(--text-muted)}
-    #project-info-card .project-info-text {display:flex;flex-direction:column;min-width:0;line-height:1.4}
-    .project-info-kicker {font-size:12px;font-weight:650;color:var(--text);white-space:nowrap}
-    .project-info-meta {font-size:10.5px;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .project-info-divider {width:1px;height:29px;flex:0 0 1px;background:var(--line)}
-    .project-info-arrow {font-size:15px;color:var(--text-faint);margin-left:auto;flex-shrink:0}
     @media(max-width:380px) {
       .page-title {font-size:23px}
       .brand img {width:33px!important;height:33px!important}
       .gw-toggle {padding:8px 2px!important;font-size:11px!important}
-      #project-info-card {gap:9px;padding:11px 12px!important}
-      #project-info-card .project-info-link {gap:6px}
-      .project-info-meta {font-size:10px}
     }
 
     /* 品牌与网关状态：独立于下方项目卡的深色品牌面板。 */
@@ -1257,25 +1273,545 @@
 @media(prefers-reduced-motion:reduce){.app-update-dialog{animation:none}}
 @keyframes update-rise{from{opacity:0;transform:translateY(9px) scale(.98)}to{opacity:1;transform:none}}
 </style>
+<style id="glass-ui-style">
+/* Liquid Glass presentation for the isolated experiment. */
+html.glass-ui {
+  --glass-canvas:#ffffff;
+  --glass-top:#efeff0;
+  --glass-bloom:#e4e4e6;
+  --glass-iris:#f7f7f8;
+  --glass-card:rgba(246,246,247,.96);
+  --glass-edge:rgba(32,32,35,.13);
+  --glass-rim:rgba(32,32,35,.14);
+  --glass-shadow:0 8px 22px rgba(0,0,0,.06),inset 0 1px rgba(255,255,255,.85);
+  --glass-dock:rgba(240,240,241,.79);
+  --glass-pill:rgba(223,223,226,.58);
+  --glass-title:#151515;
+  --glass-card-text:#252527;
+  --glass-muted:#5d5d62;
+  --glass-field:#ececed;
+  --glass-control:linear-gradient(155deg,#fafafa,#e8e8ea);
+  --glass-control-strong:linear-gradient(155deg,#f1f1f2,#dedee1);
+  --fill:#ededee;
+  --fill-2:#e8e8ea;
+  --primary-weak:#e5e5e9;
+  --glass-sweep:cubic-bezier(.22,1.22,.37,1);
+  color-scheme:light;
+}
+html.glass-ui[data-theme="dark"] {
+  --glass-canvas:#000000;
+  --glass-top:#222223;
+  --glass-card:#1c1c1e;
+  --glass-edge:rgba(255,255,255,.10);
+  --glass-rim:rgba(255,255,255,.12);
+  --glass-shadow:0 10px 28px rgba(0,0,0,.19),inset 0 1px rgba(255,255,255,.05);
+  --glass-dock:rgba(34,34,35,.92);
+  --glass-pill:#383839;
+  --glass-title:#f5f5f5;
+  --glass-card-text:#ebebeb;
+  --glass-muted:#bcbcbc;
+  --glass-field:#272728;
+  --glass-control:linear-gradient(150deg,#303031,#232324);
+  --glass-control-strong:linear-gradient(150deg,#434344,#303031);
+  --fill:#29292a;
+  --fill-2:#242425;
+  --primary-weak:#303031;
+  color-scheme:dark;
+}
+html.glass-ui { background:var(--glass-canvas); }
+.liquid-glass {
+  --bg:var(--glass-canvas);
+  --text:var(--glass-card-text);
+  --text-muted:var(--glass-muted);
+  --text-faint:var(--glass-muted);
+  --line:var(--glass-rim);
+  --card-border:var(--glass-rim);
+  --card-bg:var(--glass-card);
+  --fill-3:var(--glass-field);
+  --nav-h:66px;
+  min-height:100vh;
+  background:var(--glass-canvas);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,"Microsoft YaHei",sans-serif;
+  padding-top:max(var(--native-status-bar-inset,0px),env(safe-area-inset-top,0px));
+  padding-bottom:calc(104px + env(safe-area-inset-bottom,0px));
+}
+.liquid-glass .container {max-width:890px;padding:8px 18px 18px}
+.liquid-glass .glass-masthead {
+  width:calc(100% - 36px);
+  max-width:854px;
+  min-height:68px;
+  margin:9px auto 0;
+  padding:4px 2px!important;
+  overflow:visible;
+  border:0;
+  border-radius:0;
+  background:none;
+  box-shadow:none;
+}
+.liquid-glass .glass-masthead::before {display:none}
+.liquid-glass .glass-masthead .brand img {
+  width:40px!important;height:40px!important;border-radius:13px!important;
+  box-shadow:0 6px 17px rgba(15,56,99,.21)!important;
+}
+.liquid-glass .glass-masthead .page-title {color:var(--glass-title);font-size:25px;font-weight:780;letter-spacing:-.055em}
+.liquid-glass .glass-masthead .page-sub {color:var(--glass-muted);font-size:10px;letter-spacing:.06em}
+.liquid-glass .glass-masthead .gw-toggle {
+  border:1px solid var(--glass-edge)!important;border-radius:999px!important;
+  background:var(--glass-card)!important;color:var(--glass-card-text)!important;
+  box-shadow:var(--glass-shadow)!important;
+  padding:8px 13px!important;
+  font-size:11px!important;
+  min-height:44px;
+}
+.liquid-glass .glass-masthead .gw-dot {background:#18966b;box-shadow:0 0 0 3px rgba(33,189,132,.15)}
+html[data-theme="dark"] .liquid-glass .glass-masthead .gw-dot {background:#69e7b2}
+.liquid-glass .glass-masthead .gw-toggle.off .gw-dot {background:#7f91aa;box-shadow:0 0 0 3px rgba(127,145,170,.16)}
+.glass-hero {
+  position:relative;isolation:isolate;overflow:hidden;display:flex;align-items:center;
+  min-height:226px;padding:28px 24px;margin:4px 0 22px;border:1px solid rgba(255,255,255,.29);border-radius:32px;
+  background:radial-gradient(ellipse at 88% 55%,#3d549a 0%,transparent 57%),linear-gradient(133deg,#08182e 3%,#122d58 62%,#303467 100%);
+  box-shadow:0 17px 31px rgba(18,42,79,.20),inset 0 1px rgba(248,252,255,.24);
+  color:#fff;
+}
+.glass-hero-copy {position:relative;z-index:1;min-width:0}
+.glass-hero h1 {margin:0;font-size:clamp(30px,7vw,47px);font-weight:790;letter-spacing:-.055em;line-height:1.13}
+.glass-hero p {margin:10px 0 21px;color:#e2eeff;font-size:13px;line-height:1.45}
+.glass-hero-button {
+  display:inline-flex;align-items:center;gap:16px;min-height:45px;padding:8px 13px;
+  border:1px solid rgba(221,240,255,.46);border-radius:999px;
+  background:linear-gradient(154deg,rgba(206,232,255,.22),rgba(181,213,255,.09));
+  color:#fff;font:inherit;font-size:12px;font-weight:700;cursor:pointer;
+  box-shadow:inset 0 1px rgba(248,253,255,.22),0 4px 16px rgba(5,17,49,.22);
+  transition:transform .36s var(--glass-sweep),background-color .2s ease;
+}
+.glass-hero-button span {font-size:15px;line-height:1;color:#ddf4ff}
+.glass-hero-button:active {transform:scale(.93);background-color:rgba(210,232,255,.16)}
+.glass-orbit {
+  position:absolute;pointer-events:none;z-index:0;right:clamp(-40px,calc(16vw - 66px),63px);top:50%;width:clamp(214px,40vw,360px);aspect-ratio:1;
+  transform:translateY(-50%) rotate(-24deg);
+}
+.glass-orbit i {
+  position:absolute;display:block;border-radius:50%;inset:15%;
+  border:1px solid rgba(183,229,255,.49);
+  background:
+    radial-gradient(ellipse at 29% 17%,rgba(220,249,255,.81),transparent 25%),
+    radial-gradient(ellipse at 80% 75%,rgba(180,146,255,.64),transparent 43%),
+    radial-gradient(ellipse at 51% 43%,rgba(30,72,141,.52) 37%,rgba(96,177,242,.56) 63%,rgba(173,224,255,.55) 75%);
+  box-shadow:inset 5px 5px 12px rgba(216,246,255,.48),inset -6px -7px 15px rgba(195,166,255,.65),0 7px 29px rgba(12,22,77,.35);
+}
+.glass-orbit i:nth-child(1) {inset:29% 0;transform:rotate(-24deg);opacity:.70}
+.glass-orbit i:nth-child(2) {inset:27% 3% 24%;transform:rotate(38deg);opacity:.77}
+.glass-orbit i:nth-child(3) {inset:18% 24% 17%;transform:rotate(-15deg);opacity:.94}
+.glass-orbit i:nth-child(4) {inset:26% 18%;border-color:rgba(215,238,255,.75);transform:rotate(18deg);background:linear-gradient(134deg,rgba(234,251,255,.29),rgba(82,150,218,.02) 54%,rgba(207,169,255,.39))}
+.glass-orbit b {position:absolute;inset:30% 26% 48% 29%;border-radius:50%;background:radial-gradient(ellipse,rgba(241,252,255,.52),transparent 72%);mix-blend-mode:screen;filter:blur(5px)}
+.glass-hero::after {content:"";position:absolute;inset:0;pointer-events:none;z-index:0;background:linear-gradient(90deg,rgba(6,20,40,.48) 18%,transparent 79%)}
+@keyframes glass-orbit-appear {from {opacity:.55;transform:translateY(-48%) rotate(-37deg) scale(.90)} to {opacity:1;transform:translateY(-50%) rotate(-24deg) scale(1)}}
+.glass-orbit {animation:glass-orbit-appear .84s cubic-bezier(.2,.7,.2,1) both}
+.glass-section-heading {display:flex;align-items:center;justify-content:space-between;margin:17px 3px 8px}
+.glass-section-heading h2 {margin:0;color:var(--glass-title);font-size:18px;font-weight:760;letter-spacing:-.034em}
+.liquid-glass .grid-stats {display:grid;gap:9px!important;padding:0!important;margin:0 0 6px!important;background:none!important;box-shadow:none!important;border:0!important}
+.liquid-glass .stat-card {min-width:0;padding:11px 14px!important;margin:0!important;border:1px solid var(--glass-edge)!important;border-radius:22px!important;background:var(--glass-card)!important;box-shadow:var(--glass-shadow)!important;text-align:left!important}
+.liquid-glass .stat-label {display:flex;align-items:center;gap:6px;color:var(--glass-muted);font-size:11.5px!important;font-weight:670}
+.liquid-glass .stat-label::before {content:"";width:6px;height:6px;flex:none;border-radius:100%;background:#508fdf}
+.liquid-glass .stat-card:nth-child(2) .stat-label::before {background:#7b77d7}
+.liquid-glass .stat-card:nth-child(3) .stat-label::before {background:#1a987c}
+.liquid-glass .stat-card:nth-child(4) .stat-label::before {background:#c18243}
+.liquid-glass .stat-val {color:var(--glass-title)!important;font-variant-numeric:tabular-nums;font-size:25px!important;line-height:1.2;margin:4px 0 0}
+.liquid-glass .stat-sub {color:var(--glass-muted);margin-top:3px}
+.liquid-glass .glass-quick {display:grid;grid-template-columns:minmax(0,1fr);gap:9px}
+.liquid-glass .glass-quick .card {
+  display:grid;grid-template-columns:41px minmax(0,1fr) auto;align-items:center;gap:10px;
+  min-width:0;padding:11px!important;margin:0!important;border-radius:23px!important;
+}
+.glass-tool-icon {
+  display:grid;place-items:center;width:41px;height:41px;border-radius:14px;
+  color:#175696;background:linear-gradient(145deg,#e6f6ff,#c8e7fb);box-shadow:inset 0 1px rgba(255,255,255,.86);
+}
+.glass-tool-violet {color:#5341a2;background:linear-gradient(145deg,#f0ecff,#dbd2ff)}
+.liquid-glass .glass-quick h2 {margin:0;color:var(--glass-title)!important;font-size:14px!important;font-weight:760}
+.liquid-glass .glass-quick p {margin:1px 0 0;color:var(--glass-muted)!important;font-size:11px;line-height:1.45}
+.liquid-glass .glass-quick .btn {width:auto;min-height:44px;margin:0;padding:6px 10px!important;background:var(--glass-field)!important;color:var(--glass-card-text)!important;font-size:11px!important;white-space:nowrap}
+.liquid-glass .card,.liquid-glass .provider-compact,.liquid-glass .heat-panel,.liquid-glass .checkin-row,.liquid-glass .checkin-auto,.liquid-glass .checkin-operation {
+  background:var(--glass-card)!important;
+  border:1px solid var(--glass-edge)!important;
+  border-radius:25px!important;
+  box-shadow:var(--glass-shadow)!important;
+}
+.liquid-glass .card-title,.liquid-glass .provider-list-heading h2 {color:var(--glass-title)}
+.liquid-glass .card-title {font-weight:740!important}
+.liquid-glass .btn {border-radius:999px!important;transition:transform .34s var(--glass-sweep),background-color .2s ease,opacity .2s ease}
+.liquid-glass .btn:not(:disabled):active {transform:scale(.93)}
+.liquid-glass .btn-outline {color:var(--glass-card-text)!important;background:var(--glass-field)!important;border:1px solid var(--glass-rim)!important}
+.liquid-glass .btn[style*="color:#ef4444"],.liquid-glass .btn[style*="color: #ef4444"],.liquid-glass .btn[style*="rgba(239, 68, 68"],.liquid-glass .btn[style*="rgba(239,68,68"],.liquid-glass .btn[style*="rgba(248, 113, 113"] {color:var(--danger)!important;background:var(--danger-weak)!important}
+.liquid-glass input:not([type="checkbox"]),.liquid-glass select,.liquid-glass textarea {border-radius:15px!important}
+.liquid-glass .seg {border-radius:17px;background:var(--glass-field)}
+.liquid-glass .seg-btn.active {background:var(--glass-card);color:var(--glass-title)}
+.glass-page-heading,.liquid-glass .provider-list-heading {margin:8px 2px 17px}
+.glass-page-heading h1,.liquid-glass .provider-list-heading h2 {margin:0;color:var(--glass-title);font-size:29px;line-height:1.33;letter-spacing:-.048em;font-weight:780}
+.glass-page-heading p,.liquid-glass .provider-list-heading p {margin:5px 0 0;color:var(--glass-muted);font-size:12px;line-height:1.55}
+.liquid-glass .gateway-hero,.liquid-glass .checkin-hero {
+  border-radius:30px!important;border:1px solid var(--glass-edge)!important;
+  background:radial-gradient(ellipse at 99% 3%,var(--glass-iris),transparent 67%),linear-gradient(120deg,var(--glass-card),var(--glass-bloom))!important;
+  color:var(--glass-title)!important;box-shadow:var(--glass-shadow)!important;
+}
+html.glass-ui[data-theme="dark"] .liquid-glass .gateway-hero,
+html.glass-ui[data-theme="dark"] .liquid-glass .checkin-hero {
+  background:var(--glass-card)!important;
+}
+html.glass-ui[data-theme="dark"] .glass-hero {
+  background:var(--glass-card);
+  border-color:var(--glass-edge);
+  box-shadow:var(--glass-shadow);
+}
+html.glass-ui[data-theme="dark"] .glass-hero::after {background:none}
+html.glass-ui[data-theme="dark"] .glass-hero p {color:var(--glass-muted)}
+html.glass-ui[data-theme="dark"] .glass-orbit {filter:grayscale(1);opacity:.65}
+.liquid-glass .gateway-hero h1,.liquid-glass .checkin-hero h2 {color:var(--glass-title);font-weight:780;letter-spacing:-.045em}
+.liquid-glass .gateway-hero p,.liquid-glass .checkin-hero p {color:var(--glass-muted)}
+.liquid-glass .nav-tabs {
+  left:12px;right:12px;bottom:calc(11px + env(safe-area-inset-bottom,0px));
+  border:1px solid var(--glass-edge);border-radius:30px;
+  background:var(--glass-top);box-shadow:0 14px 35px rgba(16,39,75,.19),inset 0 1px rgba(255,255,255,.24),inset 0 -1px var(--glass-rim);
+  -webkit-backdrop-filter:none;backdrop-filter:none;
+}
+@supports ((backdrop-filter:blur(16px)) or (-webkit-backdrop-filter:blur(16px))) {
+  .liquid-glass .nav-tabs {background:var(--glass-dock);-webkit-backdrop-filter:blur(21px) saturate(155%);backdrop-filter:blur(21px) saturate(155%)}
+}
+.liquid-glass .nav-pill {
+  left:calc(10px + (100% - 16px) / 6 * var(--nav-idx,0));width:calc((100% - 16px) / 6 - 4px);
+  height:calc(var(--nav-h) - 14px);border:1px solid var(--glass-edge);border-radius:23px;
+  background:linear-gradient(153deg,var(--glass-edge),transparent 58%),var(--glass-pill);
+  box-shadow:0 3px 9px rgba(26,66,129,.13),inset 0 -1px var(--glass-rim);
+  transition:left .42s var(--glass-sweep);
+}
+.liquid-glass .tab-btn {min-width:0;min-height:48px;padding:4px 0!important;gap:3px;color:var(--glass-muted)!important;font-size:10px!important;white-space:nowrap;transition:color .2s ease,transform .36s var(--glass-sweep)}
+.liquid-glass .tab-btn.active {color:#214d96!important;font-weight:760!important}
+/* The day theme uses silver glass, with blue reserved for the active tab and other accents. */
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .nav-tabs {
+  border-radius:999px;
+  border-color:rgba(28,28,30,.18);
+  background:linear-gradient(155deg,rgba(255,255,255,.70),transparent 54%),var(--glass-top);
+  box-shadow:0 9px 25px rgba(0,0,0,.11),inset 0 1px rgba(255,255,255,.85);
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+}
+@supports ((backdrop-filter:blur(21px)) or (-webkit-backdrop-filter:blur(21px))) {
+  html.glass-ui:not([data-theme="dark"]) .liquid-glass .nav-tabs {
+    background:linear-gradient(155deg,rgba(255,255,255,.70),transparent 54%),var(--glass-dock);
+    -webkit-backdrop-filter:blur(21px) saturate(.58);
+    backdrop-filter:blur(21px) saturate(.58);
+  }
+}
+@media(prefers-reduced-transparency:reduce) {
+  html.glass-ui:not([data-theme="dark"]) .liquid-glass .nav-tabs {
+    background:linear-gradient(155deg,rgba(255,255,255,.70),transparent 54%),var(--glass-top);
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+  }
+}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .nav-pill {
+  background:linear-gradient(153deg,rgba(255,255,255,.67),transparent 72%),var(--glass-pill);
+  border-color:rgba(32,32,35,.08);
+  border-radius:999px;
+  box-shadow:inset 0 1px rgba(255,255,255,.65);
+}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .tab-btn {color:#171717!important}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .tab-btn.active {color:#005fc7!important}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .tab-btn:not(.active)::before {opacity:1}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .btn:where(:not(.btn-danger, [style*="239, 68, 68"], [style*="239,68,68"], [style*="248, 113, 113"])) {
+  background:var(--glass-control)!important;
+  border:1px solid var(--glass-rim)!important;
+}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .btn-primary:where(:not(.btn-danger, [style*="239, 68, 68"], [style*="239,68,68"], [style*="248, 113, 113"])) {
+  background:var(--glass-control-strong)!important;
+  color:var(--glass-title)!important;
+  border-color:rgba(32,32,35,.23)!important;
+}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .glass-hero {
+  background:linear-gradient(125deg,#f7f7f8,#e3e3e6);
+  border-color:var(--glass-edge);
+  box-shadow:var(--glass-shadow);
+  color:var(--glass-title);
+}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .glass-hero::after {background:none}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .glass-orbit {filter:grayscale(1);opacity:.52}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .glass-hero p {color:var(--glass-muted)}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .glass-hero-button {
+  background:var(--glass-control);
+  border-color:var(--glass-rim);
+  box-shadow:inset 0 1px rgba(255,255,255,.85),0 4px 12px rgba(0,0,0,.08);
+  color:var(--glass-title);
+}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .glass-hero-button span,
+html.glass-ui:not([data-theme="dark"]) .liquid-glass .connection-field .address-value {color:var(--glass-title)!important}
+html.glass-ui:not([data-theme="dark"]) .liquid-glass #cred-edit-box,
+html.glass-ui:not([data-theme="dark"]) .liquid-glass :is(#cred-api-key,#cred-new-key) {
+  background:var(--glass-field)!important;
+  border-color:var(--glass-rim)!important;
+}
+/* Keep neutral surfaces separate from colors that communicate a status or data value. */
+html.glass-ui[data-theme="dark"] .liquid-glass .nav-tabs {
+  background:linear-gradient(155deg,rgba(255,255,255,.075),transparent 45%),var(--glass-top);
+  border-color:rgba(255,255,255,.22);
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+  box-shadow:0 14px 35px rgba(0,0,0,.35),inset 0 1px rgba(255,255,255,.10);
+}
+@supports ((backdrop-filter:grayscale(1) blur(21px)) or (-webkit-backdrop-filter:grayscale(1) blur(21px))) {
+  html.glass-ui[data-theme="dark"] .liquid-glass .nav-tabs {
+    background:linear-gradient(155deg,rgba(255,255,255,.075),transparent 45%),var(--glass-dock);
+    -webkit-backdrop-filter:grayscale(1) blur(21px);
+    backdrop-filter:grayscale(1) blur(21px);
+  }
+}
+@media (prefers-reduced-transparency:reduce) {
+  html.glass-ui[data-theme="dark"] .liquid-glass .nav-tabs {
+    background:linear-gradient(155deg,rgba(255,255,255,.075),transparent 45%),var(--glass-top);
+    -webkit-backdrop-filter:none;
+    backdrop-filter:none;
+  }
+}
+html.glass-ui[data-theme="dark"] .liquid-glass .nav-pill {
+  box-shadow:0 3px 9px rgba(0,0,0,.22),inset 0 -1px var(--glass-rim);
+}
+html.glass-ui[data-theme="dark"] .liquid-glass .tab-btn {color:var(--glass-title)!important}
+html.glass-ui[data-theme="dark"] .liquid-glass .tab-btn.active {color:#76baff!important}
+html.glass-ui[data-theme="dark"] .liquid-glass .btn:where(:not(.btn-danger, [style*="239, 68, 68"], [style*="239,68,68"], [style*="248, 113, 113"])) {
+  background:var(--glass-control)!important;
+  border:1px solid var(--glass-rim)!important;
+}
+html.glass-ui[data-theme="dark"] .liquid-glass .btn-primary:where(:not(.btn-danger, [style*="239, 68, 68"], [style*="239,68,68"], [style*="248, 113, 113"])) {
+  background:var(--glass-control-strong)!important;
+  border-color:rgba(255,255,255,.23)!important;
+}
+html.glass-ui[data-theme="dark"] .liquid-glass .glass-hero-button {
+  background:var(--glass-control-strong);
+  border-color:var(--glass-rim);
+  box-shadow:inset 0 1px rgba(255,255,255,.09),0 4px 16px rgba(0,0,0,.18);
+}
+html.glass-ui[data-theme="dark"] .liquid-glass .connection-field .address-value {
+  color:var(--glass-title)!important;
+}
+html.glass-ui[data-theme="dark"] .liquid-glass :is(#cred-api-key,#cred-new-key) {
+  background:var(--glass-field)!important;
+}
+html.glass-ui[data-theme="dark"] .liquid-glass #cred-edit-box {
+  background:var(--glass-field)!important;
+  border-color:var(--glass-rim)!important;
+}
+.liquid-glass .tab-btn.active::before {transform:translateY(-1px) scale(1.10);opacity:1}
+.liquid-glass .tab-btn:not(.active)::before {opacity:.83}
+.liquid-glass .tab-btn:active {transform:scale(.89)}
+.liquid-glass .tab-pane.active {animation:none}
+.liquid-glass .tab-pane[data-tab-departing] {display:block;position:fixed;z-index:5;pointer-events:none;overflow:hidden}
+@media(min-width:540px) {
+  .liquid-glass .grid-stats {grid-template-columns:repeat(4,minmax(0,1fr))!important}
+  .liquid-glass .glass-quick {grid-template-columns:repeat(2,minmax(0,1fr))}
+  .glass-hero {min-height:255px;padding-left:33px}
+}
+@media(max-width:360px) {
+  .liquid-glass .container {padding-left:13px;padding-right:13px}
+  .liquid-glass .glass-masthead {width:calc(100% - 26px)}
+  .glass-hero {min-height:204px;padding:23px 18px}
+  .glass-orbit {right:-45px}
+}
+@media(prefers-reduced-motion:reduce) {
+  .liquid-glass .glass-orbit,.liquid-glass .tab-pane.active {animation:none!important}
+  .liquid-glass .nav-pill,.liquid-glass .tab-btn,.liquid-glass .btn,.liquid-glass .glass-hero-button {transition:none!important;transform:none!important}
+  .liquid-glass * {scroll-behavior:auto!important}
+}
+@media(prefers-reduced-transparency:reduce) {
+  .liquid-glass .nav-tabs {background:var(--glass-top);-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+/* The lens magnifies a decorative, inert copy of the dock icons and labels. */
+.liquid-glass :is(#bottom-nav,#usage-range) {
+  --lens-light:rgba(255,255,255,.98);
+  --lens-shade:rgba(232,233,237,.95);
+  --lens-glint:rgba(255,255,255,.97);
+  --lens-line:rgba(76,84,98,.22);
+  --lens-ink:#171717;
+  --lens-accent:#005fc7;
+}
+html[data-theme="dark"] .liquid-glass :is(#bottom-nav,#usage-range) {
+  --lens-light:rgba(64,64,66,.98);
+  --lens-shade:rgba(30,30,32,.96);
+  --lens-glint:rgba(255,255,255,.34);
+  --lens-line:rgba(255,255,255,.24);
+  --lens-ink:#ebebeb;
+  --lens-accent:#76baff;
+}
+.liquid-glass #bottom-nav[data-lens-ready] {touch-action:pan-y pinch-zoom;user-select:none;-webkit-user-select:none}
+.liquid-glass #bottom-nav[data-lens-ready] .nav-pill {
+  left:0;top:50%;width:var(--lens-width);height:var(--lens-height);
+  transform:translate3d(var(--lens-position),-50%,0)!important;
+  transition:none;border:0;border-radius:999px;
+  background:none;box-shadow:none;isolation:isolate;
+}
+.nav-lens-fill,.nav-lens-rim,.nav-lens-clip {position:absolute;inset:0;border-radius:inherit;pointer-events:none}
+.nav-lens-fill,.nav-lens-rim {display:none}
+#bottom-nav[data-lens-ready] :is(.nav-lens-fill,.nav-lens-rim) {display:block}
+.nav-lens-fill {background:linear-gradient(155deg,var(--lens-light),var(--lens-shade));opacity:.65}
+.nav-lens-rim {
+  border:1px solid var(--lens-line);
+  box-shadow:inset 0 1px 2px var(--lens-glint),inset 0 -1px 2px var(--lens-glint),0 2px 5px rgba(0,0,0,.10);
+}
+.nav-lens-clip {overflow:hidden;opacity:0}
+.nav-lens-strip {position:absolute;top:50%;left:0;transform:translate3d(var(--lens-offset),-50%,0) scale(1.13);transform-origin:var(--lens-center) center}
+.nav-lens-item {position:absolute;top:50%;transform:translateY(-50%);display:grid;justify-items:center;gap:3px;white-space:nowrap;font-size:10px;font-weight:700;color:var(--lens-ink)}
+.nav-lens-item[data-preview] {color:var(--lens-accent)}
+.nav-lens-icon {width:23px;height:23px;background:currentColor;-webkit-mask:center / 21px 21px no-repeat;mask:center / 21px 21px no-repeat}
+.liquid-glass #bottom-nav[data-lens-lifted] .nav-pill {z-index:2}
+#bottom-nav[data-lens-lifted] :is(.nav-lens-fill,.nav-lens-clip) {opacity:1}
+#bottom-nav[data-lens-lifted] .nav-lens-rim {
+  box-shadow:inset 0 2px 3px var(--lens-glint),inset 0 -2px 4px var(--lens-glint),0 7px 17px rgba(0,0,0,.21);
+}
+#bottom-nav[data-lens-lifted] .nav-lens-rim::after {
+  content:"";position:absolute;inset:1px;border-radius:inherit;
+  background:conic-gradient(from 40deg,transparent 0 30%,rgba(112,173,240,.32) 38%,transparent 47% 75%,rgba(211,181,241,.28) 84%,transparent 94%);
+  -webkit-mask:radial-gradient(ellipse closest-side,transparent 87%,#000);
+  mask:radial-gradient(ellipse closest-side,transparent 87%,#000);
+}
+@media(prefers-reduced-transparency:reduce) {
+  #bottom-nav[data-lens-ready] .nav-lens-fill {background:var(--glass-top);opacity:1}
+  #bottom-nav[data-lens-lifted] .nav-lens-rim::after {display:none}
+}
+/* Keep the label legible even when there are no eligible accounts. */
+.liquid-glass #checkin-run-all {transition-property:transform}
+.liquid-glass #checkin-run-all:not(:disabled) {
+  background:#195aaf!important;
+  color:#fff!important;
+  border-color:transparent!important;
+}
+.liquid-glass #checkin-run-all:disabled {
+  background:#e5e5e7!important;
+  color:#4c4c52!important;
+  border:1px solid #ceced2!important;
+  opacity:1;
+}
+html[data-theme="dark"] .liquid-glass #checkin-run-all:disabled {
+  background:#313134!important;
+  color:#c4c4c8!important;
+  border-color:#49494e!important;
+}
+
+/* Only the card surface and its decorative icon travel between views. */
+.liquid-glass .provider-detail-heading {display:flex;align-items:center;gap:12px;padding:12px}
+.liquid-glass #provider-detail-info .provider-detail-heading h3 {margin:0}
+.provider-detail-heading [data-card-morph-icon] {display:flex;flex:none}
+.card-morph-layer {position:fixed;inset:0;z-index:860;pointer-events:none;overflow:hidden}
+.card-morph-surface,.card-morph-icon {position:absolute;top:0;left:0;transform-origin:top left;pointer-events:none}
+.card-morph-surface {border:1px solid var(--glass-edge);box-shadow:var(--glass-shadow)}
+.card-morph-icon {display:grid;place-items:center}
+.card-morph-icon > * {margin:0}
+#account-manage-modal[data-sheet] {align-items:flex-end!important;padding:8px 0 0!important;background:transparent!important}
+#account-manage-modal[data-sheet]::before {content:"";position:absolute;inset:0;background:rgba(0,0,0,.42);pointer-events:none}
+#account-manage-modal[data-sheet] > .account-sheet {position:relative;max-height:min(80dvh,720px)!important;border-radius:26px 26px 0 0!important;padding-bottom:env(safe-area-inset-bottom,0px)}
+.account-sheet-handle {touch-action:none;flex:none;display:grid;place-items:center;height:28px;cursor:grab}
+.account-sheet-handle::before {content:"";width:36px;height:4px;border-radius:5px;background:var(--text-faint);opacity:.65}
+.account-action-popover {position:fixed;z-index:99999;display:grid;gap:6px;padding:8px;min-width:132px;border:1px solid var(--card-border);border-radius:18px;background:var(--card-bg);box-shadow:0 10px 30px #0003;max-height:calc(100dvh - 16px);overflow:auto}
+.account-action-popover[hidden] {display:none}
+[data-copy-feedback] {position:relative}
+[data-copy-feedback]::after {content:attr(data-copy-feedback);position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:var(--card-bg);color:var(--text);pointer-events:none;font-weight:650}
+[data-fold-motion] {overflow:clip!important;box-sizing:border-box!important;overflow-anchor:none}
+#gateway-advanced-view .advanced-card-trigger {
+  width:100%;padding:0;border:0;background:none;text-align:left;cursor:pointer;
+  justify-content:space-between;flex-wrap:nowrap;line-height:1.6;margin:0!important;
+}
+.advanced-card-arrow {
+  flex:none;color:var(--text-faint);font-size:22px;font-weight:400;line-height:1;
+  transition:transform 410ms cubic-bezier(.24,.76,.31,1.18);
+}
+.advanced-card-trigger[aria-expanded="true"] .advanced-card-arrow {transform:rotate(90deg)}
+.advanced-card-body {min-height:0}
+@media(prefers-reduced-motion:reduce) {.advanced-card-arrow {transition:none}}
+
+.fold-container:not([hidden]) {display:flow-root}
+[data-fold-motion] > summary::after {transition-duration:.38s}
+details.card[data-fold-motion="closing"] > summary::after {transform:rotate(0)}
+@media(prefers-reduced-motion:reduce) {details > summary::after {transition:none!important}}
+/* Brand, attribution and project link share one compact masthead. */
+.liquid-glass .glass-masthead {min-height:86px;justify-content:space-between;gap:12px}
+.liquid-glass .glass-masthead .brand {flex:1 1 auto;min-width:0}
+.liquid-glass .glass-masthead .brand img {flex:none}
+.liquid-glass .glass-masthead .brand-text {min-width:0;gap:0}
+.liquid-glass .glass-credit {display:flex;flex-wrap:wrap;align-items:baseline;column-gap:5px;row-gap:0;min-height:34px;align-content:center;color:var(--glass-title);text-decoration:none;line-height:1.45}
+.liquid-glass .glass-credit-name {font-size:12px;font-weight:720}
+.liquid-glass .glass-credit-handle {font-size:11px;color:var(--glass-muted)}
+.liquid-glass .glass-masthead-actions {display:grid;justify-items:end;gap:0;flex:none}
+.liquid-glass .glass-masthead #gw-toggle {
+  min-height:38px;
+  white-space:nowrap;
+  touch-action:manipulation;
+  transform:scale(1);
+  transition:transform 650ms cubic-bezier(.42,.16,.35,1.62);
+}
+.liquid-glass .glass-masthead #gw-toggle:active {
+  transform:scale(.97,.935);
+  transition:transform 115ms ease-out;
+  opacity:1;
+}
+.liquid-glass .glass-masthead #gw-toggle:focus-visible {
+  outline:2px solid var(--primary);
+  outline-offset:3px;
+}
+.liquid-glass #gw-toggle .gw-dot {
+  position:relative;
+  flex:none;
+}
+.gw-dot-ripple {
+  position:absolute;
+  inset:-3px;
+  border:1px solid currentColor;
+  border-radius:50%;
+  opacity:0;
+  pointer-events:none;
+  color:#18966b;
+}
+html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
+#gw-toggle.off .gw-dot-ripple {color:#7f91aa}
+@media(prefers-reduced-motion:reduce) {
+  .liquid-glass .glass-masthead #gw-toggle,
+  .liquid-glass .glass-masthead #gw-toggle:active {transition:none;transform:none}
+}
+.liquid-glass .glass-project-link {display:flex;align-items:center;gap:5px;min-height:34px;padding-inline:4px;color:var(--glass-muted);font-size:11px;font-weight:650;text-decoration:none;white-space:nowrap}
+.liquid-glass .glass-credit:hover,.liquid-glass .glass-project-link:hover {text-decoration:underline;text-underline-offset:3px}
+@media(max-width:350px) {
+  .liquid-glass .glass-masthead {gap:8px}
+  .liquid-glass .glass-masthead .brand {gap:8px}
+  .liquid-glass .glass-masthead .brand img {width:36px!important;height:36px!important}
+  .liquid-glass .glass-masthead .gw-toggle {padding-inline:9px!important}
+}
+</style>
 </head>
-<body>
-  <header>
+<body class="liquid-glass">
+  <div id="copy-live-status" class="sr-only" role="status"></div>
+  <header class="glass-masthead">
     <div class="brand">
       <img src="icon.png" alt="">
       <div class="brand-text">
         <div class="page-title">All In</div>
-        <div class="page-sub"><span>多供应商</span><span>本机网关</span></div>
+        <a id="author-github-link" class="glass-credit" href="https://github.com/xunianooo" rel="noreferrer" referrerpolicy="no-referrer" aria-label="由 Gaeul 开发，访问 GitHub 主页 @xunianooo">
+          <span class="glass-credit-name">由 Gaeul 开发</span><span class="glass-credit-handle">@xunianooo</span>
+        </a>
       </div>
     </div>
-    <button id="gw-toggle" class="gw-toggle" onclick="toggleGateway()">
-      <span class="gw-dot"></span>
-      <span id="gw-toggle-text">运行中</span>
-    </button>
+    <div class="glass-masthead-actions">
+      <button id="gw-toggle" class="gw-toggle" onclick="toggleGateway()">
+        <span class="gw-dot" aria-hidden="true"><span class="gw-dot-ripple"></span></span>
+        <span id="gw-toggle-text">读取网关状态</span>
+      </button>
+      <a id="project-github-link" class="glass-project-link" href="https://github.com/xunianooo/All-in" rel="noreferrer" referrerpolicy="no-referrer" aria-label="开源项目，访问 All In 的 GitHub 仓库">开源项目 <span aria-hidden="true">↗</span></a>
+    </div>
   </header>
 
-  <nav class="nav-tabs" id="bottom-nav">
-    <div class="nav-pill" id="nav-pill"></div>
-    <button class="tab-btn active" data-icon="home" onclick="switchTab('overview', this)">首页</button>
+  <nav class="nav-tabs" id="bottom-nav" aria-label="主导航">
+    <div class="nav-pill" id="nav-pill" aria-hidden="true">
+      <div class="nav-lens-fill"></div>
+      <div class="nav-lens-clip"><div class="nav-lens-strip"></div></div>
+      <div class="nav-lens-rim"></div>
+    </div>
+    <button class="tab-btn active" data-icon="home" aria-current="page" onclick="switchTab('overview', this)">首页</button>
     <button class="tab-btn" data-icon="gateway" onclick="switchTab('gateway', this)">接入</button>
     <button class="tab-btn" data-icon="vendor" onclick="switchTab('providers', this)">供应商</button>
     <button class="tab-btn" data-icon="route" onclick="switchTab('routing', this)">路由</button>
@@ -1286,25 +1822,50 @@
   <main class="container">
     <section id="tab-overview" class="tab-pane active">
       <div id="overview-main-view">
-      <div class="card" id="project-info-card" aria-label="作者与项目地址">
-          <a class="project-info-link" id="author-github-link" href="https://github.com/xunianooo" rel="noreferrer" referrerpolicy="no-referrer" aria-label="Gaeul 的 GitHub 主页 @xunianooo">
-            <svg class="project-github-icon" viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true" focusable="false"><path d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"></path></svg>
-            <span class="project-info-text"><span class="project-info-kicker">由 Gaeul 开发</span><span class="project-info-meta">@xunianooo</span></span>
-          </a>
-        <span class="project-info-divider" aria-hidden="true"></span>
-          <a class="project-info-link" id="project-github-link" href="https://github.com/xunianooo/All-in" rel="noreferrer" referrerpolicy="no-referrer" aria-label="All In 的 GitHub 项目地址">
-            <svg class="project-github-icon" viewBox="0 0 16 16" width="20" height="20" fill="currentColor" aria-hidden="true" focusable="false"><path d="M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656 0-.781.281-1.625.75-2.188-.203-.515-.172-1.609.063-2.062.625-.078 1.468.25 1.968.703.594-.187 1.219-.281 1.985-.281.765 0 1.39.094 1.953.265.484-.437 1.344-.765 1.969-.687.218.422.25 1.515.046 2.047.5.593.766 1.39.766 2.203 0 1.922-1.453 3.375-3.547 3.64.531.344.89 1.094.89 1.954v1.625c0 .468.391.734.86.547C13.781 14.359 16 11.53 16 8.03 16 3.61 12.406 0 7.984 0 3.563 0 0 3.61 0 8.031a7.88 7.88 0 0 0 5.172 7.422c.422.156.828-.125.828-.547v-1.25c-.219.094-.5.156-.75.156-1.031 0-1.64-.562-2.078-1.609-.172-.422-.36-.672-.719-.719-.187-.015-.25-.093-.25-.187 0-.188.313-.328.625-.328.453 0 .844.281 1.25.86.313.452.64.655 1.031.655s.641-.14 1-.5c.266-.265.47-.5.657-.656"></path></svg>
-            <span class="project-info-text"><span class="project-info-kicker">开源项目</span><span class="project-info-meta">github.com/xunianooo/All-in</span></span><span class="project-info-arrow" aria-hidden="true">↗</span>
-          </a>
-      </div>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.54-test</p>
       <div id="setup-anchor"></div>
-      <div class="card checkin-entry" id="checkin-home-entry">
-        <div><span class="checkin-kicker">DAILY CHECK-IN</span><h2>每日签到</h2><p id="checkin-home-summary">账号奖励，一处管理</p></div>
-        <button type="button" class="btn" onclick="showCheckinCenter(true)">签到中心 →</button>
+      <div class="glass-hero" aria-labelledby="glass-home-title">
+        <div class="glass-orbit" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></div>
+        <div class="glass-hero-copy">
+          <h1 id="glass-home-title">网关总览</h1>
+          <p>管理你的模型与供应商</p>
+          <button type="button" class="glass-hero-button" onclick="switchTab('providers')">管理供应商 <span aria-hidden="true">↗</span></button>
+        </div>
       </div>
-
-
+      <div class="glass-section-heading"><h2>运行概览</h2></div>
+      <div class="grid-stats">
+        <div class="stat-card">
+          <div class="stat-label">总请求数</div>
+          <div class="stat-val" id="stat-total-req">0</div>
+          <div class="stat-sub">累计请求</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Token 吞吐</div>
+          <div class="stat-val" id="stat-total-tokens">0</div>
+          <div class="stat-sub">累计用量</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">隐私脱敏拦截</div>
+          <div class="stat-val" id="stat-total-masked">0</div>
+          <div class="stat-sub">累计次数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">上下文裁剪</div>
+          <div class="stat-val" id="stat-total-dropped">0</div>
+          <div class="stat-sub">累计条目</div>
+        </div>
+      </div>
+      <div class="glass-section-heading"><h2>快捷入口</h2></div>
+      <div class="glass-quick">
+      <div class="card gateway-entry">
+        <span class="glass-tool-icon glass-tool-cyan"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M12 7h4M12 17h4"/></svg></span><div><h2>网关接入</h2><p>地址、密钥和模型</p></div>
+        <button class="btn" aria-label="打开网关接入" onclick="switchTab('gateway')">打开 <span aria-hidden="true">↗</span></button>
+      </div>
+      <div class="card checkin-entry" id="checkin-home-entry">
+        <span class="glass-tool-icon glass-tool-violet" data-card-morph-icon><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="6" width="16" height="14" rx="4"/><path d="M8 4v4m8-4v4m-7 6 2 2 4-4"/></svg></span><div><h2>每日签到</h2><p id="checkin-home-summary">查看账号奖励</p></div>
+        <button type="button" class="btn" aria-label="打开签到中心" onclick="showCheckinCenter(true)">打开 <span aria-hidden="true">↗</span></button>
+      </div>
+      </div>
+      <div class="glass-section-heading"><h2>工具与设置</h2></div>
       <!-- 一键连接到 ETA（手机上的 agent）：复制连接信息 + 拉起 ETA -->
       <div class="card" id="eta-card">
         <div class="card-title">🔗 连接到 ETA（手机 agent）</div>
@@ -1345,29 +1906,6 @@
           <button class="seg-btn" data-mode="dark" onclick="setThemeMode('dark')">夜间</button>
         </div>
         <div id="theme-hint" style="font-size:12px;color:var(--text-faint);margin-top:10px;"></div>
-      </div>
-
-      <div class="grid-stats">
-        <div class="stat-card">
-          <div class="stat-label">总请求数</div>
-          <div class="stat-val" id="stat-total-req">0</div>
-          <div class="stat-sub">掌上极速转发</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Token 吞吐</div>
-          <div class="stat-val" id="stat-total-tokens">0</div>
-          <div class="stat-sub">全协议双向对齐</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">隐私脱敏拦截</div>
-          <div class="stat-val" id="stat-total-masked">0</div>
-          <div class="stat-sub">项凭据已安全保护</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">上下文裁剪</div>
-          <div class="stat-val" id="stat-total-dropped">0</div>
-          <div class="stat-sub">条历史被自动回收</div>
-        </div>
       </div>
 
       <!-- 实时模型连通性测试卡片 -->
@@ -1422,12 +1960,6 @@
         <div id="ping-test-output" style="display: none; margin-top: 14px; border-radius: 8px; padding: 12px 16px; font-size: 0.85rem;"></div>
       </div>
 
-      <div class="card gateway-entry">
-        <div><span class="gateway-eyebrow">CONNECT YOUR AGENT</span><h2>连接你的 AI 工具</h2><p>服务地址、API 密钥与已入池模型 ID，集中查看，一键复制。</p></div>
-        <button class="btn" onclick="switchTab('gateway')">打开网关接入 →</button>
-      </div>
-
-
       <details class="card" id="card-quirks"><summary class="card-title">🧩 供应商兼容规则</summary>
         <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.6">规则可更新指定供应商接口的兼容请求头，以及部分模型协议转换的输出默认值。规则按供应商、协议和模型精确匹配；账号凭据与未支持的协议逻辑仍由应用处理。点击检查更新后，应用会验证签名；更新失败时继续使用已有规则。</p>
         <div id="quirks-status" role="status" style="font-size:0.78rem;overflow-wrap:anywhere;">尚未读取</div>
@@ -1447,7 +1979,7 @@
       <details class="card" id="card-network"><summary class="card-title">🌐 出站网络设置</summary>
         <p style="font-size:0.78rem;color:var(--text-muted);line-height:1.6">设置网关访问供应商的网络方式。显式直连仍可能受 VPN 影响；系统浏览器和登录 WebView 网页由各自网络决定。字面回环 localhost、127.0.0.1、::1 直连。代理失败不会绕行，不支持 SOCKS 或代理认证。</p>
         <label for="network-mode">网络模式</label><select id="network-mode" onchange="networkEdited()" style="display:block;width:100%;margin:8px 0;padding:10px"><option value="default">默认网络</option><option value="direct">显式直连</option><option value="http_proxy">HTTP 代理</option></select>
-        <div id="network-proxy-fields" style="display:none"><label for="network-host">代理主机</label><input id="network-host" type="text" autocomplete="off" oninput="networkEdited()" style="display:block;width:100%;margin:8px 0;padding:10px;box-sizing:border-box"><label for="network-port">代理端口</label><input id="network-port" type="number" min="1" max="65535" oninput="networkEdited()" style="display:block;width:100%;margin:8px 0;padding:10px;box-sizing:border-box"></div>
+        <div id="network-proxy-fields" class="fold-container" hidden><label for="network-host">代理主机</label><input id="network-host" type="text" autocomplete="off" oninput="networkEdited()" style="display:block;width:100%;margin:8px 0;padding:10px;box-sizing:border-box"><label for="network-port">代理端口</label><input id="network-port" type="number" min="1" max="65535" oninput="networkEdited()" style="display:block;width:100%;margin:8px 0;padding:10px;box-sizing:border-box"></div>
         <button id="network-save" class="btn" onclick="saveNetwork()">保存</button> <button class="btn btn-outline" onclick="loadNetwork()">读取当前设置</button><div id="network-status" role="status" style="font-size:0.75rem;color:var(--text-muted);margin-top:8px"></div>
       </details>
 
@@ -1467,7 +1999,7 @@
         <button type="button" class="btn checkin-back" onclick="showCheckinCenter(false)">← 返回首页</button>
         <div class="checkin-hero">
           <span class="checkin-date" id="checkin-day">今日签到</span><h2 id="checkin-heading" tabindex="-1">每日签到</h2><p>签到进度与账号反馈，一目了然。</p>
-          <div class="checkin-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="4"/><path d="M7 3v4m10-4v4M3 11h18m-13 5 3 3 5-5"/></svg></div>
+          <div class="checkin-mark" data-card-morph-icon aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="4"/><path d="M7 3v4m10-4v4M3 11h18m-13 5 3 3 5-5"/></svg></div>
           <p class="checkin-total">共 <span id="checkin-supported">—</span> 个日常账号</p>
           <div class="checkin-stats"><div class="checkin-stat"><strong id="checkin-completed">—</strong><span>官方已确认</span></div><div class="checkin-stat"><strong id="checkin-available">—</strong><span>每日额度可用</span></div><div class="checkin-stat"><strong id="checkin-remaining">—</strong><span>待处理或核实</span></div></div>
           <button type="button" id="checkin-run-all" class="btn checkin-primary" onclick="checkinRun()" disabled><span id="checkin-run-label">读取签到状态…</span></button>
@@ -1483,13 +2015,15 @@
       </section>
       <div id="gateway-advanced-view" hidden>
         <button class="btn btn-outline" onclick="showGatewayAdvanced(false)">← 返回首页</button>
-        <div class="card">
+        <div class="card" id="gateway-advanced-intro">
           <h2 id="gateway-advanced-heading" tabindex="-1">网关高级设置</h2>
           <span class="badge badge-info">实验性功能</span>
           <p>以下三项用于特定场景，普通使用可保持默认。进入本页或展开说明不会启用功能；修改后需要点击对应的保存按钮。现有设置不会因页面移动而改变。</p>
           <p>网关已有的路由、故障处理和供应商自动兼容照常工作。这里的参数是额外的人工策略，设置不当可能增加等待或降低吞吐；请先阅读各项说明，再按需调整。</p>
         </div>
-      <details class="card" id="card-resilience"><summary class="card-title">⏳ 临时拒绝后的等待与流式保活</summary>
+      <section class="card advanced-card" id="card-resilience">
+        <button type="button" class="card-title advanced-card-trigger" id="advanced-resilience-trigger" aria-controls="advanced-resilience-body" aria-expanded="false"><span>⏳ 临时拒绝后的等待与流式保活</span><span class="advanced-card-arrow" aria-hidden="true">›</span></button>
+        <div class="advanced-card-body fold-container" id="advanced-resilience-body" hidden>
         <p><b>有什么用：</b>供应商临时忙碌时，允许网关多等一会儿再尝试；流心跳则在流式等待期间发送很小的保活信号，帮助部分客户端保持连接。两项可分别设置。</p>
         <p><b>什么时候需要：</b>经常遇到短暂限流、服务器忙，且愿意用更长等待换取成功机会时，可尝试额外等待，例如 10000 毫秒（10 秒）。只有客户端因连接空闲而断开时，才考虑开启心跳。日常使用建议保持默认关闭。</p>
         <p><b>会有什么影响：</b>额外等待可能让报错变慢；心跳不会让模型更快生成，也不保证避免客户端超时。它们不替代供应商自身的自动兼容与重试处理；关闭这里不会关闭 WorkBuddy、ZCode 已有的自动处理。</p>
@@ -1501,8 +2035,11 @@
         <p style="font-size:0.75rem;color:var(--text-muted);line-height:1.6">心跳约3秒一次，仅适用于标准 Chat / Messages / Responses 流式接口，完整事件之间发送注释，不算业务进度或 Token。上游半个事件停顿时不能插入。首个心跳之后 HTTP 状态已提交，后续失败通过协议错误返回。并非所有客户端的业务超时都会被心跳重置。</p>
         <button id="resilience-save" class="btn" onclick="saveResilience()">保存</button> <button class="btn btn-outline" onclick="loadResilience()">读取当前设置</button>
         <div id="resilience-status" role="status" style="font-size:0.75rem;color:var(--text-muted);margin-top:8px"></div>
-      </details>
-      <details class="card" id="card-outbound"><summary class="card-title">🚦 请求限速与排队</summary>
+        </div>
+      </section>
+      <section class="card advanced-card" id="card-outbound">
+        <button type="button" class="card-title advanced-card-trigger" id="advanced-outbound-trigger" aria-controls="advanced-outbound-body" aria-expanded="false"><span>🚦 请求限速与排队</span><span class="advanced-card-arrow" aria-hidden="true">›</span></button>
+        <div class="advanced-card-body fold-container" id="advanced-outbound-body" hidden>
         <p><b>有什么用：</b>给本机发往供应商的请求主动“限速”和“排队”，避免多个客户端同时调用时一下子发出太多请求。这是手动设置的本机上限，不会自动查询厂商套餐，也不会增加额度。</p>
         <p><b>什么时候需要：</b>已知 API 有明确的每分钟请求数或并发上限，或多个客户端共用同一账号且频繁触发限流时。普通使用建议保持间隔、请求数、同时处理数均为 0（不限）。供应商专用通道已有的自动并发保护独立生效，无需在这里重复设置。</p>
         <p><b>怎么填写：</b>供应商 ID 可在供应商页面查看，例如 raccoon。“每个凭据独立”表示每个账号或 API Key 分别计数，同一凭据调用不同模型会共用限额；“整个供应商共享”表示全部凭据合计，两种限制可同时生效。</p>
@@ -1523,8 +2060,11 @@
         <p style="font-size:0.75rem;color:var(--text-muted)">间隔、RPM、在途数为 0 表示不限。排队参数为 0 时仍受网关总队列与请求截止时间约束。优先选择可立即发送的可用备选；取消、超时或服务停止会退出等待。</p>
         <button id="outbound-save" class="btn" onclick="saveOutbound()">保存该范围</button> <button class="btn btn-outline" onclick="loadOutbound()">重新读取</button>
         <div id="outbound-status" role="status" style="font-size:0.75rem;color:var(--text-muted);margin-top:8px"></div>
-      </details>
-      <details class="card" id="card-affinity"><summary class="card-title">🔗 同一会话优先沿用账号</summary>
+        </div>
+      </section>
+      <section class="card advanced-card" id="card-affinity">
+        <button type="button" class="card-title advanced-card-trigger" id="advanced-affinity-trigger" aria-controls="advanced-affinity-body" aria-expanded="false"><span>🔗 同一会话优先沿用账号</span><span class="advanced-card-arrow" aria-hidden="true">›</span></button>
+        <div class="advanced-card-body fold-container" id="advanced-affinity-body" hidden>
         <p><b>有什么用：</b>同一段对话后续调用时，尽量沿用上一次成功使用的供应商和账号/API Key，减少在多个账号之间来回切换。它不会替你保存聊天记录，也不会把对话同步给其它客户端。</p>
         <p><b>什么时候需要：</b>商业 API 配置了多个账号或 Key，客户端又会发送固定的会话标识，并且希望同一对话尽量走同一路径时。只有一个账号、使用订阅/gift 通道或客户端不传会话标识时，通常没有必要开启。默认关闭，正常路由仍会自动运行。</p>
         <p><b>会有什么影响：</b>请求可能更集中到同一个账号；遇到冷却、禁用或限额时仍优先保障可用性，不会强行绑定。不能保证缓存命中或减少费用。支持的会话请求头包括 x-magpie-session、x-claude-code-session-id、x-session-id、session_id、x-conversation-id；网关不会从聊天内容猜测会话。</p>
@@ -1534,14 +2074,16 @@
         <p style="font-size:0.75rem;color:var(--text-muted);line-height:1.6">只使用显式会话请求头，不从提示词推断。绑定保存在有界进程内存中，默认30分钟有效，首次请求预约最长60秒；容量不足时保可用性。订阅、gift及未覆盖特殊通道不承诺绑定。</p>
         <button id="affinity-save" class="btn" onclick="saveAffinity()">保存</button> <button class="btn btn-outline" onclick="loadAffinity()">读取当前设置</button>
         <div id="affinity-status" role="status" style="font-size:0.75rem;color:var(--text-muted);margin-top:8px"></div>
-      </details>
+        </div>
+      </section>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.55-test</p>
       </div>
     </section>
 
     <section id="tab-gateway" class="tab-pane" aria-label="网关接入">
       <div class="gateway-hero">
-        <div class="gateway-hero-top"><span class="gateway-eyebrow">ALL IN · GATEWAY</span><span id="access-running" class="access-state">读取状态中</span></div>
-        <div class="gateway-hero-heading"><div><h1>一个网关，连接你的 AI</h1><p>把已入池的模型带到你常用的 Agent。</p></div><button class="btn" id="access-refresh" onclick="refreshGatewayAccess(true)">↻ 刷新</button></div>
+        <div class="gateway-hero-top"><span class="gateway-eyebrow">网关接入</span><span id="access-running" class="access-state">读取状态中</span></div>
+        <div class="gateway-hero-heading"><div><h1>连接你的 AI 工具</h1><p>把已入池的模型带到你常用的 Agent。</p></div><button class="btn" id="access-refresh" onclick="refreshGatewayAccess(true)">↻ 刷新</button></div>
         <div class="access-metrics"><div><strong id="access-model-count">—</strong><span>入池模型</span></div><div><strong id="access-provider-count">—</strong><span>供应商</span></div><div><strong id="access-group-count">—</strong><span>路由组</span></div></div>
         <div id="access-refresh-status" class="access-note" role="status" aria-live="polite">进入本页后读取当前账号池</div>
       </div>
@@ -1563,7 +2105,7 @@
         <div class="connection-field">
           <label class="sr-only" for="cred-base-url">本机 API 地址</label>
           <textarea id="cred-base-url" class="address-value" rows="2" readonly spellcheck="false" aria-label="本机 API 地址"></textarea>
-          <button class="btn" onclick="copyCredential('base')"
+          <button class="btn" onclick="copyCredential('base', this)"
             style="flex-shrink:0; padding:11px 16px; border-radius:9px;
                    background:rgba(56,189,248,0.16); border:1px solid rgba(56,189,248,0.45);
                    color:#7dd3fc; font-size:0.8rem; white-space:nowrap;">📋 复制</button>
@@ -1574,8 +2116,8 @@
         <div class="connection-field">
           <label class="sr-only" for="cred-lan-url">局域网 API 地址</label>
           <textarea id="cred-lan-url" class="address-value" rows="2" readonly spellcheck="false" aria-label="局域网 API 地址" placeholder="未检测到可用的局域网 IPv4 地址"></textarea>
-          <button class="btn" onclick="copyCredential('lan')">📋 复制</button>
-          <button class="btn btn-outline" onclick="copyManagementPanelLink()">复制网页管理链接</button>
+          <button class="btn" onclick="copyCredential('lan', this)">📋 复制</button>
+          <button class="btn btn-outline" onclick="copyManagementPanelLink(this)">复制网页管理链接</button>
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
@@ -1594,14 +2136,15 @@
             style="flex:1; min-width:0; padding:11px 13px; background:#0d0f17; color:#34d399;
                    border:1px solid var(--card-border); border-radius:9px;
                    font-family:ui-monospace,SFMono-Regular,monospace; font-size:0.8rem;">
-          <button class="btn" onclick="copyCredential('key')"
+          <button class="btn" onclick="copyCredential('key', this)"
             style="flex-shrink:0; padding:11px 16px; border-radius:9px;
                    background:rgba(16,185,129,0.16); border:1px solid rgba(16,185,129,0.45);
                    color:#34d399; font-size:0.8rem; white-space:nowrap;">📋 复制</button>
         </div>
 
         <!-- 修改口令：默认隐藏 -->
-        <div id="cred-edit-box" style="display:none; margin-top:14px; padding:12px;
+        <div id="cred-edit-fold" class="fold-container" hidden>
+        <div id="cred-edit-box" style="margin-top:14px; padding:12px;
              background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.22); border-radius:10px;">
           <div style="font-size:0.76rem; color:var(--text-muted); margin-bottom:8px; line-height:1.6;">
             新密钥至少 4 个字符，只能用字母、数字和 <code>. _ ~ ! @ # $ % ^ &amp; * + = : -</code>。
@@ -1626,9 +2169,10 @@
                      color:#34d399; border-color:rgba(16,185,129,0.3);">🎲 随机生成一个强密钥</button>
           </div>
         </div>
+        </div>
       </div>
       <div class="card access-model-card">
-        <div class="access-section-heading"><div><h2>可接入模型</h2><p>复制完整 ID，填入 Agent 的「模型 / Model」字段。</p></div><button id="access-copy-all" class="btn btn-outline" onclick="copyGatewayModelIds()" disabled>复制全部 ID</button></div>
+        <div class="access-section-heading"><div><h2>可接入模型</h2><p>复制完整 ID，填入 Agent 的「模型 / Model」字段。</p></div><button id="access-copy-all" class="btn btn-outline" onclick="copyGatewayModelIds(this)" disabled>复制全部 ID</button></div>
         <div class="access-search-row"><label class="sr-only" for="access-model-search">搜索模型 ID 或供应商</label><input id="access-model-search" type="search" placeholder="搜索模型 ID 或供应商…" oninput="gatewayAccessPage=0;renderGatewayModels()"><label class="sr-only" for="access-provider-filter">筛选供应商</label><select id="access-provider-filter" onchange="gatewayAccessPage=0;renderGatewayModels()"><option value="">全部供应商</option></select></div>
         <p id="access-model-summary" class="access-note"></p>
         <div id="access-model-pager" class="model-list-pager"></div>
@@ -2087,6 +2631,7 @@
     </section>
 
     <section id="tab-routing" class="tab-pane">
+      <div class="glass-page-heading"><h1>模型路由</h1><p>管理模型分组与请求分配</p></div>
       <div class="card">
         <div class="card-title">
           <span>🔀 虚拟模型路由组</span>
@@ -2127,15 +2672,17 @@
     </section>
 
     <section id="tab-insight" class="tab-pane">
+      <div class="glass-page-heading"><h1>用量与治理</h1><p>查看使用记录，管理模型与网关策略</p></div>
 
       <!-- ===== 用量账本（对齐 magpie 桌面端口径，数据来自每一次真实调用） ===== -->
       <div class="card" id="usage-card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
           <div class="card-title" style="margin:0;">📊 用量</div>
-          <div style="display:flex;gap:6px;">
-            <button class="btn" id="usage-d1" onclick="loadUsage(1)" style="min-height:32px;padding:0 12px !important;font-size:12.5px !important;">今天</button>
-            <button class="btn btn-primary" id="usage-d7" onclick="loadUsage(7)" style="min-height:32px;padding:0 12px !important;font-size:12.5px !important;">7 天</button>
-            <button class="btn" id="usage-d30" onclick="loadUsage(30)" style="min-height:32px;padding:0 12px !important;font-size:12.5px !important;">30 天</button>
+          <div class="usage-range" id="usage-range" role="group" aria-label="用量日期范围">
+            <span class="usage-range-pill" aria-hidden="true"></span>
+            <button type="button" class="usage-range-option" id="usage-d1" aria-pressed="false" onclick="loadUsage(1)">今天</button>
+            <button type="button" class="usage-range-option" id="usage-d7" aria-pressed="true" onclick="loadUsage(7)">7 天</button>
+            <button type="button" class="usage-range-option" id="usage-d30" aria-pressed="false" onclick="loadUsage(30)">30 天</button>
           </div>
         </div>
 
@@ -2148,8 +2695,11 @@
           <div class="usage-kpi-item"><div class="uk-label">平均耗时</div><div class="uk-val" id="uk-avg">—</div><div class="uk-sub" id="uk-avg-sub">&nbsp;</div></div>
         </div>
 
-        <div id="usage-chart" style="display:flex;align-items:flex-end;gap:6px;height:150px;margin-top:18px;padding-top:8px;border-top:1px solid var(--line);overflow-x:auto;"></div>
-        <div id="usage-axis" style="display:flex;gap:6px;margin-top:6px;font-size:10.5px;color:var(--text-faint);overflow-x:auto;"></div>
+        <div id="usage-plot" role="group" aria-label="每日用量">
+          <div id="usage-chart"></div>
+          <div id="usage-axis"></div>
+        </div>
+        <div id="usage-range-note" class="usage-note" role="status" hidden></div>
 
       <div class="heat-panel" id="usage-heatmap-card">
         <div class="heat-head">
@@ -2191,9 +2741,9 @@
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 8px;">
           <div style="font-size:13px;color:var(--text-muted);font-weight:600;">时段分布</div>
-          <div style="font-size:11.5px;color:var(--text-faint);">0 点 → 23 点</div>
+          <div style="font-size:11.5px;color:var(--text-faint);">Token 用量</div>
         </div>
-        <div id="usage-hours" class="usage-hours"></div>
+        <div id="usage-hours"></div>
 
         <div style="display:flex;justify-content:space-between;align-items:center;margin:20px 0 8px;">
           <div style="font-size:13px;color:var(--text-muted);font-weight:600;">会话 Top</div>
@@ -2437,6 +2987,7 @@
     </section>
 
     <section id="tab-privacy" class="tab-pane">
+      <div class="glass-page-heading"><h1>隐私保护</h1><p>设置敏感信息脱敏并查看效果</p></div>
       <div class="card">
         <div class="card-title">🛡️ 脱敏总开关</div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;">
@@ -2684,19 +3235,52 @@
     let gatewayPort = 3425;
     let statsFailures = 0;
 
+    let gatewayStateAnimations = [];
     function applyGatewayUI(running, port) {
       gatewayRunning = !!running;
       if (port) gatewayPort = port;
       const btn = document.getElementById('gw-toggle');
       const txt = document.getElementById('gw-toggle-text');
       if (!btn || !txt) return;
+      const state = gatewayRunning ? 'on' : 'off';
+      const changed = btn.dataset.gatewayState && btn.dataset.gatewayState !== state;
+      btn.dataset.gatewayState = state;
       if (gatewayRunning) {
         btn.classList.remove('off');
-        txt.innerText = '运行中 :' + gatewayPort;
+        txt.innerText = '网关运行中';
+        btn.setAttribute('aria-label', '网关运行中，点击关闭');
       } else {
         btn.classList.add('off');
-        txt.innerText = '已关闭 · 点此开启';
+        txt.innerText = '网关已关闭';
+        btn.setAttribute('aria-label', '网关已关闭，点击开启');
       }
+      if (changed) animateGatewayState(btn, txt);
+    }
+
+    function animateGatewayState(button, label) {
+      gatewayStateAnimations.forEach(animation => animation.cancel());
+      gatewayStateAnimations = [];
+      if (typeof label.animate !== 'function' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const dot = button.querySelector('.gw-dot');
+      const ripple = button.querySelector('.gw-dot-ripple');
+      if (!dot || !ripple) return;
+      gatewayStateAnimations = [
+        dot.animate([
+          {transform:'scale(.78,1.16)', easing:'cubic-bezier(.32,.04,.36,1)'},
+          {transform:'scale(1.30,.93)', offset:.42, easing:'ease-in-out'},
+          {transform:'scale(.95,1.04)', offset:.78, easing:'ease-out'},
+          {transform:'scale(1)'}
+        ], {duration:650}),
+        ripple.animate([
+          {transform:'scale(.85)', opacity:.44},
+          {transform:'scale(1.8)', opacity:0}
+        ], {duration:590, easing:'ease-out'}),
+        label.animate([
+          {transform:'translate3d(0,3px,0)', opacity:.72},
+          {transform:'translate3d(0,-1px,0)', opacity:1, offset:.66},
+          {transform:'translate3d(0,0,0)', opacity:1}
+        ], {duration:470, easing:'cubic-bezier(.33,.12,.28,1)'})
+      ];
     }
 
     // 供 Android 原生层回调
@@ -4049,8 +4633,13 @@
         const wrap = element('div', 'exp-prov');
         const head = element('div', 'exp-head');
         const title = configured ? focusable(button('exp-toggle exp-name', '', () => {
-          if (exposedOpen.has(key)) exposedOpen.delete(key); else exposedOpen.add(key);
-          renderExposed();
+          const expand = !exposedOpen.has(key);
+          if (expand) exposedOpen.add(key); else exposedOpen.delete(key);
+          if (typeof disclosureMotion === 'undefined') { renderExposed(); return; }
+          if (expand && !content.firstChild) renderContent();
+          title.setAttribute('aria-expanded', String(expand));
+          title.firstChild.nodeValue = (expand ? '▾ ' : '▸ ') + name;
+          disclosureMotion.panel(content, expand);
         }), JSON.stringify([key, 'title'])) : element('div', 'exp-name');
         if (configured) title.setAttribute('aria-expanded', String(open));
         title.textContent = (configured ? (open ? '▾ ' : '▸ ') : '') + name;
@@ -4062,12 +4651,19 @@
           hint.appendChild(element('span', '', '请导入账户或添加 API Key'));
           hint.appendChild(button('exp-mini', '去配置', () => configureExposedProvider(key.slice(2))));
           wrap.appendChild(hint);
-        } else if (open) {
+        }
+        const content = element('div', 'exp-disclosure');
+        if (configured) {
+          content.hidden = !open;
+          wrap.appendChild(content);
+          if (open) renderContent();
+        }
+        function renderContent() {
           const actions = element('div', 'exp-actions');
           [true, false].forEach(on => actions.appendChild(focusable(button('exp-mini', on ? '全选' : '清空', () => {
             if (isGroup) setExposedGroupAll(on); else setExposedGroup(key.slice(2), on);
           }), JSON.stringify([key, 'action', on]))));
-          wrap.appendChild(actions);
+          content.appendChild(actions);
           const view = exposedViews.get(key) || {query:'',page:0}; exposedViews.set(key,view);
           const found = entries.filter(e => (e.id + ' ' + e.name).toLowerCase().includes(view.query.toLowerCase()));
           const pages = Math.max(1,Math.ceil(found.length / 60)); view.page = Math.max(0,Math.min(pages-1,view.page));
@@ -4075,10 +4671,10 @@
           const search = focusable(element('input',''),JSON.stringify([key,'search'])); search.type='search'; search.value=view.query; search.placeholder='搜索模型名称或 ID'; search.setAttribute('aria-label',name+'白名单模型搜索');
           search.addEventListener('input',()=>{view.query=search.value;view.page=0;renderExposed();}); tools.appendChild(search);
           tools.appendChild(element('span','model-list-note','匹配 '+found.length+' 个 · 第 '+(view.page+1)+'/'+pages+' 页'));
-          [-1,1].forEach(step=>{const btn=button('exp-mini',step<0?'上一页':'下一页',()=>{view.page+=step;renderExposed();});btn.disabled=step<0?!view.page:view.page+1>=pages;tools.appendChild(btn);});wrap.appendChild(tools);
+          [-1,1].forEach(step=>{const btn=button('exp-mini',step<0?'上一页':'下一页',()=>{view.page+=step;renderExposed();});btn.disabled=step<0?!view.page:view.page+1>=pages;tools.appendChild(btn);});content.appendChild(tools);
           const chips = element('div', 'exp-chips');
           found.slice(view.page*60,(view.page+1)*60).forEach(entry => chips.appendChild(focusable(button('exp-chip' + (exposedSel.has(entry.id) ? ' on' : ''), entry.name, () => toggleExposed(entry.id)), JSON.stringify([key, 'chip', entry.id]))));
-          wrap.appendChild(chips);
+          content.appendChild(chips);
         }
         box.appendChild(wrap);
       }
@@ -4441,6 +5037,188 @@
       return stats.hitRate + '%';
     }
 
+    function renderUsageHours(hourly, rowCount, days) {
+      const host = document.getElementById('usage-hours');
+      if (!host) return;
+      const sameRange = host.dataset.days === String(days);
+      const selected = sameRange ? host.dataset.selectedHour : undefined;
+      const restoreFocus = sameRange && host.contains(document.activeElement);
+      host.dataset.days = String(days);
+      delete host.dataset.selectedHour;
+      host.replaceChildren();
+
+      const hours = Array.from({length: 24}, () => ({tokens: 0, requests: 0, active: false, recorded: false}));
+      const count = value => Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+      for (const bucket of Array.isArray(hourly) ? hourly : []) {
+        if (!bucket || !Number.isInteger(bucket.hour) || bucket.hour < 0 || bucket.hour >= 24) continue;
+        const tokens = count(bucket.tokens);
+        const requests = count(bucket.requests);
+        const recorded = tokens > 0 || (Number.isFinite(bucket.tokens) && bucket.tokens >= 0 && bucket.tokensRecorded === true);
+        const active = recorded || requests > 0 || bucket.hasActivity === true;
+        hours[bucket.hour] = {tokens, requests, recorded, active};
+      }
+      const firstActive = hours.findIndex(hour => hour.active);
+      if (firstActive === -1) {
+        const empty = document.createElement('div');
+        empty.className = 'usage-hour-empty';
+        empty.textContent = rowCount > 0 ? '暂无可显示的时段数据' : '所选时段暂无调用';
+        host.appendChild(empty);
+        return;
+      }
+
+      const plot = document.createElement('div');
+      plot.className = 'usage-hours-plot';
+      plot.setAttribute('role', 'group');
+      plot.setAttribute('aria-label', '按小时查看用量');
+      const axis = document.createElement('div');
+      axis.className = 'usage-hour-axis';
+      axis.setAttribute('aria-hidden', 'true');
+      for (const hour of [0, 6, 12, 18, 23]) {
+        const tick = document.createElement('span');
+        tick.style.gridColumn = String(hour + 1);
+        tick.textContent = String(hour).padStart(2, '0');
+        axis.appendChild(tick);
+      }
+      const detail = document.createElement('div');
+      detail.className = 'usage-hour-detail';
+      detail.setAttribute('role', 'status');
+      const maxTokens = Math.max(...hours.map(hour => hour.tokens));
+      detail.textContent = maxTokens ? '点选时段查看详情' : '暂无可绘制的 Token 用量。点选时段查看详情';
+      const label = index => {
+        const hour = hours[index];
+        const tokens = hour.active && !hour.recorded ? 'Token 用量未记录' : fmtFull(hour.tokens) + ' Token';
+        return String(index).padStart(2, '0') + ':00 · ' + fmtFull(hour.requests) + ' 次请求 · ' + tokens;
+      };
+      const select = (index, focus) => {
+        host.dataset.selectedHour = String(index);
+        Array.from(plot.children).forEach((button, i) => {
+          button.setAttribute('aria-pressed', String(i === index));
+          button.tabIndex = i === index ? 0 : -1;
+        });
+        detail.textContent = label(index);
+        if (focus) plot.children[index].focus({preventScroll: true});
+      };
+      hours.forEach((hour, index) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'usage-hour';
+        button.dataset.kind = hour.tokens ? 'positive' : hour.active && !hour.recorded ? 'missing' : 'zero';
+        button.tabIndex = index === firstActive ? 0 : -1;
+        button.setAttribute('aria-pressed', 'false');
+        button.setAttribute('aria-label', label(index));
+        button.title = label(index);
+        const mark = document.createElement('span');
+        mark.className = 'usage-hour-mark';
+        const height = hour.tokens ? Math.max(5, Math.round(hour.tokens / maxTokens * 66)) : 4;
+        mark.style.setProperty('--usage-hour-height', height + 'px');
+        button.appendChild(mark);
+        button.addEventListener('click', () => select(index, false));
+        button.addEventListener('keydown', event => {
+          const next = {ArrowLeft: Math.max(0, index - 1), ArrowRight: Math.min(23, index + 1), Home: 0, End: 23}[event.key];
+          if (!Number.isInteger(next)) return;
+          event.preventDefault();
+          select(next, true);
+        });
+        plot.appendChild(button);
+      });
+      host.append(plot, axis, detail);
+      if (selected !== undefined) select(Number(selected), restoreFocus);
+      else if (restoreFocus) plot.children[firstActive].focus({preventScroll: true});
+    }
+
+    let usageDisplayedDays;
+    let usageChartSignature;
+    const usageChartAnimations = new Set();
+    function animateUsage(node, frames, options) {
+      const animation = node.animate(frames, options);
+      usageChartAnimations.add(animation);
+      animation.addEventListener('finish', () => usageChartAnimations.delete(animation), {once:true});
+      return animation;
+    }
+
+    function renderUsageDaily(daily, rows, motion) {
+      const chart = document.getElementById('usage-chart');
+      const axis = document.getElementById('usage-axis');
+      if (!chart || !axis) return;
+      const hasCalls = rows > 0 || daily.some(day => day.tokens > 0 || day.requests > 0 || day.attempts > 0);
+      const tokens = day => Math.max(0, Number(day.tokens) || 0);
+      const max = Math.max(1, ...daily.map(tokens));
+      const signature = JSON.stringify([hasCalls, daily.map(day => [day.day,day.tokens,day.requests])]);
+      if (signature === usageChartSignature) return;
+      usageChartSignature = signature;
+      const origin = motion ? chart.getBoundingClientRect() : null;
+      const before = new Map();
+      if (origin?.width) {
+        chart.querySelectorAll('.usage-col:not(.empty)').forEach(column => {
+          before.set(column.dataset.day, column.firstElementChild.getBoundingClientRect());
+        });
+      }
+      usageChartAnimations.forEach(animation => animation.cancel());
+      usageChartAnimations.clear();
+      chart.replaceChildren();
+      axis.replaceChildren();
+      if (!hasCalls || !daily.length) {
+        const empty = document.createElement('div');
+        empty.className = 'usage-chart-empty';
+        empty.textContent = hasCalls ? '暂无可显示的每日用量' : '这段时间还没有调用记录';
+        chart.appendChild(empty);
+        if (motion) animateUsage(empty, [{opacity:.35},{opacity:1}], {duration:350});
+        return;
+      }
+      const columns = [];
+      const labelStep = Math.ceil(daily.length / 5);
+      daily.forEach((day,index) => {
+        const count = tokens(day);
+        const column = document.createElement('div');
+        column.className = count ? 'usage-col' : 'usage-col empty';
+        column.dataset.day = String(day.day);
+        column.title = day.day + ' · ' + fmtFull(day.tokens) + ' tokens · ' + day.requests + ' 次请求';
+        const bar = document.createElement('i');
+        bar.style.height = Math.max(2, Math.round(count / max * 130)) + 'px';
+        column.appendChild(bar);
+        chart.appendChild(column);
+        if (count) columns.push([column,bar,index]);
+        const cell = document.createElement('div');
+        cell.className = 'usage-axis-cell';
+        const last = daily.length - 1;
+        if (index === 0 || index === last || (last - index) % labelStep === 0 && index >= labelStep) {
+          const label = document.createElement('span');
+          const date = String(day.day || '').split('-');
+          label.textContent = date[1] + '/' + date[2];
+          cell.appendChild(label);
+        }
+        axis.appendChild(cell);
+      });
+      if (!origin?.width) return;
+      const layout = columns.map(([column,bar,index]) => [column,bar,index,bar.getBoundingClientRect()]);
+      const easing = 'cubic-bezier(.28,.46,.28,1)';
+      for (const [column,bar,index,rect] of layout) {
+        const previous = before.get(column.dataset.day);
+        before.delete(column.dataset.day);
+        if (previous && rect.width && rect.height) {
+          const shift = previous.left + previous.width / 2 - rect.left - rect.width / 2;
+          const transform = `translateX(${shift}px) scale(${previous.width / rect.width},${previous.height / rect.height})`;
+          animateUsage(bar, [{transform},{transform:'none'}], {duration:470,easing});
+        } else {
+          const delay = Math.round(50 * (daily.length - 1 - index) / daily.length);
+          animateUsage(bar, [{transform:'scaleY(.05)',opacity:.15},{transform:'scaleY(1)',opacity:1}], {duration:440,delay,easing,fill:'backwards'});
+        }
+      }
+      for (const previous of before.values()) {
+        const retiring = document.createElement('i');
+        retiring.className = 'usage-retiring-bar';
+        retiring.setAttribute('aria-hidden','true');
+        Object.assign(retiring.style, {
+          left:previous.left-origin.left+'px', bottom:origin.bottom-previous.bottom+'px',
+          width:previous.width+'px', height:previous.height+'px'
+        });
+        chart.appendChild(retiring);
+        const animation = animateUsage(retiring, [{opacity:.8},{opacity:0,transform:'scaleY(.8)'}], {duration:220,easing,fill:'forwards'});
+        animation.addEventListener('finish', () => retiring.remove(), {once:true});
+      }
+      animateUsage(axis,[{opacity:.38},{opacity:1}],{duration:330,easing});
+    }
+
     let usageRevision = 0;
     let usageHasData = false;
     async function loadUsage(days, group) {
@@ -4453,11 +5231,10 @@
       const d30 = document.getElementById('usage-d30');
       const gm = document.getElementById('usage-gm');
       const gp = document.getElementById('usage-gp');
-      [[d1, 1], [d7, 7], [d30, 30]].forEach(([el, v]) => {
-        if (!el) return;
-        el.className = 'btn' + (usageDays === v ? ' btn-primary' : '');
-        el.style.minHeight = '32px'; el.style.padding = '0 12px';
-        el.style.fontSize = '12.5px';
+      const selector = document.getElementById('usage-range');
+      if (selector) selector.style.setProperty('--usage-range-index', String([1,7,30].indexOf(usageDays)));
+      [[d1, 1], [d7, 7], [d30, 30]].forEach(([button, range]) => {
+        if (button) button.setAttribute('aria-pressed', String(usageDays === range));
       });
       [[gm, 'model'], [gp, 'provider']].forEach(([el, v]) => {
         if (!el) return;
@@ -4467,6 +5244,16 @@
       });
 
       const state = document.getElementById('usage-state');
+      const note = document.getElementById('usage-range-note');
+      const previousRange = usageDisplayedDays === 1 ? '今天' : usageDisplayedDays + ' 天';
+      const rangeChanged = usageHasData && usageDisplayedDays !== usageDays;
+      const showRangeNote = message => {
+        if (!note) return;
+        note.hidden = !message;
+        note.textContent = message;
+      };
+      const rangeUnavailable = rangeChanged ? '读取失败，仍显示「' + previousRange + '」' : '读取失败，请重试';
+      showRangeNote(rangeChanged ? '正在加载，当前显示「' + previousRange + '」' : '');
       if (state) state.innerText = '正在读取账本…';
 
       let j = null;
@@ -4476,20 +5263,29 @@
         j = await res.json();
       } catch (e) {
         if (revision !== usageRevision) return;
+        showRangeNote(rangeUnavailable);
         if (state) state.innerText = (usageHasData ? '刷新失败，保留上次数据：' : '读取失败：') + e.message;
         return;
       }
       if (revision !== usageRevision) return;
       if (!j || !j.ok) {
+        showRangeNote(rangeUnavailable);
         if (state) state.innerText = (usageHasData ? '刷新失败，保留上次数据：' : '读取失败：') + ((j && j.error) || '未知错误');
         return;
       }
 
+      const motion = rangeChanged && typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      usageDisplayedDays = usageDays;
       usageHasData = true;
+      showRangeNote('');
+      const changedMetrics = [];
       const t = j.totals || {};
       const set = (id, v, sub) => {
         const el = document.getElementById(id);
-        if (el) el.innerText = v;
+        if (el) {
+          if (motion && el.innerText !== String(v)) changedMetrics.push(el);
+          el.innerText = v;
+        }
         if (sub !== undefined) {
           const se = document.getElementById(id + '-sub');
           if (se) se.innerText = sub || '\\u00a0';
@@ -4497,7 +5293,10 @@
       };
       const setHtml = (id, v, sub) => {
         const el = document.getElementById(id);
-        if (el) el.innerHTML = v;
+        if (el) {
+          if (motion && el.innerHTML !== String(v)) changedMetrics.push(el);
+          el.innerHTML = v;
+        }
         if (sub !== undefined) {
           const se = document.getElementById(id + '-sub');
           if (se) se.innerText = sub || '\\u00a0';
@@ -4531,24 +5330,8 @@
       setHtml('uk-avg', t.avgMs ? (t.avgMs / 1000).toFixed(1) + '<span class="uk-unit">秒</span>' : '—',
         '端到端');
 
-      // ---- 每日柱状图
-      const chart = document.getElementById('usage-chart');
-      const axis = document.getElementById('usage-axis');
-      const daily = j.daily || [];
-      if (chart && axis) {
-        const max = Math.max.apply(null, daily.map(d => d.tokens || 0).concat([1]));
-        chart.innerHTML = daily.map(d => {
-          const h = Math.max(2, Math.round((d.tokens || 0) / max * 130));
-          const empty = !d.tokens;
-          return '<div class="usage-col' + (empty ? ' empty' : '') + '" title="' + esc(d.day + ' · '
-            + fmtFull(d.tokens) + ' tokens · ' + d.requests + ' 次请求') + '">'
-            + '<i style="height:' + (empty ? 2 : h) + 'px"></i></div>';
-        }).join('');
-        axis.innerHTML = daily.map(d => {
-          const p = String(d.day || '').split('-');
-          return '<div class="usage-axis-cell">' + esc(p[1]) + '/' + esc(p[2]) + '</div>';
-        }).join('');
-      }
+      renderUsageDaily(Array.isArray(j.daily) ? j.daily : [], j.rows, motion);
+      changedMetrics.forEach(node => animateUsage(node, [{opacity:.38},{opacity:1}], {duration:300}));
 
       // ---- 拆分排行
       const box = document.getElementById('usage-groups');
@@ -4576,21 +5359,7 @@
           }).join('');
         }
       }
-      // ---- 时段分布（24 小时热力条）
-      const hbox = document.getElementById('usage-hours');
-      if (hbox) {
-        const hrs = j.hourly || [];
-        const hmax = Math.max.apply(null, hrs.map(h => h.tokens || 0).concat([1]));
-        hbox.innerHTML = hrs.map(h => {
-          const v = h.tokens || 0;
-          const hh = v ? Math.max(4, Math.round(v / hmax * 60)) : 3;
-          return '<i class="' + (v ? '' : 'zero') + '" style="height:' + hh + 'px;'
-            + (v ? 'opacity:' + (0.35 + (v / hmax) * 0.65).toFixed(2) : '') + '"'
-            + ' title="' + esc(h.hour + ' 点 · ' + fmtFull(v) + ' tokens · ' + h.requests + ' 次') + '"></i>';
-        }).join('')
-          + '</div><div class="usage-hour-axis">'
-          + hrs.map(h => '<span>' + (h.hour % 6 === 0 ? h.hour : '') + '</span>').join('');
-      }
+      renderUsageHours(j.hourly, j.rows, usageDays);
 
       // ---- 会话 Top
       const sbox = document.getElementById('usage-sessions');
@@ -4649,6 +5418,70 @@
       if (state) state.innerText = '共 ' + j.rows + ' 条调用记录 · 用量可能包含估算，未知用量未计入';
     }
 
+    function setupUsageRangeDrag() {
+      const track = document.getElementById('usage-range');
+      if (!track || !window.PointerEvent) return;
+      const buttons = Array.from(track.querySelectorAll('.usage-range-option'));
+      let gesture = null;
+      let skipPointerClick = false;
+
+      function move(event) {
+        if (!gesture || gesture.id !== event.pointerId) return;
+        const dx = event.clientX - gesture.x;
+        const dy = event.clientY - gesture.y;
+        if (!gesture.dragged) {
+          if (Math.abs(dx) < 7 || Math.abs(dx) <= Math.abs(dy)) return;
+          gesture.dragged = true;
+          track.setAttribute('data-dragging', '');
+          try { gesture.button.setPointerCapture(event.pointerId); } catch (_) {}
+        }
+        const preview = Math.max(0, Math.min(buttons.length - 1, (event.clientX - gesture.center) / gesture.width));
+        gesture.preview = preview;
+        track.style.setProperty('--usage-range-preview', String(preview));
+      }
+
+      function finish(commit) {
+        if (!gesture) return;
+        const ended = gesture;
+        gesture = null;
+        if (ended.dragged) {
+          skipPointerClick = true;
+          if (commit) {
+            const selected = buttons[Math.round(ended.preview)];
+            if (selected.getAttribute('aria-pressed') !== 'true') selected.click();
+          }
+        }
+        track.removeAttribute('data-dragging');
+        track.style.removeProperty('--usage-range-preview');
+      }
+
+      track.addEventListener('pointerdown', event => {
+        const button = event.target.closest('.usage-range-option');
+        if (!button || gesture || !event.isPrimary || event.button !== 0) return;
+        const first = buttons[0].getBoundingClientRect();
+        if (!first.width) return;
+        skipPointerClick = false;
+        gesture = {id:event.pointerId,button,x:event.clientX,y:event.clientY,center:first.left + first.width / 2,width:first.width,dragged:false};
+      });
+      track.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', event => {
+        if (gesture?.id === event.pointerId) finish(true);
+      });
+      for (const name of ['pointercancel', 'lostpointercapture']) {
+        track.addEventListener(name, event => {
+          if (gesture?.id === event.pointerId) finish(false);
+        });
+      }
+      window.addEventListener('blur', () => finish(false));
+      track.addEventListener('click', event => {
+        if (!skipPointerClick || event.detail === 0) return;
+        skipPointerClick = false;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+    }
+    setupUsageRangeDrag();
+
     let insightRefreshPromise = null;
     let insightRefreshPending = false;
     function insightVisible() {
@@ -4681,24 +5514,405 @@
       let idx = btns.indexOf(el);
       if (idx < 0) idx = 0;
       nav.style.setProperty('--nav-idx', String(idx));
+      if (dockLens) dockLens.select(idx);
+      btns.forEach((button, position) => {
+        if (position === idx) button.setAttribute('aria-current', 'page');
+        else button.removeAttribute('aria-current');
+      });
     }
 
+    let dockLens;
+    function setupDockLens() {
+      const nav = document.getElementById('bottom-nav');
+      const pill = nav && nav.querySelector('#nav-pill');
+      const strip = pill && pill.querySelector('.nav-lens-strip');
+      if (!strip || !window.PointerEvent) return;
+      const buttons = Array.from(nav.querySelectorAll('.tab-btn'));
+      if (buttons.length < 2) return;
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const items = buttons.map(button => {
+        const item = document.createElement('span');
+        item.className = 'nav-lens-item';
+        const icon = document.createElement('span');
+        icon.className = 'nav-lens-icon';
+        const mask = getComputedStyle(button, '::before');
+        icon.style.webkitMaskImage = mask.webkitMaskImage;
+        icon.style.maskImage = mask.maskImage;
+        item.append(icon, document.createTextNode(button.textContent));
+        strip.appendChild(item);
+        return item;
+      });
+
+      const position = {value: 0, speed: 0, target: 0};
+      const lift = {value: 0, speed: 0, target: 0};
+      let selected = Math.max(0, buttons.findIndex(button => button.classList.contains('active')));
+      let preview = -1;
+      let centers = [], widths = [], dockWidth = 0, dockHeight = 0;
+      let pointer = null, blockClick = false, frameId = 0, lastFrame = 0;
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      function nearest(x) {
+        return centers.reduce((best, center, index) => Math.abs(x - center) < Math.abs(x - centers[best]) ? index : best, 0);
+      }
+      function draw() {
+        if (!dockWidth) return;
+        const rise = clamp(lift.value, 0, 1.12);
+        const stretch = reducedMotion.matches ? 0 : Math.min(Math.abs(position.speed) / 600, 1);
+        const next = nearest(position.value);
+        const restWidth = widths[next] - 6;
+        const width = Math.min(dockWidth - 2, restWidth + rise * (restWidth * .66 + 16 + stretch * 11));
+        const height = dockHeight - 14 + rise * (19 - stretch * 4);
+        const left = clamp(position.value - width / 2, 1, dockWidth - width - 1);
+        pill.style.setProperty('--lens-position', left + 'px');
+        pill.style.setProperty('--lens-width', width + 'px');
+        pill.style.setProperty('--lens-height', height + 'px');
+        pill.style.setProperty('--lens-offset', -left + 'px');
+        pill.style.setProperty('--lens-center', (left + width / 2) + 'px');
+        nav.toggleAttribute('data-lens-lifted', rise > .13);
+        if (preview !== next) {
+          if (preview >= 0) items[preview].removeAttribute('data-preview');
+          items[next].setAttribute('data-preview', '');
+          preview = next;
+        }
+      }
+      function step(spring, dt, stiffness, damping) {
+        spring.speed += ((spring.target - spring.value) * stiffness - spring.speed * damping) * dt;
+        spring.value += spring.speed * dt;
+        if (Math.abs(spring.target - spring.value) > .003 || Math.abs(spring.speed) > .025) return true;
+        spring.value = spring.target;
+        spring.speed = 0;
+        return false;
+      }
+      function tick(now) {
+        frameId = 0;
+        const dt = clamp((now - lastFrame) / 1000, .001, .032);
+        lastFrame = now;
+        let moving = false;
+        for (let i = 0; i < 3; i++) {
+          const slide = step(position, dt / 3, pointer ? 760 : 380, pointer ? 49 : 26);
+          const grow = step(lift, dt / 3, 410, 28);
+          moving = slide || grow;
+        }
+        draw();
+        if (moving) frameId = requestAnimationFrame(tick);
+      }
+      function update() {
+        if (reducedMotion.matches) {
+          position.value = position.target;
+          position.speed = 0;
+          lift.value = 0;
+          lift.speed = 0;
+          draw();
+        } else if (!frameId) {
+          lastFrame = performance.now();
+          frameId = requestAnimationFrame(tick);
+        }
+      }
+      function measure() {
+        if (pointer) endGesture(false);
+        const bounds = nav.getBoundingClientRect();
+        dockWidth = nav.clientWidth;
+        dockHeight = bounds.height;
+        if (!dockWidth) return;
+        const origin = bounds.left + nav.clientLeft;
+        centers = buttons.map((button, i) => {
+          const rect = button.getBoundingClientRect();
+          widths[i] = rect.width;
+          items[i].style.left = rect.left - origin + 'px';
+          items[i].style.width = rect.width + 'px';
+          return rect.left - origin + rect.width / 2;
+        });
+        strip.style.width = dockWidth + 'px';
+        position.value = position.target = centers[selected];
+        position.speed = 0;
+        draw();
+        nav.setAttribute('data-lens-ready', '');
+      }
+      function select(index) {
+        selected = index;
+        if (!centers.length || pointer) return;
+        position.target = centers[index];
+        update();
+      }
+      function endGesture(commit, clientX) {
+        if (!pointer) return;
+        const gesture = pointer;
+        pointer = null;
+        if (gesture.dragging || !commit) blockClick = true;
+        if (gesture.dragging && commit) {
+          const index = nearest(clientX - gesture.origin);
+          // Reuse the actual tab button so navigation side effects follow the normal path.
+          if (index !== selected) buttons[index].click();
+        }
+        position.target = centers[selected];
+        lift.target = 0;
+        update();
+      }
+      nav.addEventListener('pointerdown', event => {
+        if (pointer || !event.isPrimary || event.button !== 0 || !centers.length) return;
+        const button = event.target.closest('.tab-btn');
+        if (!button) return;
+        blockClick = false;
+        pointer = {
+          id: event.pointerId, x: event.clientX, y: event.clientY,
+          origin: nav.getBoundingClientRect().left + nav.clientLeft, dragging: false
+        };
+        try { button.setPointerCapture(event.pointerId); }
+        catch (err) { pointer = null; return; }
+        position.target = centers[buttons.indexOf(button)];
+        lift.target = reducedMotion.matches ? 0 : 1;
+        update();
+      });
+      nav.addEventListener('pointermove', event => {
+        if (!pointer || event.pointerId !== pointer.id) return;
+        if (!pointer.dragging) {
+          const x = Math.abs(event.clientX - pointer.x);
+          const y = Math.abs(event.clientY - pointer.y);
+          if (x < 7 || x <= y) return;
+          pointer.dragging = true;
+        }
+        position.target = clamp(event.clientX - pointer.origin, centers[0], centers[centers.length - 1]);
+        update();
+      });
+      nav.addEventListener('pointerup', event => {
+        if (pointer && event.pointerId === pointer.id) endGesture(true, event.clientX);
+      });
+      for (const name of ['pointercancel', 'lostpointercapture']) {
+        nav.addEventListener(name, event => {
+          if (pointer && event.pointerId === pointer.id) endGesture(false);
+        });
+      }
+      nav.addEventListener('click', event => {
+        if (!blockClick || event.detail === 0) return;
+        blockClick = false;
+        event.stopImmediatePropagation();
+        event.preventDefault();
+      }, true);
+      window.addEventListener('blur', () => endGesture(false));
+      reducedMotion.addEventListener('change', () => {
+        if (frameId) cancelAnimationFrame(frameId);
+        frameId = 0;
+        lift.target = reducedMotion.matches || !pointer ? 0 : 1;
+        update();
+      });
+      if (window.ResizeObserver) new ResizeObserver(measure).observe(nav);
+      else window.addEventListener('resize', measure);
+      measure();
+      return {select};
+    }
+
+    dockLens = setupDockLens();
     window.addEventListener('resize', () => moveNavPill(document.querySelector('.tab-btn.active')));
     try { refreshThemeUI(); } catch (e) {}
     window.addEventListener('load', () => setTimeout(() => moveNavPill(document.querySelector('.tab-btn.active')), 30));
 
 
+    const disclosureMotion = (() => {
+      const active = new Map();
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const usable = element => !reduced.matches && typeof element.animate === 'function' && element.getClientRects().length > 0;
+      const number = value => parseFloat(value) || 0;
+      function stop(element) {
+        const previous = active.get(element);
+        if (!previous) return;
+        active.delete(element);
+        previous.animation.cancel();
+        element.removeAttribute('data-fold-motion');
+      }
+      function animate(element, from, to, open, finish) {
+        if (Math.abs(from - to) < 1) { finish(); return; }
+        element.setAttribute('data-fold-motion', open ? 'opening' : 'closing');
+        const advancedCard = element.classList.contains('advanced-card-body');
+        const animation = element.animate([{height:from + 'px'}, {height:to + 'px'}], {
+          duration: advancedCard ? (open ? 480 : 420) : (open ? 390 : 340),
+          easing: advancedCard ? 'cubic-bezier(.4,0,.23,1)' :
+            (open ? 'cubic-bezier(.21,.66,.25,1)' : 'cubic-bezier(.32,.08,.25,1)'),
+          fill:'both'
+        });
+        const state = {animation, open, finish};
+        active.set(element, state);
+        animation.onfinish = () => {
+          if (active.get(element) !== state) return;
+          finish();
+          stop(element);
+        };
+      }
+      function toggleDetails(details, summary) {
+        if (!usable(details)) return false;
+        const previous = active.get(details);
+        const open = previous ? !previous.open : !details.open;
+        const from = details.getBoundingClientRect().height;
+        stop(details);
+        if (open) details.open = true;
+        const rectangle = details.getBoundingClientRect();
+        const style = getComputedStyle(details);
+        const summaryStyle = getComputedStyle(summary);
+        const closed = summary.getBoundingClientRect().bottom - rectangle.top + number(style.paddingBottom)
+          + number(style.borderBottomWidth) + (details.classList.contains('card') ? 0 : number(summaryStyle.marginBottom));
+        animate(details, from, open ? rectangle.height : closed, open, () => { details.open = open; });
+        return true;
+      }
+      function panel(element, open, onSettled) {
+        const previous = active.get(element);
+        if (previous && previous.open === open) return;
+        const from = element.getBoundingClientRect().height;
+        stop(element);
+        if (open) { element.hidden = false; element.inert = false; }
+        else element.inert = true;
+        const finish = () => { element.hidden = !open; element.inert = !open; onSettled?.(); };
+        if (!usable(element)) { finish(); return; }
+        animate(element, from, open ? element.getBoundingClientRect().height : 0, open, finish);
+      }
+      function settleAll() {
+        for (const [element, state] of active) { state.finish(); stop(element); }
+      }
+      document.addEventListener('click', event => {
+        if (event.defaultPrevented || event.button !== 0 || !event.target.closest) return;
+        const summary = event.target.closest('summary');
+        const details = summary?.parentElement;
+        if (details?.tagName !== 'DETAILS' || details.querySelector(':scope > summary') !== summary) return;
+        if (event.target.closest('a,button,input,textarea,select,label,[role="button"]')) return;
+        if (toggleDetails(details, summary)) event.preventDefault();
+      });
+      reduced.addEventListener?.('change', settleAll);
+      let viewportWidth = document.documentElement.clientWidth;
+      window.addEventListener('resize', () => {
+        const width = document.documentElement.clientWidth;
+        if (width === viewportWidth) return;
+        viewportWidth = width;
+        settleAll();
+      });
+      for (const trigger of document.querySelectorAll('#gateway-advanced-view .advanced-card-trigger')) {
+        const body = document.getElementById(trigger.getAttribute('aria-controls'));
+        if (!body) continue;
+        trigger.addEventListener('click', () => {
+          const open = trigger.getAttribute('aria-expanded') !== 'true';
+          trigger.setAttribute('aria-expanded', String(open));
+          panel(body, open);
+        });
+      }
+      function setPanel(element, open) {
+        stop(element);
+        element.hidden = !open;
+        element.inert = !open;
+      }
+      return {panel, setPanel, finishAll:settleAll};
+    })();
+
+    const cardMorph = (() => {
+      let running;
+      const ease = 'cubic-bezier(.35,0,.26,1)';
+      const duration = 440;
+      function cancel() {
+        if (!running) return;
+        const completed = running;
+        running = null;
+        completed.animations.forEach(animation => animation.cancel());
+        completed.layer.remove();
+        completed.resolve();
+      }
+      function capture(card) {
+        if (!card || !Element.prototype.animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+        const rect = card.getBoundingClientRect();
+        if (!rect.width || !rect.height || rect.bottom <= 0 || rect.top >= window.innerHeight) return null;
+        const style = getComputedStyle(card);
+        const icon = card.querySelector('[data-card-morph-icon]');
+        return {
+          rect,
+          background: style.background,
+          radius: style.borderTopLeftRadius,
+          icon: icon && icon.cloneNode(true),
+          iconRect: icon && icon.getBoundingClientRect()
+        };
+      }
+      function start(source, targetCard) {
+        cancel();
+        if (!source) return;
+        const target = capture(targetCard);
+        if (!target) return;
+        const layer = document.createElement('div');
+        layer.className = 'card-morph-layer';
+        layer.setAttribute('aria-hidden', 'true');
+        const surface = document.createElement('div');
+        surface.className = 'card-morph-surface';
+        surface.style.background = source.background;
+        layer.appendChild(surface);
+        document.body.appendChild(layer);
+        // Size each layer once. Animate position and scale without per-frame layout.
+        function travel(element, from, to) {
+          const width = Math.max(from.width, to.width);
+          const height = Math.max(from.height, to.height);
+          element.style.width = width + 'px';
+          element.style.height = height + 'px';
+          const transform = box => `translate3d(${box.left}px,${box.top}px,0) scale(${box.width / width},${box.height / height})`;
+          return element.animate([
+            {transform: transform(from), opacity: 1},
+            {transform: transform(to), opacity: 1, offset: .84},
+            {transform: transform(to), opacity: 0}
+          ], {duration, easing: ease, fill: 'both'});
+        }
+        surface.style.borderRadius = target.radius;
+        const animations = [travel(surface, source.rect, target.rect)];
+        animations.push(targetCard.animate([
+          {opacity: 0}, {opacity: 0, offset: .52}, {opacity: 1}
+        ], {duration, easing: ease, fill: 'both'}));
+        if (source.icon && source.iconRect.width && target.iconRect && target.iconRect.width) {
+          const icon = document.createElement('div');
+          icon.className = 'card-morph-icon';
+          source.icon.style.position = 'static';
+          source.icon.style.inset = 'auto';
+          source.icon.style.width = '100%';
+          source.icon.style.height = '100%';
+          icon.appendChild(source.icon);
+          layer.appendChild(icon);
+          animations.push(travel(icon, source.iconRect, target.iconRect));
+        }
+        let resolve;
+        const settled = new Promise(done => { resolve = done; });
+        running = {layer, animations, targetCard, settled, resolve};
+        animations[0].onfinish = () => { if (running && running.layer === layer) cancel(); };
+      }
+      window.addEventListener('resize', cancel);
+      function settling(card) {
+        return running && running.targetCard === card ? running.settled : null;
+      }
+      return {capture, start, cancel, settling};
+    })();
+
     // Check-in view owns no supplier credentials and never claims on a read or page entry.
     let checkinData = null, checkinRevision = 0, checkinActionBusy = false, checkinScroll = 0, checkinHistory = false, checkinPollTimer = null;
     function checkinVisible() { const p=document.getElementById('checkin-center-view');return !!(p&&!p.hidden); }
-    function showCheckinCenter(open, fromHistory) {
-      const main=document.getElementById('overview-main-view'),page=document.getElementById('checkin-center-view'),advanced=document.getElementById('gateway-advanced-view');if(!main||!page)return;
-      if(open) {
-        if(page.hidden){checkinScroll=window.scrollY||0;try{history.pushState({checkinCenter:1},'');checkinHistory=true;}catch(e){}}
-        if(advanced)advanced.hidden=true;main.hidden=true;page.hidden=false;window.scrollTo(0,0);const h=document.getElementById('checkin-heading');if(h)h.focus({preventScroll:true});checkinLoad();
+    function showCheckinCenter(open, fromHistory, skipMotion) {
+      const main = document.getElementById('overview-main-view');
+      const page = document.getElementById('checkin-center-view');
+      const advanced = document.getElementById('gateway-advanced-view');
+      if (!main || !page) return;
+      const entry = document.getElementById('checkin-home-entry');
+      const hero = document.querySelector('#checkin-center-view .checkin-hero');
+      if (open) {
+        if (!page.hidden) return;
+        const before = typeof cardMorph !== 'undefined' && cardMorph.capture(entry);
+        checkinScroll = window.scrollY || 0;
+        try { history.pushState({checkinCenter:1}, ''); checkinHistory = true; } catch (err) {}
+        if (advanced) advanced.hidden = true;
+        main.hidden = true;
+        page.hidden = false;
+        if (typeof cardMorph !== 'undefined') window.scrollTo({top: 0, behavior: 'instant'});
+        else window.scrollTo(0, 0);
+        const heading = document.getElementById('checkin-heading');
+        if (heading) heading.focus({preventScroll:true});
+        if (before) cardMorph.start(before, hero);
+        checkinLoad();
       } else {
-        if(checkinHistory&&!fromHistory){history.back();return;}
-        checkinHistory=false;page.hidden=true;main.hidden=false;window.scrollTo(0,checkinScroll);
+        if (page.hidden) return;
+        if (checkinHistory && !fromHistory) { history.back(); return; }
+        const before = !skipMotion && typeof cardMorph !== 'undefined' && cardMorph.capture(hero);
+        checkinHistory = false;
+        page.hidden = true;
+        main.hidden = false;
+        if (typeof cardMorph !== 'undefined') window.scrollTo({top: checkinScroll, behavior: 'instant'});
+        else window.scrollTo(0, checkinScroll);
+        if (!skipMotion && entry) entry.querySelector('button')?.focus({preventScroll:true});
+        if (typeof cardMorph !== 'undefined' && !skipMotion) cardMorph.start(before, entry);
       }
     }
     window.addEventListener('popstate',function(){if(checkinVisible())showCheckinCenter(false,true);});
@@ -4762,7 +5976,17 @@
     }
     async function checkinLoad() {
       const rev=++checkinRevision;
-      try {const d=await checkinRequest('/api/checkin/status');if(rev!==checkinRevision)return;checkinRender(d);checkinError('');}
+      try {
+        const data = await checkinRequest('/api/checkin/status');
+        if (rev !== checkinRevision) return;
+        if (typeof cardMorph !== 'undefined') {
+          const settling = cardMorph.settling(document.querySelector('#checkin-center-view .checkin-hero'));
+          if (settling) await settling;
+        }
+        if (rev !== checkinRevision) return;
+        checkinRender(data);
+        checkinError('');
+      }
       catch(e){if(rev===checkinRevision)checkinError('暂时无法读取签到状态，请确认网关服务正在运行。不会因此重新发送领取请求。');}
     }
     async function checkinRun(provider,accountId) {
@@ -4787,30 +6011,101 @@
     setInterval(function(){if(checkinVisible()&&!document.hidden&&!checkinActionBusy)checkinLoad();},30000);
 
     let gatewayAdvancedScroll = 0;
-    function showGatewayAdvanced(open) {
+    function showGatewayAdvanced(open, skipMotion) {
       const main = document.getElementById('overview-main-view');
       const advanced = document.getElementById('gateway-advanced-view');
-      if (!main || !advanced) return;
-      if (open && advanced.hidden) gatewayAdvancedScroll = window.scrollY || 0;
-      main.hidden = !!open;
+      if (!main || !advanced || open === !advanced.hidden) return;
+      const morph = typeof cardMorph === 'undefined' ? null : cardMorph;
+      const entry = morph && document.getElementById('card-gateway-advanced');
+      const hero = morph && document.getElementById('gateway-advanced-intro');
+      const before = !skipMotion && morph?.capture(open ? entry : hero);
+      if (open) gatewayAdvancedScroll = window.scrollY || 0;
+      else if (typeof disclosureMotion !== 'undefined') disclosureMotion.finishAll();
+      main.hidden = open;
       advanced.hidden = !open;
-      window.scrollTo(0, open ? 0 : gatewayAdvancedScroll);
-      if (open) {
-        const heading = document.getElementById('gateway-advanced-heading');
-        if (heading) heading.focus({preventScroll:true});
-      }
+      const top = open ? 0 : gatewayAdvancedScroll;
+      if (morph) window.scrollTo({top, behavior:'instant'});
+      else window.scrollTo(0, top);
+      if (open) document.getElementById('gateway-advanced-heading')?.focus({preventScroll:true});
+      else if (!skipMotion) entry?.querySelector('button')?.focus({preventScroll:true});
+      if (!skipMotion && morph) morph.start(before, open ? hero : entry);
     }
+
+    const tabMotion = (() => {
+      const scrollByTab = new WeakMap();
+      let transition;
+      function reset() {
+        if (!transition) return;
+        const {old, animations, resolve} = transition;
+        transition = null;
+        animations.forEach(animation => animation.cancel());
+        old.removeAttribute('data-tab-departing');
+        old.removeAttribute('aria-hidden');
+        old.inert = false;
+        for (const name of ['top', 'left', 'width', 'max-height']) old.style.removeProperty(name);
+        resolve();
+      }
+      function capture(old, next) {
+        if (!old || !next || old === next) return null;
+        scrollByTab.set(old, window.scrollY);
+        const from = old.getBoundingClientRect();
+        const fromOpacity = Number(getComputedStyle(old).opacity);
+        const resting = old.parentElement.getBoundingClientRect();
+        const reversing = transition && transition.old === next;
+        const value = reversing ? next.getBoundingClientRect().left - resting.left - transition.inset : null;
+        const opacity = reversing ? Number(getComputedStyle(next).opacity) : .56;
+        reset();
+        return {old, from, fromOpacity, value, resting, opacity};
+      }
+      function play(state, next, direction, preserveScroll) {
+        if (!preserveScroll) window.scrollTo({top: scrollByTab.get(next) || 0, behavior: 'instant'});
+        if (!state || !next.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        const {old, from, fromOpacity, value, resting, opacity} = state;
+        const target = next.getBoundingClientRect();
+        const inset = target.left - resting.left;
+        const distance = Math.min(42, from.width * .105);
+        const departingX = from.left - target.left;
+        const timing = {duration:440, fill:'both'};
+        const move = (x, opacity, offset, easing) => ({transform:`translate3d(${x}px,0,0)`, opacity, offset, easing});
+        old.inert = true;
+        old.setAttribute('aria-hidden', 'true');
+        old.style.top = from.top + 'px';
+        old.style.left = target.left + 'px';
+        old.style.width = from.width + 'px';
+        old.style.maxHeight = Math.max(0, innerHeight - from.top) + 'px';
+        old.setAttribute('data-tab-departing', '');
+        const shift = next.animate([
+          move(value ?? distance * direction, opacity, 0, 'cubic-bezier(.22,.68,.26,1)'),
+          move(-3 * direction, 1, .8, 'ease-out'), move(0, 1, 1)
+        ], timing);
+        const retire = old.animate([
+          move(departingX, fromOpacity, 0, 'cubic-bezier(.25,.45,.35,1)'), move(-distance * direction, 0, .78), move(-distance * direction, 0, 1)
+        ], timing);
+        let resolve;
+        const settled = new Promise(done => { resolve = done; });
+        transition = {old, animations:[shift, retire], inset, settled, resolve};
+        shift.onfinish = () => { if (transition && transition.animations[0] === shift) reset(); };
+      }
+      window.addEventListener('resize', reset);
+      return {capture, play, settling: () => transition?.settled};
+    })();
 
     function switchTab(tabId, el, preserveScroll) {
       if (typeof cancelStreamPing === 'function') cancelStreamPing('已切换操作，旧流式测试已取消');
-      if(typeof checkinVisible === 'function' && checkinVisible())showCheckinCenter(false,true);
+      if (typeof cardMorph !== 'undefined') cardMorph.cancel();
+      if (typeof disclosureMotion !== 'undefined') disclosureMotion.finishAll();
+      if (typeof checkinVisible === 'function' && checkinVisible()) showCheckinCenter(false, true, true);
       const advanced = document.getElementById('gateway-advanced-view');
-      if (advanced && !advanced.hidden) showGatewayAdvanced(false);
+      if (advanced && !advanced.hidden) showGatewayAdvanced(false, true);
       if (tabId === 'gateway') { gatewayAccessLast = 0; refreshGatewayAccess(false); }
       if (tabId === 'privacy') { loadPrivacy(); }
       try {
         const btns = document.querySelectorAll('.tab-btn');
         const panes = document.querySelectorAll('.tab-pane');
+        const target = document.getElementById('tab-' + tabId);
+        const old = Array.from(panes).find(pane => pane.classList.contains('active'));
+        const index = Array.from(panes).indexOf(target);
+        const state = typeof tabMotion !== 'undefined' ? tabMotion.capture(old, target) : null;
         btns.forEach(b => b.classList.remove('active'));
         panes.forEach(p => p.classList.remove('active'));
 
@@ -4823,14 +6118,11 @@
             }
           });
         }
-        const target = document.getElementById('tab-' + tabId);
         if (target) {
           target.classList.add('active');
-          // 重放进场动画：先摘掉再加回来，强制浏览器重排
-          target.style.animation = 'none';
-          void target.offsetWidth;
-          target.style.animation = '';
-          if (!preserveScroll) window.scrollTo({ top: 0, behavior: 'smooth' });
+          if (typeof tabMotion !== 'undefined') {
+            if (old !== target) tabMotion.play(state, target, index < Array.from(panes).indexOf(old) ? -1 : 1, preserveScroll);
+          } else if (!preserveScroll) window.scrollTo({top:0, behavior:'auto'});
         }
         moveNavPill(document.querySelector('.tab-btn.active'));
         if (tabId === 'insight') {
@@ -4993,14 +6285,14 @@
           const name = document.createElement('div'); name.className = 'access-model-name'; name.textContent = m.name + (m.kind === 'group' ? ' · 自动路由入口' : ' · ' + m.providerName);
           info.appendChild(id); info.appendChild(name);
           const button = document.createElement('button'); button.className = 'btn btn-outline access-model-copy'; button.textContent = '复制 ID'; button.setAttribute('aria-label','复制 ' + m.id);
-          button.onclick = () => { if (gatewayAccessReady && gatewayAccessRows.some(x => x.id === m.id)) copyText(m.id, '模型 ID 已复制'); };
+          button.onclick = () => { if (gatewayAccessReady && gatewayAccessRows.some(x => x.id === m.id)) copyText(m.id, '模型 ID 已复制', button); };
           row.appendChild(info); row.appendChild(button); list.appendChild(row);
         });
       });
     }
-    function copyGatewayModelIds() {
+    function copyGatewayModelIds(button) {
       const rows = gatewayVisibleModels(); if (!rows.length) return;
-      copyText(rows.map(m => m.id).join('\n'), '模型 ID 已复制，每行一项');
+      copyText(rows.map(m => m.id).join('\n'), '模型 ID 已复制，每行一项', button);
     }
     document.addEventListener('visibilitychange', () => {
       if (gatewayAccessVisible()) { gatewayAccessLast = 0; refreshGatewayAccess(false); }
@@ -5283,11 +6575,12 @@
     }
 
     /** 一键复制：地址或密钥 */
-    function copyManagementPanelLink() {
+    function copyManagementPanelLink(button) {
       if (!window.AllInNative || typeof window.AllInNative.copyManagementPanelLink !== 'function') {
         showToast('请在手机 App 中复制网页管理链接'); return;
       }
       const copied = window.AllInNative.copyManagementPanelLink();
+      if (copied) showCopyFeedback(button);
       showToast(copied
         ? '管理链接已复制，仅交给可信设备；与调用模型的 Key 分开'
         : (listenLoopbackOnly()
@@ -5295,7 +6588,7 @@
           : '未能复制，请检查网关和局域网连接'));
     }
 
-    function copyCredential(which) {
+    function copyCredential(which, button) {
       let text = '';
       if (which === 'base') {
         text = gatewayBaseUrl() ? gatewayBaseUrl() + '/v1' : '';
@@ -5307,54 +6600,65 @@
         text = currentAuthKey || '';
         if (!text) { showToast('还没有设置密钥'); return; }
       }
-      copyText(text, which === 'base' || which === 'lan' ? '✅ API 地址已复制' : '✅ API 密钥已复制');
+      copyText(text, which === 'base' || which === 'lan' ? '✅ API 地址已复制' : '✅ API 密钥已复制', button);
     }
 
     /** 统一的复制实现：优先 clipboard API，降级 execCommand（WebView 里后者更可靠） */
-    function copyText(text, okMsg) {
-      const fallback = () => {
-        try {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          ta.style.top = '0';
-          document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
-          ta.setSelectionRange(0, text.length);
-          const ok = document.execCommand('copy');
-          document.body.removeChild(ta);
-          showToast(ok ? okMsg : '复制失败，请手动长按选择');
-          return ok;
-        } catch (e) {
-          showToast('复制失败，请手动长按选择');
-          return false;
+    /** 统一的复制实现 */
+    const copyFeedback = new WeakMap();
+    function showCopyFeedback(button) {
+      if (!button?.isConnected) return false;
+      clearTimeout(copyFeedback.get(button));
+      button.setAttribute('data-copy-feedback','✓ 已复制');
+      copyFeedback.set(button, setTimeout(() => {
+        button.removeAttribute('data-copy-feedback');
+        copyFeedback.delete(button);
+      }, 1600));
+      return true;
+    }
+    function copyText(text, okMsg, button) {
+      const success = () => {
+        if (!showCopyFeedback(button)) showToast(okMsg);
+        else {
+          const status = document.getElementById('copy-live-status');
+          if (status) status.textContent = okMsg;
         }
       };
-      // Android WebView 里 navigator.clipboard 在非安全上下文（ http://ip ）常常不可用，
-      // 直接先试 execCommand，成功就不必再走异步分支。
-      if (fallback()) return;
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(
-          () => showToast(okMsg),
-          () => showToast('复制失败，请手动长按选择')
-        );
+      const field = document.createElement('textarea');
+      const active = document.activeElement;
+      let copied = false;
+      try {
+        field.value = text;
+        field.style.cssText = 'position:fixed;left:-9999px;top:0';
+        document.body.appendChild(field);
+        field.focus({preventScroll:true});
+        field.select();
+        field.setSelectionRange(0, text.length);
+        copied = document.execCommand('copy');
+      } catch (_) {} finally {
+        field.remove();
+        if (active?.isConnected) active.focus({preventScroll:true});
       }
+      if (copied) { success(); return; }
+      const failure = () => showToast('复制失败，请手动长按选择');
+      if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(success, failure);
+      else failure();
     }
 
     function startEditAuthKey() {
-      const box = document.getElementById('cred-edit-box');
+      const box = document.getElementById('cred-edit-fold') || document.getElementById('cred-edit-box');
       const inp = document.getElementById('cred-new-key');
-      if (box) box.style.display = 'block';
+      if (box && typeof disclosureMotion !== 'undefined') disclosureMotion.panel(box, true);
+      else if (box) box.style.display = 'block';
       if (inp) { inp.value = currentAuthKey || ''; inp.focus(); }
     }
 
     function cancelEditAuthKey() {
-      const box = document.getElementById('cred-edit-box');
+      const box = document.getElementById('cred-edit-fold') || document.getElementById('cred-edit-box');
       const inp = document.getElementById('cred-new-key');
-      if (box) box.style.display = 'none';
       if (inp) inp.value = '';
+      if (box && typeof disclosureMotion !== 'undefined') disclosureMotion.panel(box, false);
+      else if (box) box.style.display = 'none';
     }
 
     /** 生成一个够强又好复制的随机密钥（去掉容易看错的 0/O/1/l/I） */
@@ -5662,10 +6966,37 @@
     }
     function providerConfigured(p) { const c = providerCounts(p); return c.keys > 0 || c.accounts > 0; }
     function providerEnabled(p) { return p.enabled !== false; }
-    function showProviderView(view, id) {
-      if (providerView === 'list') providerListScroll = window.scrollY || 0;
-      providerView = view; providerDetail = id || ''; applyProviderView();
-      if (view === 'list') { flushCommercialRender(); renderProviderList(); window.scrollTo(0, providerListScroll); } else window.scrollTo(0, 0);
+    function showProviderView(view, id, sourceCard) {
+      const previousView = providerView;
+      const previousId = providerDetail;
+      const opening = previousView === 'list' && view === 'detail' && !!sourceCard;
+      const closing = previousView === 'detail' && view === 'list';
+      const morph = typeof cardMorph !== 'undefined' ? cardMorph : null;
+      const detailCard = () => document.getElementById('provider-detail-info')?.querySelector('.provider-detail-heading');
+      const before = morph && (opening || closing) ? morph.capture(opening ? sourceCard : detailCard()) : null;
+      if (previousView === 'list') providerListScroll = window.scrollY || 0;
+      providerView = view;
+      providerDetail = id || '';
+      applyProviderView();
+      let destination;
+      let focus;
+      if (view === 'list') {
+        flushCommercialRender();
+        renderProviderList();
+        if (closing && morph) {
+          const row = Array.from(document.querySelectorAll('.provider-compact-main')).find(button => button.dataset.providerFocus === 'row:' + previousId);
+          destination = row?.closest('.provider-compact');
+          focus = row || document.getElementById('provider-search');
+        }
+      } else if (view === 'detail' && morph) {
+        destination = detailCard();
+        focus = destination?.querySelector('h3');
+      }
+      const top = view === 'list' ? providerListScroll : 0;
+      if (morph) window.scrollTo({top, behavior: 'instant'});
+      else window.scrollTo(0, top);
+      if (focus && morph) focus.focus({preventScroll: true});
+      if (morph) morph.start(before, destination);
     }
     // Android system back must unwind in-page navigation before leaving the activity.
     window.allInHandleBack = function () {
@@ -5675,7 +7006,8 @@
       };
       if (visible('dup-account-modal')) { closeDupModal(); return true; }
       if (visible('inapp-login-modal')) { closeInAppLogin(); return true; }
-      if (visible('account-manage-modal')) { closeAccountModal(); return true; }
+      if (typeof closeAccountActions === 'function' && closeAccountActions()) return true;
+      if (visible('account-manage-modal')) { closeAccountModal(true); return true; }
       const gateway = document.getElementById('tab-gateway');
       if (gateway && gateway.classList.contains('active')) { switchTab('overview'); return true; }
       const overview = document.getElementById('tab-overview');
@@ -5715,12 +7047,26 @@
       info.replaceChildren();
       if (providerView === 'add') { info.textContent = '添加供应商'; const available = (cards && Array.from(cards.children).some(x => !x.hidden)) || (commercial && Array.from(commercial.children).some(x => !x.hidden)); if (!available) { const note = document.createElement('p'); note.textContent = '暂无可添加的供应商'; info.appendChild(note); } return; }
       const p = providers.find(x => x.id === providerDetail); if (!p) return;
-      const heading = document.createElement('h3'); heading.textContent = p.name || p.id; info.appendChild(heading);
+      const hero = document.createElement('div');
+      hero.className = 'card provider-detail-heading';
+      const icon = document.createElement('span');
+      icon.setAttribute('data-card-morph-icon', '');
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = providerLogo(p.id, p.name, true);
+      const heading = document.createElement('h3');
+      heading.tabIndex = -1;
+      heading.textContent = p.name || p.id;
+      hero.appendChild(icon);
+      hero.appendChild(heading);
+      info.appendChild(hero);
       const c = providerCounts(p), desc = document.createElement('p'); desc.textContent = '账号 ' + c.accounts + ' · Key ' + c.keys + ' · 模型 ' + c.models + '（配置） · ' + (providerConfigured(p) ? '已配置' : '待接入'); info.appendChild(desc);
       if (c.accounts) { const b = document.createElement('button'); b.className = 'btn btn-outline'; b.textContent = '管理账号'; b.onclick = () => manageProviderAccounts(p.id); info.appendChild(b); }
       if (p.id === 'loomy') { const login = document.createElement('button'); login.className = 'btn btn-outline'; login.textContent = '短信登录'; login.onclick = showLoomyLogin; info.appendChild(login); }
       renderAccountRouting(info, p);
-      renderProviderBilling(info, p.id);
+      const billingPanel = document.createElement('div');
+      billingPanel.id = 'provider-billing-panel';
+      info.appendChild(billingPanel);
+      renderProviderBilling(billingPanel, p.id);
       const hasCard = cards && Array.from(cards.children).some(x => !x.hidden), hasCommercial = details && !details.hidden;
       if (!hasCard && !hasCommercial && p.id === 'loomy') { const sync = document.createElement('button'); sync.className = 'btn btn-outline'; sync.textContent = '🔄 同步官方模型'; sync.onclick = () => syncUniversalModels('loomy'); info.appendChild(sync); }
       if (!hasCard && !hasCommercial && ['loomy','workbuddy-ai'].includes(p.id) && String(p.status || '').toLowerCase() !== 'placeholder') { const probe = document.createElement('div'); probe.innerHTML = endpointProbeControls(p.id); info.appendChild(probe); hydrateEndpointProbe(p.id); }
@@ -5779,9 +7125,13 @@
       }).filter(Boolean);
       return {accounts, models:data.models, observedAt:now, stale:false};
     }
+    const billingPending = new Map();
     const billingRequests = Object.create(null);
     async function refreshProviderBilling(id) {
+      if (billingPending.get(id) === billingRequests[id] && billingPending.has(id)) return;
       const request = billingRequests[id] = (billingRequests[id] || 0) + 1;
+      billingPending.set(id, request);
+      updateBillingPanel(id);
       const previous = providerBillingCache[id];
       try {
         if (['qoder_cn','workbuddy','workbuddy-ai','raccoon','trae-cn','catpaw','antigravity'].includes(id)) {
@@ -5798,21 +7148,41 @@
         if (!r.ok || data.provider !== id) throw new Error('invalid response');
         if (billingRequests[id] !== request) return;
         providerBillingCache[id] = billingSnapshot(previous, data, Date.now());
-      } catch (_) { if (billingRequests[id] !== request) return; providerBillingCache[id] = billingSnapshot(previous, null, Date.now()); }
-      if (providerView === 'detail' && providerDetail === id) applyProviderView();
+      } catch (_) {
+        if (billingRequests[id] !== request) return;
+        providerBillingCache[id] = billingSnapshot(previous, null, Date.now());
+      } finally {
+        if (billingPending.get(id) === request) {
+          billingPending.delete(id);
+          updateBillingPanel(id);
+        }
+      }
       renderAllModelsTags();
     }
+    function updateBillingPanel(id) {
+      if (providerView !== 'detail' || providerDetail !== id) return;
+      const panel = document.getElementById('provider-billing-panel');
+      if (!panel) return;
+      const focus = panel.contains(document.activeElement);
+      panel.replaceChildren();
+      renderProviderBilling(panel, id);
+      if (focus) panel.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
+    }
     function renderProviderBilling(parent, id) {
-      const button = document.createElement('button'); button.className = 'btn btn-outline'; button.textContent = '刷新倍率与额度';
+      const pending = billingPending.has(id);
+      const button = document.createElement('button'); button.className = 'btn btn-outline'; button.textContent = pending ? '正在刷新额度…' : '刷新倍率与额度';
+      button.disabled = pending;
+      button.setAttribute?.('data-billing-refresh', '');
       button.onclick = () => refreshProviderBilling(id); parent.appendChild(button);
       const box = document.createElement('div'); parent.appendChild(box);
       const snapshot = providerBillingCache[id];
-      const heading = document.createElement('p'); heading.textContent = '账户共享额度（按账号分别展示）' + (snapshot && snapshot.stale ? ' · 刷新失败，显示上次快照' : ''); box.appendChild(heading);
+      const heading = document.createElement('p'); heading.setAttribute?.('role','status'); heading.textContent = '账户共享额度（按账号分别展示）' + (snapshot && snapshot.stale ? ' · 刷新失败，显示上次快照' : ''); box.appendChild(heading);
       if (!snapshot) { const note = document.createElement('p'); note.textContent = '点击刷新查看'; box.appendChild(note); return; }
       if (!snapshot.accounts.length) { const note = document.createElement('p'); note.textContent = snapshot.stale ? '刷新失败，暂无快照' : '暂无账户额度'; box.appendChild(note); }
       snapshot.accounts.forEach(a => {
         const row = document.createElement('p'), allowance = a.allowance || {};
         const parts = [String(a.name || a.accountId)];
+        if (pending) parts.push('刷新中');
         if ((a.stale || snapshot.stale) && a.allowance) parts.push('上次快照');
         const direct = billingAllowanceText(allowance); if (direct) parts.push('剩余 ' + direct);
         (Array.isArray(allowance.windows) ? allowance.windows : []).forEach(w => {
@@ -5862,8 +7232,11 @@
       const disabledOpen = providerExpandDisabled || !!box.querySelector('details[open]'); providerExpandDisabled = false; box.replaceChildren();
       function row(p, parent) {
         const wrap = document.createElement('div'); wrap.className = 'provider-compact';
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'provider-compact-main'; b.onclick = () => showProviderView('detail', p.id);
-        const icon = document.createElement('span'); icon.innerHTML = providerLogo(p.id, p.name, true); b.appendChild(icon);
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'provider-compact-main'; b.onclick = () => showProviderView('detail', p.id, wrap);
+        const icon = document.createElement('span');
+        icon.setAttribute('data-card-morph-icon', '');
+        icon.innerHTML = providerLogo(p.id, p.name, true);
+        b.appendChild(icon);
         b.dataset.providerFocus = 'row:' + p.id;
         const text = document.createElement('span'), title = document.createElement('strong'), small = document.createElement('small'), c = providerCounts(p);
         title.textContent = p.name || p.id;
@@ -5922,9 +7295,19 @@
         if (configRequestId !== providerConfigRequest || providerWriteRevision !== requestWriteRevision || providerWrites.size) return;
         await reconcileProviderReadback(incoming, () => configRequestId === providerConfigRequest && providerWriteRevision === requestWriteRevision && !providerWrites.size);
         if (configRequestId !== providerConfigRequest || providerWriteRevision !== requestWriteRevision || providerWrites.size) return;
+        if (typeof tabMotion !== 'undefined') {
+          let settling;
+          while ((settling = tabMotion.settling())) {
+            await settling;
+            if (configRequestId !== providerConfigRequest || providerWriteRevision !== requestWriteRevision || providerWrites.size) break;
+          }
+        }
+        if (configRequestId !== providerConfigRequest || providerWriteRevision !== requestWriteRevision || providerWrites.size) return;
         providerConfigError = false; renderProviderStatus();
         appConfig = incoming;
-        if (typeof currentModalProviderId !== 'undefined' && currentModalProviderId && typeof renderAccountModalList === 'function' && !document.querySelector('#acc-modal-list .account-label-editor')) renderAccountModalList(currentModalProviderId);
+        const modalHasEditor = typeof currentModalProviderId !== 'undefined' && currentModalProviderId && document.querySelector('#acc-modal-list .account-label-editor');
+        const menuOpen = typeof activeAccountActions !== 'undefined' && activeAccountActions;
+        if (typeof currentModalProviderId !== 'undefined' && currentModalProviderId && typeof renderAccountModalList === 'function' && !modalHasEditor && !menuOpen) renderAccountModalList(currentModalProviderId);
         const cfgSig = JSON.stringify(appConfig);
         if (cfgSig === lastConfigSig && !renderDirty) {
           renderProviderList(); flushCommercialRender(); applyProviderView();
@@ -7695,11 +9078,17 @@
     let networkUnknown = null, networkToken = null, networkBaseline = null, networkConflict = '';
     let networkBlocked = false;
     function networkStatus(t) { document.getElementById('network-status').textContent = (networkBlocked ? '出站请求已阻止，请保存有效设置恢复。' : '') + t; }
-    function networkVisibility() { document.getElementById('network-proxy-fields').style.display = document.getElementById('network-mode').value === 'http_proxy' ? 'block' : 'none'; }
+    function networkVisibility(animateChange) {
+      const fields = document.getElementById('network-proxy-fields');
+      const open = document.getElementById('network-mode').value === 'http_proxy';
+      if (typeof disclosureMotion === 'undefined') fields.style.display = open ? 'block' : 'none';
+      else if (animateChange) disclosureMotion.panel(fields, open);
+      else disclosureMotion.setPanel(fields, open);
+    }
     function networkEdited() {
       if (!networkDirty || networkConflict === 'edit') networkBaseline = networkToken;
       if (networkConflict === 'edit') networkConflict = '';
-      networkRevision++; networkDirty = true; networkVisibility();
+      networkRevision++; networkDirty = true; networkVisibility(true);
     }
     function networkHost(host) { const h = host.trim(); return h.startsWith('[') && h.endsWith(']') ? h.slice(1, -1) : h; }
     function networkValid(v) {
@@ -9252,21 +10641,133 @@
       manageProviderAccounts(providerId);
     }
 
+    let accountSheetMotion, accountSheetOrigin, activeAccountActions;
+    let accountModalSignature;
+    function closeAccountActions(restore = true) {
+      if (!activeAccountActions) return false;
+      const {panel, trigger, animation} = activeAccountActions;
+      activeAccountActions = null;
+      trigger.setAttribute('aria-expanded', 'false');
+      panel.inert = true;
+      if (restore) trigger.focus({preventScroll:true});
+      if (animation && restore && animation.playState !== 'paused') {
+        if (animation.playState === 'finished') animation.currentTime = animation.effect.getTiming().duration;
+        animation.playbackRate = -1.7;
+        animation.onfinish = () => { if (activeAccountActions?.panel !== panel) panel.hidden = true; animation.cancel(); };
+        animation.play();
+      } else {
+        if (animation) animation.cancel();
+        panel.hidden = true;
+      }
+      return true;
+    }
+    function bindAccountActions(trigger, panel) {
+      panel.hidden = true;
+      trigger.onclick = () => {
+        if (activeAccountActions?.trigger === trigger) { closeAccountActions(); return; }
+        closeAccountActions(false);
+        if (accountSheetMotion?.playState === 'running') accountSheetMotion.finish();
+        panel.getAnimations?.().forEach(animation => animation.cancel());
+        panel.inert = false;
+        panel.hidden = false;
+        const anchor = trigger.getBoundingClientRect();
+        const left = Math.max(8, Math.min(anchor.right - panel.offsetWidth, innerWidth - panel.offsetWidth - 8));
+        const below = anchor.bottom + panel.offsetHeight + 12 < innerHeight;
+        panel.style.left = left + 'px';
+        panel.style.top = Math.max(8, below ? anchor.bottom + 6 : anchor.top - panel.offsetHeight - 6) + 'px';
+        panel.style.transformOrigin = 'right ' + (below ? 'top' : 'bottom');
+        const animation = panel.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches ? panel.animate([
+          {opacity:0, transform:'scale(.82) translateY(' + (below ? -6 : 6) + 'px)'},
+          {opacity:1, transform:'scale(1.025)',offset:.78}, {opacity:1,transform:'scale(1)'}
+        ], {duration:370,easing:'cubic-bezier(.24,.64,.3,1)',fill:'both'}) : null;
+        activeAccountActions = {panel, trigger, animation};
+        trigger.setAttribute('aria-expanded','true');
+        panel.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
+      };
+    }
+    function setupAccountSheet(modal, sheet) {
+      if (modal.dataset.sheetBound) return;
+      modal.dataset.sheetBound = 'true';
+      const handle = sheet.querySelector('.account-sheet-handle');
+      let drag;
+      handle.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || !event.isPrimary || drag) return;
+        closeAccountActions(false);
+        if (accountSheetMotion) accountSheetMotion.cancel();
+        handle.setPointerCapture(event.pointerId);
+        drag = {id:event.pointerId, y:event.clientY, distance:0};
+      });
+      handle.addEventListener('pointermove', event => {
+        if (!drag || drag.id !== event.pointerId) return;
+        const travel = Math.max(0, event.clientY - drag.y);
+        drag.distance = travel;
+        sheet.style.transform = `translate3d(0,${Math.min(180, travel * .68)}px,0)`;
+      });
+      function finish(event, commit) {
+        if (!drag || drag.id !== event.pointerId) return;
+        const distance = drag.distance;
+        drag = null;
+        if (commit && distance >= 84) { closeAccountModal(true); return; }
+        if (sheet.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          accountSheetMotion = sheet.animate([{transform:sheet.style.transform || 'none'}, {transform:'translate3d(0,-4px,0)',offset:.74},{transform:'none'}], {duration:390,easing:'cubic-bezier(.22,.68,.3,1)'});
+        }
+        sheet.style.transform = '';
+      }
+      handle.addEventListener('pointerup', event => finish(event,true));
+      handle.addEventListener('pointercancel', event => finish(event,false));
+      handle.addEventListener('lostpointercapture', event => finish(event,false));
+      modal.addEventListener('click', event => { if (event.target === modal) closeAccountModal(true); });
+      modal.addEventListener('pointerdown', event => {
+        const menu = activeAccountActions;
+        if (menu && !menu.panel.contains(event.target) && !menu.trigger.contains(event.target)) closeAccountActions(false);
+      });
+      modal.addEventListener('scroll', () => closeAccountActions(false),true);
+      modal.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          if (!closeAccountActions()) closeAccountModal(true);
+        } else if (event.key === 'Tab') {
+          const controls = Array.from(sheet.querySelectorAll('button:not(:disabled),input:not(:disabled)')).filter(node => node.getClientRects().length);
+          if (!controls.length) return;
+          const edge = event.shiftKey ? controls[0] : controls.at(-1);
+          if (document.activeElement === edge) { event.preventDefault(); (event.shiftKey ? controls.at(-1) : controls[0]).focus(); }
+        }
+      });
+    }
+
     function manageProviderAccounts(providerId) {
       currentModalProviderId = providerId;
       const modal = document.getElementById('account-manage-modal');
       renderAccountModalList(providerId);
-      if (modal) modal.style.display = 'flex';
+      if (!modal) return;
+      const sheet = modal.querySelector('.account-sheet');
+      if (modal.style.display !== 'flex') accountSheetOrigin = document.activeElement;
+      if (accountSheetMotion) accountSheetMotion.cancel();
+      modal.style.display = 'flex';
+      if (!sheet) return;
+      setupAccountSheet(modal, sheet);
+      sheet.style.transform = '';
+      sheet.inert = false;
+      sheet.querySelector('button')?.focus({preventScroll:true});
+      if (sheet.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        accountSheetMotion = sheet.animate([
+          {transform:'translate3d(0,100%,0)'}, {transform:'translate3d(0,-5px,0)',offset:.8}, {transform:'none'}
+        ], {duration:480,easing:'cubic-bezier(.25,.62,.28,1)'});
+      }
     }
 
     function renderAccountModalList(providerId) {
       const listEl = document.getElementById('acc-modal-list'); if (!listEl) return;
       const prov = (appConfig.providers || []).find(p => p.id === providerId);
       const accs = prov && Array.isArray(prov.accounts) ? prov.accounts.filter(a => a && typeof a === 'object') : [];
+      const signature = JSON.stringify([providerId, accs.map(account => [account.id, accountDisplayInfo(account), account.addedAt, !!account.off, account.enabled !== false]), providerWrites.has(providerId)]);
+      if (accountModalSignature === signature) return;
+      accountModalSignature = signature;
       const title = document.getElementById('acc-modal-title'), subtitle = document.getElementById('acc-modal-subtitle'), clearBtn = document.getElementById('acc-modal-clear-btn');
       if (title) title.textContent = getProviderName(providerId) + ' - 账号管理';
       if (subtitle) subtitle.textContent = '已入池 ' + accs.length + ' 个账号 · 移除前请核对名称';
       if (clearBtn) { clearBtn.style.display = accs.length ? 'inline-block' : 'none'; clearBtn.disabled = providerWrites.has(providerId); clearBtn.onclick = () => clearAllProviderAccounts(providerId); }
+      closeAccountActions(false);
       listEl.replaceChildren();
       if (!accs.length) { const empty = document.createElement('p'); empty.textContent = '当前平台暂无账号，可从添加供应商重新登录或导入。'; listEl.appendChild(empty); return; }
       accs.forEach(acc => {
@@ -9280,22 +10781,54 @@
         const disabled = acc.off || acc.enabled === false;
         status.className = 'account-display-status'; status.textContent = (disabled ? '已停用' : '已配置') + ' · 入池时间：' + (acc.addedAt && !isNaN(date.getTime()) ? date.toLocaleString() : '未记录');
         status.style.cssText = 'font-size:.68rem;line-height:1.5;color:var(--text-muted);margin-top:5px;'; content.appendChild(status); item.appendChild(content);
-        const actions = document.createElement('div'); actions.style.cssText = 'display:flex;flex-direction:column;gap:6px;flex-shrink:0;';
+        const trigger = document.createElement('button');
+        trigger.type = 'button';
+        trigger.className = 'btn btn-outline';
+        trigger.textContent = '更多操作';
+        trigger.setAttribute('aria-expanded', 'false');
+        const actions = document.createElement('div');
+        actions.className = 'account-action-popover';
         const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-outline account-note-button'; edit.textContent = '备注'; edit.style.cssText = 'font-size:.74rem;padding:6px 12px;border-radius:16px;'; edit.disabled = !acc.id || providerWrites.has(providerId); edit.onclick = () => editAccountLabel(providerId,acc.id,item); actions.appendChild(edit);
-        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline account-remove-button'; remove.textContent = '移除'; remove.style.cssText = 'color:#ef4444;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06);font-size:.74rem;padding:6px 12px;border-radius:16px;'; remove.disabled = !acc.id || providerWrites.has(providerId); remove.onclick = () => removeProviderAccount(providerId,acc.id); actions.appendChild(remove); item.appendChild(actions);
+        const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline account-remove-button'; remove.textContent = '移除'; remove.style.cssText = 'color:#ef4444;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06);font-size:.74rem;padding:6px 12px;border-radius:16px;'; remove.disabled = !acc.id || providerWrites.has(providerId); remove.onclick = () => { closeAccountActions(); return removeProviderAccount(providerId,acc.id); }; actions.appendChild(remove); item.appendChild(actions);
+        item.appendChild(trigger);
+        bindAccountActions(trigger, actions);
         if (['raccoon','loomy'].includes(providerId) && acc.id && !disabled) addAccountOperations(item,providerId,acc.id);
         listEl.appendChild(item);
       });
     }
 
     function editAccountLabel(providerId, accId, item) {
-      const existing = item.querySelector('.account-label-editor'); if (existing) { existing.querySelector('input').focus(); return; }
+      closeAccountActions(false);
+      const motion = typeof disclosureMotion === 'undefined' ? null : disclosureMotion;
+      const existing = item.querySelector('.account-label-editor');
+      if (existing) {
+        if (motion) motion.panel(existing.parentElement, true);
+        existing.querySelector('input').focus();
+        return;
+      }
       const prov = (appConfig.providers || []).find(p => p.id === providerId), acc = prov && (prov.accounts || []).find(a => a.id === accId); if (!acc) return;
       const area = document.createElement('form'); area.className = 'account-label-editor'; area.style.cssText = 'flex-basis:100%;display:flex;gap:6px;flex-wrap:wrap;';
       const input = document.createElement('input'); input.type = 'text'; input.maxLength = 80; input.value = accountIdentityText(acc,acc.label,80); input.placeholder = '例如：工作邮箱（留空恢复原名称）'; input.setAttribute('aria-label','账号备注'); input.style.cssText = 'width:100%;box-sizing:border-box;min-width:0;padding:9px;border-radius:10px;'; area.appendChild(input);
       const save = document.createElement('button'); save.type = 'submit'; save.className = 'btn btn-primary'; save.textContent = '保存备注';
-      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-outline'; cancel.textContent = '取消'; cancel.onclick = () => area.remove();
-      area.appendChild(save); area.appendChild(cancel); item.appendChild(area); input.focus();
+      const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-outline'; cancel.textContent = '取消';
+      const fold = motion ? document.createElement('div') : null;
+      cancel.onclick = () => {
+        if (!fold) { area.remove(); return; }
+        input.value = '';
+        item.querySelector('button[aria-expanded]')?.focus({preventScroll:true});
+        motion.panel(fold, false, () => fold.remove());
+      };
+      area.appendChild(save);
+      area.appendChild(cancel);
+      if (fold) {
+        fold.className = 'fold-container';
+        fold.style.flexBasis = '100%';
+        fold.hidden = true;
+        fold.appendChild(area);
+        item.appendChild(fold);
+        motion.panel(fold, true);
+      } else item.appendChild(area);
+      input.focus();
       area.onsubmit = async event => { event.preventDefault(); if (save.disabled) return; save.disabled = cancel.disabled = true;
         const result = await mutateProviderAccount(providerId,'label',{id:accId,label:input.value},'备注已保存');
         if (!result && area.isConnected) save.disabled = cancel.disabled = false;
@@ -9406,9 +10939,26 @@
     }
 
     function closeAccountModal() {
+      const animated = arguments[0] === true;
       const modal = document.getElementById('account-manage-modal');
-      if (modal) modal.style.display = 'none';
+      if (!modal || modal.style.display === 'none' || (animated && currentModalProviderId === null)) return;
+      closeAccountActions(false);
       currentModalProviderId = null;
+      const sheet = modal.querySelector('.account-sheet');
+      const start = animated && sheet ? getComputedStyle(sheet).transform : 'none';
+      if (accountSheetMotion) accountSheetMotion.cancel();
+      const hide = () => {
+        modal.style.display = 'none';
+        accountModalSignature = undefined;
+        if (sheet) { sheet.style.transform = ''; sheet.inert = false; }
+        if (accountSheetOrigin?.isConnected) accountSheetOrigin.focus({preventScroll:true});
+        accountSheetOrigin = null;
+      };
+      if (animated && sheet?.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        sheet.inert = true;
+        accountSheetMotion = sheet.animate([{transform:start},{transform:'translate3d(0,100%,0)'}], {duration:300,easing:'cubic-bezier(.35,0,.6,1)',fill:'forwards'});
+        accountSheetMotion.onfinish = () => { hide(); accountSheetMotion.cancel(); };
+      } else hide();
     }
 
     async function mutateProviderAccount(providerId, action, payload, successText) {
@@ -9519,20 +11069,21 @@
   </div>
 
   <!-- 供应商账号管理与移除弹窗 -->
-  <div id="account-manage-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); z-index:99998; align-items:center; justify-content:center; padding:16px;">
-    <div style="background:#131622; border:1px solid var(--card-border); border-radius:18px; width:100%; max-width:440px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 20px 40px rgba(0,0,0,0.6); overflow:hidden;">
+  <div id="account-manage-modal" data-sheet role="dialog" aria-modal="true" aria-labelledby="acc-modal-title" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); backdrop-filter:blur(6px); z-index:99998; align-items:center; justify-content:center; padding:16px;">
+    <div class="account-sheet" style="background:#131622; border:1px solid var(--card-border); border-radius:18px; width:100%; max-width:440px; max-height:85vh; display:flex; flex-direction:column; box-shadow:0 20px 40px rgba(0,0,0,0.6); overflow:hidden;">
+      <div class="account-sheet-handle" aria-hidden="true"></div>
       <div style="padding:16px 20px; border-bottom:1px solid var(--card-border); display:flex; justify-content:space-between; align-items:center;">
         <div>
           <b id="acc-modal-title" style="font-size:1.05rem; color:#fff;">账号管理</b>
           <span id="acc-modal-subtitle" style="font-size:0.75rem; color:var(--text-muted); display:block; margin-top:2px;">管理已入池账号凭据</span>
         </div>
-        <button onclick="closeAccountModal()" style="background:rgba(255,255,255,0.08); border:none; color:#fff; width:32px; height:32px; border-radius:50%; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+        <button onclick="closeAccountModal(true)" style="background:rgba(255,255,255,0.08); border:none; color:#fff; width:32px; height:32px; border-radius:50%; font-size:1rem; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
       </div>
       <div id="acc-modal-list" style="padding:16px 20px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:10px;">
       </div>
       <div style="padding:14px 20px; border-top:1px solid var(--card-border); background:rgba(0,0,0,0.2); display:flex; gap:10px; justify-content:space-between; align-items:center;">
         <button id="acc-modal-clear-btn" class="btn btn-outline" style="color:#ef4444; border-color:rgba(239,68,68,0.3); background:rgba(239,68,68,0.08); font-size:0.75rem; border-radius:20px; padding:6px 14px;">清空全部账号</button>
-        <button onclick="closeAccountModal()" class="btn btn-primary" style="font-size:0.75rem; border-radius:20px; padding:6px 18px;">完成</button>
+        <button onclick="closeAccountModal(true)" class="btn btn-primary" style="font-size:0.75rem; border-radius:20px; padding:6px 18px;">完成</button>
       </div>
     </div>
   </div>
