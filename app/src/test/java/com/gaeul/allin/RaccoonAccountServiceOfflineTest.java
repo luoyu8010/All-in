@@ -24,6 +24,15 @@ public final class RaccoonAccountServiceOfflineTest {
         ok(new RaccoonAccountService(m).balance()==9 && m.calls==2);
         m=new Mock().add("{\"code\":200001}");
         try { new RaccoonAccountService(m).balance(); throw new AssertionError(); } catch(RaccoonAccountService.Failure e) { ok(e.expired && m.calls==1); }
+        for (Object daily : new Object[]{519, 0, JSONObject.NULL, false, -1, 1000, "invalid"}) {
+            JSONObject response = new JSONObject().put("data", new JSONObject().put("available_points", 950).put("daily_points", daily));
+            m = new Mock().add(response.toString());
+            RaccoonAccountService.Balance balance = new RaccoonAccountService(m).balanceDetail();
+            boolean valid = Integer.valueOf(519).equals(daily) || Integer.valueOf(0).equals(daily);
+            ok(balance.available == 950 && m.calls == 1 && (valid ? balance.daily != null && balance.daily == ((Number) daily).longValue() : balance.daily == null));
+        }
+        m = new Mock().fail(false).add(new JSONObject().put("available_points", 950).put("daily_points", 100).toString());
+        ok(new RaccoonAccountService(m).balanceDetail().daily == null && m.calls == 2);
         String old="{\"bill_id\":\"old\",\"created_at\":\"2026-11-07T08:00:00+08:00\",\"points\":10,\"biz_type\":\"daily_grant\"}";
         String fresh="{\"bill_id\":\"new\",\"created_at\":\"2026-11-08T09:00:00+08:00\",\"points\":20,\"biz_type\":\"daily_grant\"}";
         m=new Mock().add("{\"data\":{\"items\":["+old+"]}}").add("{}").add("{\"data\":{\"items\":["+old+","+fresh+","+fresh+"]}}");

@@ -2041,7 +2041,11 @@ public class GatewayServer extends NanoHTTPD {
             public boolean save(JSONObject next){return saveConfig(next);}
             public boolean retired(){return stopping||backupRetired;}
             public long accountEpoch(String p,String id){return accountRevision(p,"id:"+id);}
-        },checkinTransportForTests==null?new CheckinCenter.Transport(){public JSONObject checkin(String p,JSONObject a)throws Exception{return performDailyCheckin(p,a);}public JSONObject status(String p,JSONObject a)throws Exception{return readDailyCheckinStatus(p,a);}}:checkinTransportForTests);
+        },checkinTransportForTests==null?new CheckinCenter.Transport(){public JSONObject checkin(String p,JSONObject a)throws Exception{return performDailyCheckin(p,a);}public JSONObject status(String p,JSONObject a)throws Exception{return readDailyCheckinStatus(p,a);} public JSONObject claimQoder(JSONObject a,String campaign)throws Exception {
+            NetworkPolicy.Snapshot network;
+            synchronized(GatewayServer.this){network=NetworkPolicy.parse(networkFromConfig(configJson));}
+            try(NetworkPolicy.Scope scope=NetworkPolicy.use(network)){return QoderCheckin.claim(a,campaign,GatewayServer.this::openVendorConnection);}
+        }}:checkinTransportForTests);
         return dailyCheckin;
     }
     @Override public void start(int timeout,boolean daemon) throws IOException {
@@ -2099,6 +2103,7 @@ public class GatewayServer extends NanoHTTPD {
         CheckinEvidence.prepare();NetworkPolicy.Snapshot network;synchronized(this){network=NetworkPolicy.parse(networkFromConfig(configJson));}
         try(NetworkPolicy.Scope scope=NetworkPolicy.use(network)){
             String id=account.optString("id");CheckinEvidence.query();
+            if(QoderCheckin.PROVIDER.equals(provider))return QoderCheckin.status(account,System.currentTimeMillis(),this::openVendorConnection);
             if("workbuddy".equals(provider))return WorkBuddyCheckin.status(provider,ensureStoredToken(provider,account,null),this::openVendorConnection);
             if("raccoon".equals(provider)){JSONObject fresh=ensureRaccoonToken(id,null,0);if(fresh==null)throw new IOException("account unavailable");return raccoonApi(id,storedAccess(fresh)).checkinStatus(System.currentTimeMillis());}
             if("trae-cn".equals(provider)){
@@ -2121,6 +2126,11 @@ public class GatewayServer extends NanoHTTPD {
             JSONObject body=raw.trim().isEmpty()?new JSONObject():new JSONObject(raw);
             if("/api/checkin/settings".equals(uri))return jsonResponse(checkinCenter().settings(body));
             if("/api/checkin/reconcile".equals(uri))return jsonResponse(checkinCenter().reconcile(body.optString("provider"),body.optString("accountId")));
+            if("/api/checkin/qoder-claim".equals(uri)) {
+                String id=body.optString("accountId"), campaign=body.optString("campaignId");
+                if(id.isEmpty()||campaign.isEmpty()||body.length()!=2)throw new IllegalArgumentException("Qoder account and campaign required");
+                return jsonResponse(checkinCenter().qoderCampaign(id,campaign));
+            }
             if("/api/checkin/run".equals(uri)) {
                 for(Iterator<String> it=body.keys();it.hasNext();)if(!Arrays.asList("provider","accountId").contains(it.next()))return errorResponse(400,"unsupported checkin field");
                 return jsonResponse(checkinCenter().enqueue(body.optString("provider",""),body.optString("accountId",""),false));
@@ -2648,7 +2658,7 @@ public class GatewayServer extends NanoHTTPD {
         case "raccoon": {
             String id=account.optString("id",""); if(id.isEmpty()) throw new IOException("Raccoon account unavailable");
             JSONObject fresh=ensureRaccoonToken(id,null,0); if(fresh==null) throw new IOException("Raccoon account unavailable");
-            Long remaining=Long.valueOf(raccoonApi(id,storedAccess(fresh)).balance());
+            RaccoonAccountService.Balance balance = raccoonApi(id, storedAccess(fresh)).balanceDetail();
             synchronized(this) { JSONObject currentProvider=uniqueRaccoonProvider(configJson);
                 JSONObject current=currentProvider==null?null:uniqueRaccoonAccount(currentProvider,id);
                 if(currentProvider==null || !currentProvider.optBoolean("enabled",true) || !qoderEnabled(current))
@@ -2659,8 +2669,10 @@ public class GatewayServer extends NanoHTTPD {
                 for(String key:new String[]{"access","token","refresh","expires","lastRefresh"}) currentCredentials.remove(key);
                 if(!jsonEquivalent(expectedCredentials,currentCredentials)) throw new IOException("Raccoon account changed");
                 billingAdoptRefresh(account,current); }
-            return new JSONObject().put("kind","allowance").put("scope","account").put("unit","credits")
-                    .put("remaining",remaining).put("observedAt",System.currentTimeMillis()).put("windows",new JSONArray());
+            JSONObject allowance = new JSONObject().put("kind", "allowance").put("scope", "account").put("unit", "credits")
+                    .put("remaining", balance.available).put("observedAt", System.currentTimeMillis()).put("windows", new JSONArray());
+            if (balance.daily != null) allowance.put("dailyGrantRemaining", balance.daily);
+            return allowance;
         }
         case "workbuddy":
         case "workbuddy-ai": {
@@ -2760,6 +2772,15 @@ public class GatewayServer extends NanoHTTPD {
         if(traeUnlimited) out.put("unlimited",true);
         Object remaining=raw.opt("remaining");
         if(remaining instanceof Number && Double.isFinite(((Number)remaining).doubleValue()) && ((Number)remaining).doubleValue()>=0) out.put("remaining",remaining);
+        if ("raccoon".equals(provider) && "credits".equals(unit) && out.has("remaining")) {
+            Object daily = raw.opt("dailyGrantRemaining");
+            if (daily instanceof Number) {
+                double points = ((Number) daily).doubleValue();
+                if (Double.isFinite(points) && points >= 0 && points <= ((Number) remaining).doubleValue()) {
+                    out.put("dailyGrantRemaining", daily);
+                }
+            }
+        }
         Object declaredTotal=raw.opt("total");
         if(declaredTotal instanceof Number&&remaining instanceof Number) {
             double t=((Number)declaredTotal).doubleValue(),r=((Number)remaining).doubleValue();
@@ -10294,6 +10315,7 @@ public class GatewayServer extends NanoHTTPD {
         UsageLedger.record(row);
     }
     private static final class LogicalRequest {
+        String terminalErrorCode;
         final String id = REQUEST_CONTEXT.get()==null?java.util.UUID.randomUUID().toString():REQUEST_CONTEXT.get().requestId;
         CallEvidence.Snapshot lastCallEvidence;
         final RequestDiagnostics.Logical diagnostics = REQUEST_CONTEXT.get()==null
@@ -11291,6 +11313,7 @@ public class GatewayServer extends NanoHTTPD {
     }
 
     private static class RouteTarget {
+        boolean raccoonRefreshDeferred;
         String providerId;
         String baseUrl;
         String apiKey;
@@ -11338,6 +11361,7 @@ public class GatewayServer extends NanoHTTPD {
         row.callEvidence=logical.lastCallEvidence;
         row.status = status < 400 ? 502 : status;
         row.err = error == null ? "" : error;
+        if (logical.terminalErrorCode != null) row.upstreamErrorCode = logical.terminalErrorCode;
         if (logical.credentials != null) for (CommercialKeyPool.Credential c : logical.credentials)
             row.err = row.err.replace(c.secret(), "[REDACTED]");
         RequestDiagnostics.marker(row,logical.diagnostics,REQUEST_CONTEXT.get(),logical.attempts);
@@ -11378,6 +11402,8 @@ public class GatewayServer extends NanoHTTPD {
         Attempt last = null;
         RouteTarget lastTarget = null;
         long earliest = Long.MAX_VALUE;
+        long earliestWorkBuddyReset = Long.MAX_VALUE;
+        RouteTarget earliestWorkBuddyTarget = null;
         boolean cooled = false, exhausted = false, success = false;
         SessionAffinity.Key affinityKey=null; SessionAffinity.Lease affinityLease=null;
         SessionAffinity.Target preferred=null; boolean affinityTransferred=false;
@@ -11409,6 +11435,21 @@ public class GatewayServer extends NanoHTTPD {
             java.util.Set<String> triedRefs = new java.util.HashSet<String>();
             java.util.Set<String> logicalTargets=new java.util.HashSet<>();
             for (int ci = 0; !remaining.isEmpty(); ci++) {
+                long quotaCheckAt = System.currentTimeMillis();
+                for (java.util.Iterator<RouteTarget> it = remaining.iterator(); it.hasNext();) {
+                    RouteTarget candidate = it.next();
+                    long reset = workBuddyQuotaReset(candidate, quotaCheckAt);
+                    if (reset > 0) {
+                        if (reset < earliestWorkBuddyReset) {
+                            earliestWorkBuddyReset = reset;
+                            earliestWorkBuddyTarget = candidate;
+                        }
+                        it.remove();
+                        if (!enabled) { remaining.clear(); break; }
+                    }
+                    if (!enabled) break;
+                }
+                if (remaining.isEmpty()) break;
                 RecentUsageScheduler.Lease selectedLease = null;
                 RouteTarget target;
                 RouteTarget preferredRoute=null;
@@ -11546,6 +11587,26 @@ public class GatewayServer extends NanoHTTPD {
                         if (attemptLease != null) attemptLease.cancel();
                         throw failure;
                     } finally { ATTEMPT_LEASE.remove(); }
+                    if (!last.ok && WorkBuddyQuotaCooldown.window(target.providerId, target.upstreamModel) != null) {
+                        long observedAt = System.currentTimeMillis();
+                        if (last.workBuddyQuotaReset == 0 && last.sent && !last.executionUnknown && !last.localRejection) {
+                            long reset = WorkBuddyQuotaCooldown.resetAt(last.status, last.body, observedAt);
+                            if (reset > 0) {
+                                workBuddyQuota().observe(workBuddyQuotaKey(target), reset, observedAt);
+                                last.workBuddyQuotaReset = reset;
+                            }
+                        }
+                        if (last.workBuddyQuotaReset > 0) {
+                            if (last.workBuddyQuotaReset < earliestWorkBuddyReset) {
+                                earliestWorkBuddyReset = last.workBuddyQuotaReset;
+                                earliestWorkBuddyTarget = target;
+                            }
+                            if (last.response != null) try { last.response.close(); } catch (IOException ignored) { }
+                            last.response = null;
+                            if (!enabled) { remaining.clear(); }
+                            break;
+                        }
+                    }
                     if(!last.ok)last.response=visibleCooldown(last,target,guardResult);
                     if (last.ok) {
                         success = true;
@@ -11639,6 +11700,13 @@ public class GatewayServer extends NanoHTTPD {
             if (exhausted) {
                 terminalStatus = 503; terminalError = "Upstream attempt budget exhausted";
                 return errorResponse(503, terminalError);
+            }
+            if (earliestWorkBuddyReset != Long.MAX_VALUE && (last == null || last.workBuddyQuotaReset > 0)) {
+                terminalStatus = 429;
+                terminalError = workBuddyQuotaMessage(earliestWorkBuddyReset);
+                lastTarget = earliestWorkBuddyTarget;
+                logical.terminalErrorCode = "workbuddy_model_quota_exhausted";
+                return workBuddyQuotaResponse(earliestWorkBuddyReset, terminalError, guardResult);
             }
             if (cooled && (last == null
                     || (lastTarget != null && lastTarget.commercialCandidates != null))) {
@@ -11971,6 +12039,44 @@ public class GatewayServer extends NanoHTTPD {
         }
     }
 
+    private WorkBuddyQuotaCooldown workBuddyQuota;
+    private synchronized WorkBuddyQuotaCooldown workBuddyQuota() {
+        if (workBuddyQuota == null) workBuddyQuota = new WorkBuddyQuotaCooldown();
+        return workBuddyQuota;
+    }
+
+    private static String workBuddyQuotaKey(RouteTarget target) {
+        if (target == null || target.commercialCandidates != null) return null;
+        String window = WorkBuddyQuotaCooldown.window(target.providerId, target.upstreamModel);
+        if (window == null) return null;
+        return window + "/" + CredentialIdentity.credential(target.providerId, target.baseUrl, null, target.account, target.apiKey);
+    }
+
+    private long workBuddyQuotaReset(RouteTarget target, long now) {
+        String key = workBuddyQuotaKey(target);
+        return key == null ? 0 : workBuddyQuota().active(key, now);
+    }
+
+    private static String workBuddyQuotaMessage(long reset) {
+        return "WorkBuddy 模型额度已用尽，预计 "
+                + new java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.ROOT)
+                        .format(new java.util.Date(reset)) + " 恢复";
+    }
+
+    private Response workBuddyQuotaResponse(long reset, String message, ContextGuard.Result guard) {
+        long seconds = (Math.max(0, reset - System.currentTimeMillis()) + 999) / 1000;
+        JSONObject error = new JSONObject().put("type", "quota_exceeded").put("code", "workbuddy_model_quota_exhausted")
+                .put("message", message).put("retry_after", seconds).put("cooldown_until", reset)
+                .put("cooldown_source", "upstream_reset");
+        Response response = newFixedLengthResponse(Status.TOO_MANY_REQUESTS, "application/json; charset=UTF-8",
+                new JSONObject().put("type", "error").put("error", error).toString());
+        addCorsHeaders(response);
+        applyGuardHeaders(response, guard);
+        response.addHeader("Retry-After", Long.toString(seconds));
+        response.addHeader("X-AllIn-Cooldown-Until", Long.toString(reset));
+        return response;
+    }
+
     private java.util.concurrent.ConcurrentHashMap<String,Long> clientRateCooldowns;
     private synchronized java.util.concurrent.ConcurrentHashMap<String,Long> clientRateCooldowns() {
         if(clientRateCooldowns==null)clientRateCooldowns=new java.util.concurrent.ConcurrentHashMap<>();return clientRateCooldowns;
@@ -11984,10 +12090,34 @@ public class GatewayServer extends NanoHTTPD {
         if(origin==null){rateCooldownEvidence.remove(key);return;}
         if(rateCooldownEvidence.containsKey(key)||rateCooldownEvidence.size()<512)rateCooldownEvidence.put(key,origin);
     }
-    private long rateRestRemaining(RouteTarget t) {
-        if(t==null)return 0;String key=restKeyOf(t);Long until=clientRateCooldowns().get(key);if(until==null)return 0;
-        long remaining=until-System.currentTimeMillis();if(remaining<=0 && clientRateCooldowns().remove(key,until))rememberCooldownEvidence(key,null);return Math.max(0,remaining);
+    private long rateRestRemaining(RouteTarget target) {
+        return rateRestRemaining(target, System.currentTimeMillis());
     }
+
+    private long rateRestRemaining(RouteTarget target, long now) {
+        if (target == null) return 0;
+        String key = restKeyOf(target);
+        Long until = clientRateCooldowns().get(key);
+        if (until == null) return 0;
+        long remaining = until - now;
+        if (remaining <= 0 && clientRateCooldowns().remove(key, until)) rememberCooldownEvidence(key, null);
+        return Math.max(0, remaining);
+    }
+    private long preflightRateWait(RouteTarget target) {
+        long now = System.currentTimeMillis();
+        return "raccoon".equals(target.providerId) ? raccoonRateWait(target, now) : rateRestRemaining(target, now);
+    }
+
+    private long raccoonRateWait(RouteTarget target, long now) {
+        long wait = rateRestRemaining(target, now);
+        if (target.apiKey == null || target.apiKey.isEmpty()) return wait;
+        // The exact user_model_rate_limited refusal already sets a credential-wide hold at admission.
+        for (CommercialKeyPool.Credential credential : CommercialKeyPool.list(new JSONArray().put(target.apiKey))) {
+            wait = Math.max(wait, commercialPool().cooldownRemaining(commercialScope(target), target.upstreamModel, credential, now));
+        }
+        return wait;
+    }
+
     private void rateRest(RouteTarget t,long ms) { rateRest(t,ms,null); }
     private void rateRest(RouteTarget t,long ms,CallEvidence.Snapshot origin) {
         if(t==null||ms<=0)return;long until=System.currentTimeMillis()+Math.min(ms,CooldownFeedback.MAX_MS);
@@ -12002,6 +12132,8 @@ public class GatewayServer extends NanoHTTPD {
         // Trae names quota and rate answers with the same HTTP 429. Only 4011 is a
         // confirmed rate rejection; keep its existing per-instance adapter cooldown.
         if(target!=null&&"trae-cn".equals(target.providerId)&&!containsAny(attempt.body,"code 4011"))return attempt.response;
+        if (target != null && ("workbuddy".equals(target.providerId) || "workbuddy-ai".equals(target.providerId))
+                && WorkBuddyQuotaCooldown.creditExhausted(attempt.body)) return attempt.response;
         String hint=attempt.retryAfter;if(hint==null)hint=attempt.response.getHeader("Retry-After");
         if(attempt.localRejection&&ProviderRetryPolicy.safeRetryAfter(hint)==null)return attempt.response;
         long now=System.currentTimeMillis(),remaining=rateRestRemaining(target);
@@ -12500,6 +12632,36 @@ public class GatewayServer extends NanoHTTPD {
     private Attempt forwardAttempt(RouteTarget target, JSONObject payloadIn, boolean clientWantsStream,
                                    String requestedModel, PrivacyMasker.Session maskSession,
                                    ContextGuard.Config guardCfg, ContextGuard.Result guardResult) {
+        long reset = workBuddyQuotaReset(target, System.currentTimeMillis());
+        if (reset > 0) {
+            RecentUsageScheduler.Lease lease = ATTEMPT_LEASE.get();
+            if (lease != null) lease.cancel();
+            Attempt out = new Attempt();
+            out.workBuddyQuotaReset = reset;
+            out.localRejection = true;
+            out.status = 429;
+            out.providerId = target.providerId;
+            out.modelRef = target.providerId + "/" + target.upstreamModel;
+            out.body = workBuddyQuotaMessage(reset);
+            out.response = workBuddyQuotaResponse(reset, out.body, guardResult);
+            return out;
+        }
+        if (target.raccoonRefreshDeferred && preflightRateWait(target) == 0 && !prepareRaccoonAccount(target)) {
+            RecentUsageScheduler.Lease lease = ATTEMPT_LEASE.get();
+            if (lease != null) lease.cancel();
+            Attempt out = new Attempt();
+            out.status = 502;
+            out.localRejection = true;
+            out.body = "Raccoon account unavailable";
+            out.response = errorResponse(out.status, out.body);
+            return out;
+        }
+        return forwardUnheldAttempt(target, payloadIn, clientWantsStream, requestedModel, maskSession, guardCfg, guardResult);
+    }
+
+    private Attempt forwardUnheldAttempt(RouteTarget target, JSONObject payloadIn, boolean clientWantsStream,
+                                   String requestedModel, PrivacyMasker.Session maskSession,
+                                   ContextGuard.Config guardCfg, ContextGuard.Result guardResult) {
         Attempt out = new Attempt();
         out.providerId = target.providerId;
         out.modelRef = target.providerId + "/" + target.upstreamModel;
@@ -12555,11 +12717,11 @@ public class GatewayServer extends NanoHTTPD {
         // survives the 401 replay loop and is read from the finally block.
         boolean raccoonSignInRenewed=false;
         try {
-            long rateWait=target.commercialCandidates==null?rateRestRemaining(target):0;
+            long rateWait=target.commercialCandidates==null?preflightRateWait(target):0;
             if(rateWait>0) {
                 if(out.callObservation!=null)out.callObservation.cooldown(rateWait,cooldownEvidence(restKeyOf(target)));
                 out.localRejection=true;out.status=429;out.body="Account is in rate-limit cooldown";
-                out.retryAfter=Long.toString((rateWait+999)/1000);out.response=errorResponse(429,out.body);
+                out.retryAfter=Long.toString(1+(rateWait-1)/1000);out.response=errorResponse(429,out.body);
                 out.response.addHeader("Retry-After",out.retryAfter);return out;
             }
             if (("workbuddy".equals(target.providerId) || "workbuddy-ai".equals(target.providerId))
@@ -15299,6 +15461,7 @@ public class GatewayServer extends NanoHTTPD {
 
     /** 单次转发的结果：成功就直接是响应；失败带上状态码与错误体供 retryable 判定 */
     private static class Attempt {
+        long workBuddyQuotaReset;
         CallEvidence.Builder callObservation;
         boolean stopFallback; // Terminal adapter result; preserve affinity and do not replay.
         boolean safeZcodeRejection;
@@ -15456,15 +15619,10 @@ public class GatewayServer extends NanoHTTPD {
                 JSONObject account=accounts.optJSONObject(i);
                 if(qoderEnabled(account) && !storedAccess(account).isEmpty()) eligible.add(account);
             }
-            if(!eligible.isEmpty()) {
-                JSONObject account=eligible.get(routingAccountIndex(route.providerId,eligible,mName));
-                route.account=account; route.apiKey=storedAccess(account);
-                String stableId=account.optString("id","");
-                if(!stableId.isEmpty()) {
-                    try { route.account=ensureRaccoonToken(stableId,null,0); route.apiKey=storedAccess(route.account); }
-                    catch(Exception unavailable) { return null; }
-                }
-                if(route.account==null || route.apiKey.trim().isEmpty()) return null;
+            if (!eligible.isEmpty()) {
+                selectRaccoonAccount(route, eligible);
+                route.raccoonRefreshDeferred = preflightRateWait(route) > 0;
+                if (!route.raccoonRefreshDeferred && !prepareRaccoonAccount(route)) return null;
             }
             return route;
         }
@@ -15598,6 +15756,41 @@ public class GatewayServer extends NanoHTTPD {
             route.apiKey = now;
         }
         return route;
+    }
+
+    private boolean prepareRaccoonAccount(RouteTarget route) {
+        String id = route.account.optString("id", "");
+        if (!id.isEmpty()) {
+            try {
+                route.account = ensureRaccoonToken(id, null, 0);
+                route.apiKey = storedAccess(route.account);
+            } catch (Exception unavailable) {
+                return false;
+            }
+        }
+        return route.account != null && !route.apiKey.trim().isEmpty();
+    }
+
+    private void selectRaccoonAccount(RouteTarget route, List<JSONObject> eligible) {
+        List<JSONObject> ready = new ArrayList<>();
+        JSONObject soonest = null;
+        long now = System.currentTimeMillis();
+        long earliest = Long.MAX_VALUE;
+        for (JSONObject account : eligible) {
+            route.account = account;
+            route.apiKey = storedAccess(account);
+            long wait = raccoonRateWait(route, now);
+            if (wait == 0) {
+                ready.add(account);
+            } else if (wait < earliest) {
+                earliest = wait;
+                soonest = account;
+            }
+        }
+        // When every account is cooling, forwardAttempt returns the earliest wait locally.
+        route.account = ready.isEmpty() ? soonest
+                : ready.get(routingAccountIndex(route.providerId, ready, route.upstreamModel));
+        route.apiKey = storedAccess(route.account);
     }
 
     private RouteTarget resolveTarget(String model) {

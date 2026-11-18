@@ -73,3 +73,15 @@ const traeText=parent.children[1].children.map(n=>n.textContent).join(' ');
 assert(traeText.includes('Credits 剩 3053.25 积分'));
 assert(traeText.includes('重置 2026-12-01T00:00:00.000Z'));
 console.log('Trae remaining credits rendering PASS');
+
+cache.raccoon=ctx.billingSnapshot(null,{ok:true,models:{},accounts:[
+  {accountId:'a',name:'A',allowance:{kind:'allowance',scope:'account',unit:'credits',remaining:950,dailyGrantRemaining:519}},
+  {accountId:'b',name:'B',allowance:{kind:'allowance',scope:'account',unit:'credits',remaining:450,dailyGrantRemaining:0}},
+  {accountId:'c',name:'C',allowance:{kind:'allowance',scope:'account',unit:'credits',remaining:150}}
+]},1000);
+parent=node();ctx.renderProviderBilling(parent,'raccoon');
+const raccoonRows=parent.children[1].children.slice(1).map(n=>n.textContent);
+assert(raccoonRows[0].includes('剩余 950 积分') && raccoonRows[0].includes('其中每日赠送积分 519'));
+assert(raccoonRows[1].includes('其中每日赠送积分 0'));
+assert(raccoonRows[2].includes('剩余 150 积分') && !raccoonRows[2].includes('每日赠送积分'));
+console.log('Raccoon daily credits rendering PASS');

@@ -49,7 +49,14 @@ public final class CheckinCenterRegressionTest {
         try(CheckinCenter c=new CheckinCenter(changed,(p,a)->{changed.value.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0).put("uid","new-owner");return new JSONObject().put("outcome","claimed").put("verified",true);})) {check(c.runOne("workbuddy","a",false).getString("outcome").equals("account_changed"),"late result never attached to another owner");check(changed.value.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0).getString("uid").equals("new-owner"),"new owner not reverted");}
         Host rotated=new Host(config("workbuddy",account("a")));
         try(CheckinCenter c=new CheckinCenter(rotated,(p,a)->{rotated.value.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0).put("access","new-access");return new JSONObject().put("outcome","claimed").put("verified",true).put("message","secret-a refresh-a jwt-a");})) {c.runOne("workbuddy","a",true);check(rotated.value.getJSONArray("providers").getJSONObject(0).getJSONArray("accounts").getJSONObject(0).getString("access").equals("new-access"),"result merge preserves renewed access");check(!c.snapshot().toString().contains("secret-a")&&!c.snapshot().toString().contains("jwt-a"),"upstream message secrets removed");}
-        for(String provider:CheckinCenter.SUPPORTED){check(CheckinCenter.eligible(provider,account("x")),"eligible supported provider "+provider);}
+        for(String provider:CheckinCenter.SUPPORTED){
+            JSONObject sample=account("x");
+            if(QoderCheckin.PROVIDER.equals(provider)) {
+                check(!CheckinCenter.eligible(provider,sample),"Qoder requires a campaign credential");
+                sample.put("deviceToken","fixture-device");
+            }
+            check(CheckinCenter.eligible(provider,sample),"eligible supported provider "+provider);
+        }
         check(!CheckinCenter.enabled(config("zcode",account("x")),"zcode"),"gift claims not default automatic checkin");
         check(!CheckinCenter.eligible("workbuddy-ai",account("x")),"AI build no checkin");check(!CheckinCenter.eligible("workbuddy",account("x").put("type","api")),"API key has no daily claim");
         Host inactive=new Host(config("workbuddy",account("a")));AtomicInteger calls=new AtomicInteger();

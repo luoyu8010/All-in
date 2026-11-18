@@ -12,9 +12,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Daily per-account check-ins. Durable intent precedes a claim; unknown claims are never replayed that day. */
 final class CheckinCenter implements AutoCloseable {
-    static final List<String> SUPPORTED = Collections.unmodifiableList(Arrays.asList("workbuddy", "minimax-code", "raccoon", "loomy", "trae-cn", "zcode"));
+    static final List<String> SUPPORTED = Collections.unmodifiableList(Arrays.asList("workbuddy", "minimax-code", "raccoon", "loomy", "trae-cn", "zcode", QoderCheckin.PROVIDER));
     interface Host { Object lock(); JSONObject config(); boolean save(JSONObject next); boolean retired(); default long accountEpoch(String provider,String id){return 0;} }
-    interface Transport { JSONObject checkin(String provider, JSONObject account) throws Exception; default JSONObject status(String provider,JSONObject account)throws Exception{return new JSONObject().put("outcome","unknown").put("message","此供应商没有独立签到状态接口，请在官方客户端核对");} }
+    interface Transport { JSONObject checkin(String provider, JSONObject account) throws Exception; default JSONObject claimQoder(JSONObject account,String campaign)throws Exception{throw new IOException("Qoder claim unavailable");} default JSONObject status(String provider,JSONObject account)throws Exception{return new JSONObject().put("outcome","unknown").put("message","此供应商没有独立签到状态接口，请在官方客户端核对");} }
     interface Clock { long now(); }
     private final Host host; private final Transport transport; private final Clock clock;
     private final ScheduledExecutorService worker;
@@ -35,7 +35,7 @@ final class CheckinCenter implements AutoCloseable {
     static long nextDay(long now) { Calendar c=Calendar.getInstance(TimeZone.getTimeZone("GMT+08:00"));c.setTimeInMillis(now);c.add(Calendar.DATE,1);c.set(Calendar.HOUR_OF_DAY,0);c.set(Calendar.MINUTE,0);c.set(Calendar.SECOND,0);c.set(Calendar.MILLISECOND,0);return c.getTimeInMillis(); }
     /** Migration never counts imported assertions as official reward proof or creates a fresh claim. */
     static void protectAccountImport(JSONObject config,String provider,JSONObject account,JSONObject carried,long now) {
-        if(!eligible(provider,account))return;
+        if(QoderCheckin.PROVIDER.equals(provider)||!eligible(provider,account))return;
         String k=key(provider,account.optString("id"));JSONObject current=records(config).optJSONObject(k);
         String fp=fingerprint(account),today=day(now);
         if(current!=null && today.equals(current.optString("day"))) {
@@ -55,7 +55,7 @@ final class CheckinCenter implements AutoCloseable {
     }
     private static JSONObject options(JSONObject config) { JSONObject o=config.optJSONObject("checkin");return o==null?new JSONObject():o; }
     private static JSONObject records(JSONObject config) { JSONObject r=options(config).optJSONObject("records");return r==null?new JSONObject():r; }
-    static boolean enabled(JSONObject config,String provider) { JSONObject o=options(config),p=o.optJSONObject("providers");return o.optBoolean("autoEnabled",true) && (p==null ? !"zcode".equals(provider) : p.optBoolean(provider,!"zcode".equals(provider))); }
+    static boolean enabled(JSONObject config,String provider) { if(QoderCheckin.PROVIDER.equals(provider))return false; JSONObject o=options(config),p=o.optJSONObject("providers");return o.optBoolean("autoEnabled",true) && (p==null ? !"zcode".equals(provider) : p.optBoolean(provider,!"zcode".equals(provider))); }
     private static String fingerprint(JSONObject a) {
         try {
             String s=a.optString("id")+"\n"+a.optString("uid")+"\n"+a.optString("domain")+"\n"+a.optString("enterpriseId")+"\n"+a.optString("addedAt");
@@ -73,6 +73,7 @@ final class CheckinCenter implements AutoCloseable {
     static boolean eligible(String provider,JSONObject a) {
         if(!SUPPORTED.contains(provider)||a==null||a.optString("id").isEmpty())return false;
         if("api".equals(a.optString("type")))return false;
+        if(QoderCheckin.PROVIDER.equals(provider))return QoderCheckin.eligible(a);
         if("workbuddy".equals(provider))return WorkBuddyAllowance.eligible(a) && !a.optString("access",a.optString("token","")).isEmpty();
         if("minimax-code".equals(provider))return !a.optString("access",a.optString("token","")).isEmpty();
         if("zcode".equals(provider))return !a.optString("jwt",a.optString("giftJwt","")).isEmpty();
@@ -124,6 +125,7 @@ final class CheckinCenter implements AutoCloseable {
         return true;
     }
     JSONObject runOne(String provider,String id,boolean automatic) throws Exception {
+        if(QoderCheckin.PROVIDER.equals(provider))return QoderCheckin.state("disabled","Qoder CN 请在账号卡片上手动查询和领取");
         if(!SUPPORTED.contains(provider)||id==null||id.isEmpty())throw new IllegalArgumentException("unsupported checkin account");String k=key(provider,id);
         synchronized(active) { if(!active.add(k))return new JSONObject().put("outcome","running").put("message","此账号正在签到"); }
         JSONObject snapshot=null;String fp="";long now=clock.now(),epoch=0;
@@ -186,18 +188,118 @@ final class CheckinCenter implements AutoCloseable {
                     JSONObject r=records(config).optJSONObject(key(provider,id));
                     JSONObject local=localFailures.get(key(provider,id));if(local!=null)r=local;
                     String outcome="idle";
-                    if(r!=null&&fingerprint(a).equals(r.optString("fingerprint"))&&day(now).equals(r.optString("day"))) {
+                    if(r!=null&&fingerprint(a).equals(r.optString("fingerprint"))&&(QoderCheckin.PROVIDER.equals(provider) ? qoderVisible(r,now) : day(now).equals(r.optString("day")))) {
                         r=normalized(provider,r);outcome=r.optString("outcome","unknown");boolean isActive; synchronized(active){isActive=active.contains(key(provider,id));}if("running".equals(outcome)&&!isActive)outcome="unknown";
-                        for(String field:new String[]{"message","credit","unit","streak","at","nextAt","automatic","phase","claimPossible","reasonCode","exceptionType","httpStatus","businessCode","retryBlocked","verified","dailyQuota","evidenceType","pagesRead","billsRead","rowsRead","coverageComplete","actionAt","actionAutomatic","confirmedAt"})if(r.has(field))row.put(field,r.opt(field));
+                        for(String field:new String[]{"message","credit","unit","streak","at","nextAt","automatic","phase","claimPossible","reasonCode","exceptionType","httpStatus","businessCode","retryBlocked","verified","dailyQuota","evidenceType","pagesRead","billsRead","rowsRead","coverageComplete","actionAt","actionAutomatic","confirmedAt","campaignId","campaignEnd"})if(r.has(field))row.put(field,r.opt(field));
                     }
                     if(!supports){outcome="unsupported";row.put("message",SUPPORTED.contains(provider)?"此账号凭据不支持签到":"供应商没有已接入的签到接口");}
-                    row.put("outcome",outcome);if(!row.has("message"))row.put("message",label(outcome));if(!"zcode".equals(provider)){if(supports)ready++;if(confirmed(row))complete++;else if("available".equals(outcome)&&supports)available++;}rows.put(row);
+                    row.put("outcome",outcome);if(!row.has("message"))row.put("message",label(outcome));if(!"zcode".equals(provider)&&!QoderCheckin.PROVIDER.equals(provider)){if(supports)ready++;if(confirmed(row))complete++;else if("available".equals(outcome)&&supports)available++;}rows.put(row);
                 }
             }
             return new JSONObject().put("ok",true).put("autoEnabled",options(config).optBoolean("autoEnabled",true)).put("day",day(now)).put("timezone","UTC+8").put("running",batch.get()).put("supported",ready).put("completed",complete).put("available",available).put("pending",Math.max(0,ready-complete-available)).put("accounts",rows).put("operation",manualSnapshot(config));
         }
     }
+    private static boolean qoderVisible(JSONObject record,long now) {
+        long end=record.optLong("campaignEnd");
+        return end>0 ? now<end : day(now).equals(record.optString("day"));
+    }
+
+    private static boolean qoderBlocked(JSONObject record, JSONObject activity) {
+        if (record == null || !record.has("fenceId")) return false;
+        return record.optString("fenceId").equals(activity.optString("campaignId"))
+                || activity.optLong("campaignStart") < record.optLong("fenceEnd");
+    }
+
+    private void saveQoder(String key, JSONObject account, long epoch, JSONObject state) throws IOException {
+        live();
+        String id = account.optString("id");
+        JSONObject current = account(host.config(), QoderCheckin.PROVIDER, id);
+        if (current == null || !eligible(QoderCheckin.PROVIDER, current)
+                || host.accountEpoch(QoderCheckin.PROVIDER, id) != epoch
+                || !sameCredentials(current, account) || !fingerprint(current).equals(fingerprint(account))) {
+            throw new IOException("Qoder account changed");
+        }
+        long now = clock.now();
+        state.put("fingerprint", fingerprint(current)).put("day", day(now)).put("at", now);
+        JSONObject next = copy(host.config());
+        putRecord(next, key, state);
+        if (!host.save(next)) throw new IOException("Cannot save Qoder campaign state");
+    }
+
+    JSONObject qoderCampaign(String id, String requestedCampaign) throws Exception {
+        final String provider = QoderCheckin.PROVIDER;
+        final String key = key(provider,id);
+        synchronized(active) {
+            if (!active.add(key)) throw new IOException("Qoder campaign action in progress");
+        }
+        try {
+            JSONObject account, previous;
+            long epoch;
+            synchronized(host.lock()) {
+                live();
+                account = account(host.config(),provider,id);
+                if (!eligible(provider,account)) throw new IllegalArgumentException("Qoder account unavailable");
+                account = copy(account);
+                epoch = host.accountEpoch(provider,id);
+                previous = records(host.config()).optJSONObject(key);
+                if (previous != null && !fingerprint(account).equals(previous.optString("fingerprint"))) previous = null;
+                if (requestedCampaign != null && (previous == null || !"claimable".equals(previous.optString("outcome"))
+                        || !requestedCampaign.equals(previous.optString("campaignId")) || !qoderVisible(previous,clock.now())
+                        || qoderBlocked(previous,previous))) throw new IllegalArgumentException("Refresh Qoder campaign first");
+            }
+            JSONObject status;
+            try {
+                status = transport.status(provider,account);
+            } catch (Exception failure) {
+                status = QoderCheckin.state("failed","Qoder CN 活动查询失败，请稍后再查");
+            }
+            String campaign = status.optString("campaignId");
+            boolean blocked = qoderBlocked(previous, status);
+            if (previous != null && previous.has("fenceId")) {
+                status.put("fenceId",previous.optString("fenceId")).put("fenceEnd",previous.optLong("fenceEnd"));
+                if (blocked && !"done".equals(status.optString("outcome"))) {
+                    if (confirmed(previous) && qoderVisible(previous,clock.now())) {
+                        status = copy(previous).put("message","本轮已确认领取，保留此前的官方结果");
+                    } else {
+                        status.put("outcome","unknown").put("claimPossible",false).put("retryBlocked",true)
+                                .put("message","本轮领取结果待官方确认，请查询活动状态");
+                        if (campaign.isEmpty() && previous.optLong("fenceEnd") > clock.now()) {
+                            status.put("campaignEnd",previous.optLong("fenceEnd"));
+                        }
+                    }
+                }
+            }
+            boolean claim = requestedCampaign != null && requestedCampaign.equals(campaign)
+                    && "claimable".equals(status.optString("outcome")) && !blocked
+                    && previous.optLong("campaignStart")==status.optLong("campaignStart")
+                    && previous.optLong("campaignEnd")==status.optLong("campaignEnd");
+            if (claim) {
+                synchronized(host.lock()) {
+                    long now = clock.now();
+                    if (now < status.optLong("campaignStart") || now >= status.optLong("campaignEnd")) {
+                        throw new IOException("Qoder campaign expired");
+                    }
+                    JSONObject intent = copy(status).put("outcome","unknown").put("message","本轮领取结果待官方确认")
+                            .put("claimPossible",false).put("retryBlocked",true).put("actionAt",now)
+                            .put("fenceId",campaign).put("fenceEnd",status.optLong("campaignEnd"));
+                    saveQoder(key,account,epoch,intent);
+                }
+                JSONObject result;
+                try { result = transport.claimQoder(account,campaign); }
+                catch (Exception failure) { return snapshot(); }
+                for (String field : new String[]{"campaignId","campaignStart","campaignEnd"}) result.put(field,status.opt(field));
+                status = result.put("fenceId",campaign).put("fenceEnd",status.optLong("campaignEnd"))
+                        .put("actionAt",status.optLong("actionAt",clock.now()));
+            }
+            synchronized(host.lock()) { saveQoder(key,account,epoch,status); }
+            return snapshot();
+        } finally {
+            synchronized(active) { active.remove(key); }
+        }
+    }
+
     JSONObject reconcile(String provider,String id)throws Exception {
+        if(QoderCheckin.PROVIDER.equals(provider))return qoderCampaign(id,null);
         String k=key(provider,id);boolean acquired;synchronized(active){acquired=active.add(k);}if(!acquired)return snapshot().put("message","此账号正在处理中");
         try{
             JSONObject a,previous;String fp;
@@ -248,10 +350,11 @@ final class CheckinCenter implements AutoCloseable {
         return r.put("message",note);
     }
     private List<String[]> candidates() throws Exception {
-        JSONArray rows=snapshot().getJSONArray("accounts");List<String[]> result=new ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject a=rows.getJSONObject(i);if(a.optBoolean("supported")&&!"zcode".equals(a.optString("provider")))result.add(new String[]{a.getString("provider"),a.getString("accountId")});}return result;
+        JSONArray rows=snapshot().getJSONArray("accounts");List<String[]> result=new ArrayList<>();for(int i=0;i<rows.length();i++){JSONObject a=rows.getJSONObject(i);if(a.optBoolean("supported")&&!"zcode".equals(a.optString("provider"))&&!QoderCheckin.PROVIDER.equals(a.optString("provider")))result.add(new String[]{a.getString("provider"),a.getString("accountId")});}return result;
     }
     JSONObject enqueue(String provider,String id,boolean automatic) throws Exception {
-        live();if((provider==null||provider.isEmpty())!=(id==null||id.isEmpty()))throw new IllegalArgumentException("provider and accountId required together");
+        live();if(QoderCheckin.PROVIDER.equals(provider))throw new IllegalArgumentException("Qoder requires the selected campaign");
+        if((provider==null||provider.isEmpty())!=(id==null||id.isEmpty()))throw new IllegalArgumentException("provider and accountId required together");
         if(provider!=null&&!provider.isEmpty()) { synchronized(host.lock()){if(!eligible(provider,account(host.config(),provider,id)))throw new IllegalArgumentException("account does not support checkin");} }
         if(!batch.compareAndSet(false,true))return snapshot().put("accepted",false).put("message","已有签到任务正在运行");
         final String operationId=UUID.randomUUID().toString();final long operationStarted=clock.now();

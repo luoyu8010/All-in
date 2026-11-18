@@ -8,12 +8,17 @@ const html = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/dashbo
 const css = [...html.matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(match => match[0]).join('');
 const card = html.slice(html.indexOf('<div class="card" id="usage-card">'), html.indexOf('<div class="heat-panel" id="usage-heatmap-card">'));
 const script = html.slice(html.indexOf('    // ==================== 用量看板'), html.indexOf('    function moveNavPill('));
-const fixture = `<!doctype html><html class="glass-ui"><head>${css}</head><body class="liquid-glass" style="width:340px">${card}</div><div id="usage-heatmap-card">热力图</div><div id="usage-state"></div><pre id="result">WAIT</pre><script>
+const escStart = html.indexOf('    function esc(s) {');
+const escapeHtmlStart = html.indexOf('    function escapeHtml(s) {');
+const closeFunction = String.fromCharCode(10) + '    }';
+const escapeSource = [escStart, escapeHtmlStart].map(start => html.slice(start, html.indexOf(closeFunction, start) + closeFunction.length)).join(' ');
+const fixture = `<!doctype html><html class="glass-ui"><head>${css}</head><body class="liquid-glass" style="width:340px">${card}</div><div id="usage-heatmap-card">热力图</div><div id="usage-state"></div><div id="usage-recent"></div><pre id="result">WAIT</pre><script>
 const API_BASE = '';
 const queued = [];
 let reduced = false;
 window.matchMedia = () => ({matches:reduced});
 window.fetch = url => new Promise(resolve => queued.push({url,resolve}));
+${escapeSource}
 ${script}
 (async () => {
   const el = id => document.getElementById(id);
@@ -53,6 +58,14 @@ ${script}
   const empty = loadUsage(7); resolve(queued.shift(),7,true); await empty;
   check(chart.textContent.includes('这段时间还没有调用记录') && !chart.getAnimations({subtree:true}).length, 'empty range and reduced motion');
   check(el('usage-range-note').hidden && heatmap === el('usage-heatmap-card') && heatmap.textContent === '热力图', 'heatmap remained independent');
+  const quota = loadUsage(1);
+  const quotaText = 'WorkBuddy 模型额度已用尽，预计 11-19 08:30:00 恢复<img src=x>';
+  const cooldown = {t:Date.now(), model:'deepseek-v4.1-flash', status:429, terminal:true, upstreamErrorCode:'workbuddy_model_quota_exhausted', err:quotaText};
+  queued.shift().resolve({ok:true,json:async()=>({ok:true,rows:2,recent:[cooldown,{...cooldown,terminal:false,err:'unconfirmed quota'}]})});
+  await quota;
+  const recent = el('usage-recent');
+  check(recent.textContent.includes(quotaText) && !recent.querySelector('img'), 'confirmed quota reset appears as escaped text');
+  check(!recent.textContent.includes('unconfirmed quota'), 'only confirmed terminal quota detail is rendered');
   reduced = false;
   const track = el('usage-range');
   const pill = track.querySelector('.usage-range-pill');

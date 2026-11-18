@@ -15,8 +15,8 @@ android {
         applicationId 'com.gaeul.allin'
         minSdk 24
         targetSdk 34
-        versionCode 74
-        versionName '1.2.68-test'
+        versionCode 75
+        versionName '1.2.69-test'
         testInstrumentationRunner 'com.gaeul.allin.RepairInstrumentation'
     }
 
@@ -144,6 +144,7 @@ def offlineTestMains = [
         'com.gaeul.allin.WorkBuddyFilterRefusalStreamOfflineTest',
         'com.gaeul.allin.WorkBuddyFilterRefusalGatewayHttpTest',
         'com.gaeul.allin.WorkBuddyNativeGatewayHttpTest',
+        'com.gaeul.allin.WorkBuddyQuotaGatewayHttpTest',
         'com.gaeul.allin.CatPawMiniGatewayHttpTest',
         'com.gaeul.allin.CatPawToolBridgeOfflineTest',
         'com.gaeul.allin.WorkBuddyCompletionGatewayHttpTest',

@@ -40,21 +40,49 @@ public final class RaccoonAccountService {
         JSONObject data = response.optJSONObject("data");
         return data == null ? response : data;
     }
-    private static Long points(JSONObject body) {
-        Object x = body.opt("available_points");
+    private static Long points(JSONObject body, String field) {
+        Object x = body.opt(field);
         if (x == null || x == JSONObject.NULL || x instanceof Boolean) return null;
         try { double n = Double.parseDouble(x.toString()); return !Double.isNaN(n) && !Double.isInfinite(n) && n >= 0 && n < Long.MAX_VALUE ? (long)Math.floor(n) : null; }
         catch (NumberFormatException e) { return null; }
     }
-    /** setting_info may grant daily credits even when called as a balance fallback. */
+    static final class Balance {
+        final long available;
+        final Long daily;
+
+        Balance(long available, Long daily) {
+            this.available = available;
+            this.daily = daily;
+        }
+    }
+
     public long balance() throws IOException {
+        return balanceDetail().available;
+    }
+
+    /** The manual-only fallback may grant daily credits. It supplies only a total. */
+    Balance balanceDetail() throws IOException {
         IOException first;
-        try { Long n = points(get("GET", "/api/web/points/v1/balance", false)); if (n != null) return n; first = new Failure("Raccoon balance missing", false); }
-        catch (Failure e) { if (e.expired) throw e; first = e; }
-        catch (IOException e) { first = e; }
-        try { Long n = points(get("GET", "/api/web/office/v3/setting_info", false)); if (n != null) return n; }
-        catch (Failure e) { if (e.expired) throw e; }
-        catch (IOException ignored) { }
+        try {
+            JSONObject body = get("GET", "/api/web/points/v1/balance", false);
+            Long available = points(body, "available_points");
+            if (available != null) {
+                Long daily = points(body, "daily_points");
+                return new Balance(available, daily != null && daily <= available ? daily : null);
+            }
+            first = new Failure("Raccoon balance missing", false);
+        } catch (Failure e) {
+            if (e.expired) throw e;
+            first = e;
+        } catch (IOException e) {
+            first = e;
+        }
+        try {
+            Long available = points(get("GET", "/api/web/office/v3/setting_info", false), "available_points");
+            if (available != null) return new Balance(available, null);
+        } catch (Failure e) {
+            if (e.expired) throw e;
+        } catch (IOException ignored) { }
         throw first;
     }
     static final int BILL_PAGE_SIZE=20, BILL_MAX_PAGES=5;

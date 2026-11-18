@@ -136,7 +136,13 @@ public final class CommercialKeyPool {
         return null;
     }
     public synchronized long availableAt(String provider, String model, Credential c) {
-        long now=clock.now(), result=now;
+        return availableAt(provider, model, c, clock.now());
+    }
+    synchronized long cooldownRemaining(String provider, String model, Credential c, long now) {
+        return availableAt(provider, model, c, now) - now;
+    }
+    private long availableAt(String provider, String model, Credential c, long now) {
+        long result = now;
         for (Scope s : new Scope[]{Scope.PROVIDER,Scope.KEY,Scope.KEY_MODEL}) {
             RestKey k=restKey(s,provider,c.credentialId,model);
             if (active(k,now)) result=Math.max(result,rests.get(k));

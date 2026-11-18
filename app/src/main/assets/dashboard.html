@@ -5574,6 +5574,8 @@ html[data-theme="dark"] .glass-switch-shell {
               + '<span style="color:var(--text-faint);font-size:11.5px;">' + hh + '</span> '
               + escapeHtml(r.model || r.prov)
               + (bad ? ' <span style="color:var(--danger);">✕' + r.status + '</span>' : '')
+              + (r.terminal && r.upstreamErrorCode === 'workbuddy_model_quota_exhausted' && r.err
+                ? ' <span style="color:var(--text-muted);">' + escapeHtml(r.err) + '</span>' : '')
               + '</span>'
               + '<span class="usage-sub-val">' + fmtFull((r.in || 0) + (r.out || 0))
               + (r.ttft ? ' · ' + (r.ttft / 1000).toFixed(1) + 's' : '') + '</span>'
@@ -6296,21 +6298,27 @@ html[data-theme="dark"] .glass-switch-shell {
           message=a.reasonCode?message.replace('领取后的结果未能确认','暂未收到官方确认'):'暂未收到官方的最终确认。请稍后查询状态，避免重复领取。';
         }
       }
+      if(a.provider==='qoder_cn'){if(a.outcome==='claimable')label='可领取';else if(a.outcome==='idle')label='待查询';else if(['done','claimed'].includes(a.outcome))label='本轮已领取';}
       if(a.outcome==='available'){tone='neutral';label=a.dailyQuota===0?'每日额度为0':'每日额度可用';message=a.message||'每日额度可用不代表新领取了签到奖励。';}
       if(['claimed','done','refreshed'].includes(a.outcome)&&a.verified!==true){label='待官方核实';tone='neutral';message='已有处理记录，但尚未取得官方成功确认；不会重复领取。';}
       return {label,message,tone};
     }
     function checkinRow(a,unsupported) {
       const row=checkinText('article','','checkin-row'),avatar=checkinText('div','','checkin-avatar');avatar.appendChild(providerLogoNode(a.provider,a.providerName||a.provider,true));row.appendChild(avatar);
-      const box=checkinText('div','','checkin-account');box.appendChild(checkinText('strong',a.name||'账号'));box.appendChild(checkinText('span',(a.providerName||a.provider||'供应商')+(a.provider==='zcode'?' · 赠送仅手动领取':''),'checkin-provider'));
+      const box=checkinText('div','','checkin-account');box.appendChild(checkinText('strong',a.name||'账号'));box.appendChild(checkinText('span',(a.providerName||a.provider||'供应商')+(a.provider==='zcode'?' · 赠送仅手动领取':a.provider==='qoder_cn'?' · 手动领取':''),'checkin-provider'));
       const presentation=checkinPresentation(a),badge=checkinText('span',presentation.label,'checkin-status');badge.dataset.tone=presentation.tone;box.appendChild(badge);
       box.appendChild(checkinText('p',presentation.message,'checkin-result'));
-      if(a.verified===true&&['claimed','done','refreshed'].includes(a.outcome)&&Number.isFinite(a.credit)&&a.credit>=0)box.appendChild(checkinText('div','今日奖励 '+a.credit.toLocaleString('zh-CN')+' 积分'+(Number.isFinite(a.streak)&&a.streak>0?' · 连续 '+a.streak+' 天':''),'checkin-credit'));
+      if(a.verified===true&&['claimed','done','refreshed'].includes(a.outcome)&&Number.isFinite(a.credit)&&a.credit>=0)box.appendChild(checkinText('div',(a.provider==='qoder_cn'?'本轮奖励 ':'今日奖励 ')+a.credit.toLocaleString('zh-CN')+' 积分'+(Number.isFinite(a.streak)&&a.streak>0?' · 连续 '+a.streak+' 天':''),'checkin-credit'));
       if(a.outcome==='available'&&Number.isFinite(a.dailyQuota)&&a.dailyQuota>=0)box.appendChild(checkinText('div','当前每日额度 '+a.dailyQuota.toLocaleString('zh-CN')+' 积分（不是本次新奖励）','checkin-quota'));
       const time=checkinTime(a.at),actionTime=checkinTime(a.actionAt);if(time)box.appendChild(checkinText('div',(actionTime?actionTime+(a.actionAutomatic?' 自动处理':' 手动处理')+' · ':'')+time+' 更新','checkin-time'));
       const operation=checkinData&&checkinData.operation,receipt=operation&&operation.day===checkinData.day&&Array.isArray(operation.results)?operation.results.find(r=>r.provider===a.provider&&r.accountId===a.accountId):null;
       if(receipt)box.appendChild(checkinText('p',receipt.message,'checkin-action'));row.appendChild(box);
-      if(!unsupported) {
+      if(!unsupported&&a.provider==='qoder_cn') {
+        const ready=a.outcome==='claimable'&&a.claimPossible===true&&typeof a.campaignId==='string'&&a.campaignEnd>Date.now();
+        const btn=checkinText('button',ready?'领取':'查询活动','btn btn-outline');btn.type='button';btn.disabled=checkinActionBusy||!!(checkinData&&checkinData.running);
+        btn.onclick=()=>ready?checkinClaimQoder(a.accountId,a.campaignId):checkinConfirm(a.provider,a.accountId);
+        row.appendChild(btn);
+      } else if(!unsupported) {
         const needsQuery=['unknown','failed','auth_required','available'].includes(a.outcome)||(['claimed','done','refreshed'].includes(a.outcome)&&a.verified!==true);
         const btn=checkinText('button',needsQuery?(a.outcome==='available'?'查询额度':'查询状态'):a.provider==='loomy'?'刷新额度':a.provider==='zcode'?'领取':['claimed','done','refreshed'].includes(a.outcome)?'已签到':'签到','btn btn-outline');btn.type='button';
         const settled=['claimed','done','refreshed','running','captcha','ineligible'].includes(a.outcome),waiting=['failed','inactive'].includes(a.outcome)&&Number.isFinite(a.nextAt)&&a.nextAt>Date.now();
@@ -6319,7 +6327,7 @@ html[data-theme="dark"] .glass-switch-shell {
       return row;
     }
     function checkinRender(data) {
-      checkinData=data;const daily=(Array.isArray(data.accounts)?data.accounts:[]).filter(a=>a.supported===true&&a.provider!=='zcode'),total=daily.length,complete=daily.filter(a=>a.verified===true&&['claimed','done','refreshed'].includes(a.outcome)).length,available=daily.filter(a=>a.outcome==='available').length;
+      checkinData=data;const daily=(Array.isArray(data.accounts)?data.accounts:[]).filter(a=>a.supported===true&&a.provider!=='zcode'&&a.provider!=='qoder_cn'),total=daily.length,complete=daily.filter(a=>a.verified===true&&['claimed','done','refreshed'].includes(a.outcome)).length,available=daily.filter(a=>a.outcome==='available').length;
       document.getElementById('checkin-day').textContent=(data.day||'今日')+' · UTC+8';document.getElementById('checkin-completed').textContent=complete;document.getElementById('checkin-supported').textContent=total;document.getElementById('checkin-available').textContent=available;document.getElementById('checkin-remaining').textContent=Math.max(0,total-complete-available);
       const pct=total?Math.min(100,Math.round(100*complete/total)):0;document.getElementById('checkin-progress').setAttribute('aria-valuenow',String(pct));document.getElementById('checkin-progress-fill').style.width=pct+'%';
       const toggle=document.getElementById('checkin-auto-toggle');toggle.checked=data.autoEnabled===true;toggle.disabled=checkinActionBusy;
@@ -6357,6 +6365,13 @@ html[data-theme="dark"] .glass-switch-shell {
       if(checkinActionBusy||checkinData&&checkinData.running)return;checkinActionBusy=true;const rev=++checkinRevision;if(checkinData)checkinRender(checkinData);
       try {const d=await checkinRequest('/api/checkin/run',provider?{provider,accountId}:{});if(rev===checkinRevision){checkinRender(d);checkinError(d.accepted===false?'已有签到任务正在运行，请等待结果。':'');}}
       catch(e){checkinError('任务是否提交成功尚未确认，请刷新状态查看；不会自动重发签到请求。');}
+      finally{checkinActionBusy=false;if(checkinData)checkinRender(checkinData);}
+    }
+    async function checkinClaimQoder(accountId,campaignId) {
+      if(checkinActionBusy||checkinData&&checkinData.running)return;
+      checkinActionBusy=true;const rev=++checkinRevision;if(checkinData)checkinRender(checkinData);
+      try{const data=await checkinRequest('/api/checkin/qoder-claim',{accountId,campaignId});if(rev===checkinRevision){checkinRender(data);checkinError('');}}
+      catch(e){if(rev===checkinRevision)checkinError('请查询活动状态，确认本轮领取结果。');}
       finally{checkinActionBusy=false;if(checkinData)checkinRender(checkinData);}
     }
     async function checkinConfirm(provider,accountId) {
@@ -7741,6 +7756,9 @@ html[data-theme="dark"] .glass-switch-shell {
         if (pending) parts.push('刷新中');
         if ((a.stale || snapshot.stale) && a.allowance) parts.push('上次快照');
         const direct = billingAllowanceText(allowance); if (direct) parts.push('剩余 ' + direct);
+        if (Number.isFinite(allowance.dailyGrantRemaining) && allowance.dailyGrantRemaining >= 0) {
+          parts.push('其中每日赠送积分 ' + allowance.dailyGrantRemaining.toLocaleString('zh-CN'));
+        }
         (Array.isArray(allowance.windows) ? allowance.windows : []).forEach(w => {
           if (!w) return;
           const amount = billingAllowanceText(w, allowance.unit);

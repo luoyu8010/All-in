@@ -42,6 +42,94 @@ public final class CooldownFeedbackRegressionTest {
             check(r.getStatus().getRequestStatus()==200,"started stream keeps committed HTTP status "+path);check(raw.contains("75 秒")&&raw.contains("error"),"protocol-visible stream cooldown "+path);check(!raw.contains("[DONE]"),"rate error is not successful completion "+path);check(n.n==1,"one original stream attempt "+path);
         }
     }
+    static void raccoonAccountRouting() throws Exception {
+        for (String mode : new String[]{"rotate", "usage", "pace"}) {
+            for (boolean accountWide : new boolean[]{false, true}) raccoonAccountRouting(mode, accountWide);
+        }
+    }
+
+    static void raccoonAccountRouting(String mode, boolean accountWide) throws Exception {
+        JSONObject provider = new JSONObject().put("id", "raccoon").put("enabled", true)
+                .put("baseUrl", "https://xiaohuanxiong.com/v1").put("protocol", "openai").put("accountRouting", mode)
+                .put("models", new JSONArray().put("fixture-model").put("other-model"));
+        JSONArray accounts = new JSONArray(), keys = new JSONArray();
+        for (String id : new String[]{"a", "b"}) {
+            String token = "fixture-token-" + mode + "-" + accountWide + "-" + id;
+            accounts.put(new JSONObject().put("id", mode + "-" + accountWide + "-" + id).put("uid", id).put("access", token).put("token", token)
+                    .put("enabled", true).put("expires", System.currentTimeMillis() + 3600000));
+            keys.put(token);
+        }
+        provider.put("accounts", accounts).put("keys", keys);
+        JSONObject config = new JSONObject().put("setup", new JSONObject().put("done", true))
+                .put("server", new JSONObject().put("authKey", "fixture-inference"))
+                .put("providers", new JSONArray().put(provider));
+        GatewayServer gateway = RoutingSetupOfflineTest.server(config);
+        List<String> sentAccounts = new ArrayList<>();
+        AtomicCalls calls = new AtomicCalls();
+        gateway.setVendorConnectionsForTests(url -> {
+            try {
+                return new Conn(url, false, null, calls) {
+                    boolean rejected;
+                    int status;
+                    String hint;
+                    @Override public int getResponseCode() {
+                        if (status != 0) return status;
+                        String auth = getRequestProperty("Authorization");
+                        String model = new JSONObject(new String(sentBytes(), StandardCharsets.UTF_8)).optString("model");
+                        String id = auth.endsWith("-a") ? "a" : "b";
+                        boolean first = sentAccounts.isEmpty();
+                        sentAccounts.add(id);
+                        rejected = !"other-model".equals(model) && (first || sentAccounts.size() == 5);
+                        hint = first ? "120" : "30";
+                        status = rejected ? 429 : 200;
+                        return status;
+                    }
+                    byte[] sentBytes() { return super.sent.toByteArray(); }
+                    @Override public String getHeaderField(String name) {
+                        return "Retry-After".equalsIgnoreCase(name) && rejected ? hint : super.getHeaderField(name);
+                    }
+                    @Override public InputStream getInputStream() {
+                        if (rejected) {
+                            return new ByteArrayInputStream(new JSONObject().put("error", new JSONObject()
+                                    .put("code", accountWide ? "user_model_rate_limited" : "rate_limit_error"))
+                                    .toString().getBytes(StandardCharsets.UTF_8));
+                        }
+                        return new ByteArrayInputStream(VendorPolicyGatewayHttpTest.CHAT.getBytes(StandardCharsets.UTF_8));
+                    }
+                };
+            } catch (Exception e) { throw new IOException(e); }
+        });
+        NanoHTTPD.Response r = call(gateway, "/v1/chat/completions", false);
+        check(r.getStatus().getRequestStatus() == 429 && sentAccounts.size() == 1, mode + " preserves one send on first upstream 429: status=" + r.getStatus().getRequestStatus()
+                + ", attempts=" + sentAccounts.size() + ", physical=" + calls.n);
+        check("120".equals(r.getHeader("Retry-After")), mode + " preserves upstream wait");
+        r.close();
+        String cooling = sentAccounts.get(0);
+        for (int i = 0; i < 3; i++) {
+            r = call(gateway, "/v1/chat/completions", false);
+            check(r.getStatus().getRequestStatus() == 200, mode + " selects the remaining live account on every request");
+            r.close();
+        }
+        check(sentAccounts.size() == 4 && !sentAccounts.subList(1, 4).contains(cooling), mode + " never sends to the cooling account");
+        r = call(gateway, "/v1/chat/completions", false);
+        check(r.getStatus().getRequestStatus() == 429 && sentAccounts.size() == 5, mode + " second account now cooling");
+        r.close();
+        for (String path : new String[]{"/v1/chat/completions", "/v1/messages", "/v1/responses"}) {
+            r = call(gateway, path, false);
+            JSONObject error = new JSONObject(read(r.getData())).getJSONObject("error");
+            long wait = error.optLong("retry_after");
+            check(r.getStatus().getRequestStatus() == 429 && wait > 0 && wait <= 30
+                    && "gateway".equals(error.optString("cooldown_source")), mode + " earliest local wait in " + path);
+            r.close();
+        }
+        check(calls.n == 5 && sentAccounts.size() == 5, mode + " all cooling means zero additional sends");
+        JSONObject input = new JSONObject().put("model", "raccoon/other-model").put("max_tokens", 16)
+                .put("messages", new JSONArray().put(new JSONObject().put("role", "user").put("content", "fixture")));
+        r = gateway.serve(RoutingSetupOfflineTest.request("127.0.0.1", "/v1/chat/completions", "POST", input.toString(), "fixture-inference"));
+        check(r.getStatus().getRequestStatus() == (accountWide ? 429 : 200) && calls.n == (accountWide ? 5 : 6),
+                mode + " another model respects only explicit credential-wide holds");
+        r.close();
+    }
     public static void main(String[] args)throws Exception {
         long now=1794564000000L;
         check(CooldownFeedback.limited(429,"{}"),"HTTP rate evidence");check(!CooldownFeedback.limited(0,"connection reset: rate limit maybe"),"network failure not guessed as rate");check(!CooldownFeedback.limited(200,"{\"choices\":[{\"message\":{\"content\":\"rate limit\"}}]}"),"generated content not treated as rejection");
@@ -53,6 +141,6 @@ public final class CooldownFeedbackRegressionTest {
         String output=read(new CooldownFeedback.Stream(new ByteArrayInputStream(error.getBytes(StandardCharsets.UTF_8)),"raccoon",null,wait->observed[0]=wait));check(output.contains("45 秒")&&observed[0]==45000,"multiline SSE error preserves explicit wait");check(output.startsWith("event: error\n")&&!output.contains("[DONE]"),"terminal SSE error not fake success");
         InputStream broken=new InputStream(){public int read()throws IOException{throw new IOException("broken socket");}};try{read(new CooldownFeedback.Stream(broken,"raccoon",null,null));throw new AssertionError("network error guessed");}catch(IOException expected){check(true,"transport error not assigned a fabricated cooldown");}
         AnthropicBridge.StreamState state=new AnthropicBridge.StreamState("fixture");List<String> events=state.onChunk(CooldownFeedback.body("raccoon","{}","30",0,now));check(events.size()==1&&events.get(0).contains("rate_limit_error")&&events.get(0).contains("retry_after"),"Anthropic projection retains rate metadata");
-        gateway();System.out.println("CooldownFeedbackRegressionTest PASS: "+checks+" checks");
+        gateway();raccoonAccountRouting();System.out.println("CooldownFeedbackRegressionTest PASS: "+checks+" checks");
     }
 }
