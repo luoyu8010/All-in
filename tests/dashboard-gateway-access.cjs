@@ -2,12 +2,15 @@ const fs=require('fs'),vm=require('vm'),assert=require('assert');
 const html=fs.readFileSync('app/src/main/assets/dashboard.html','utf8');
 for(const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g))new vm.Script(m[1]);
 const code=html.slice(html.indexOf('    // Gateway access inventory:'),html.indexOf('    // End gateway access inventory.'));
-function element(){return {value:'',textContent:'',disabled:false,children:[],appendChild(n){this.children.push(n)},replaceChildren(){this.children=[]},setAttribute(){},classList:{contains(){return true}}};}
+function element(){return {value:'',textContent:'',disabled:false,children:[],attributes:{},animations:[],
+ appendChild(n){this.children.push(n)},replaceChildren(){this.children=[]},setAttribute(k,v){this.attributes[k]=v},
+ animate(frames,options){const animation={frames,options,cancel(){this.cancelled=true}};this.animations.push(animation);return animation},
+ classList:{contains(){return true}}};}
 function page(){
- const nodes={},calls=[],copied=[],queue=[];
- const context={document:{hidden:false,getElementById:id=>nodes[id]||(nodes[id]=element()),createElement:()=>element(),addEventListener(){}},API_BASE:'',statusKnown:true,gatewayRunning:true,AbortController,setTimeout,clearTimeout,Date,Map,Set,loadStats:async()=>{},loadAuthKey:async()=>{},copyText:t=>copied.push(t),fetch:async(url,opts)=>{calls.push({url,opts});const next=queue.shift();if(next instanceof Error)throw next;if(typeof next==='function')return next();return {ok:true,json:async()=>next}}};
+ const nodes={},calls=[],copied=[],queue=[];let reduced=false;
+ const context={document:{hidden:false,getElementById:id=>nodes[id]||(nodes[id]=element()),createElement:()=>element(),addEventListener(){}},API_BASE:'',statusKnown:true,gatewayRunning:true,AbortController,setTimeout,clearTimeout,Date,Map,Set,matchMedia:()=>({matches:reduced}),loadStats:async()=>{},loadAuthKey:async()=>{},copyText:t=>copied.push(t),fetch:async(url,opts)=>{calls.push({url,opts});const next=queue.shift();if(next instanceof Error)throw next;if(typeof next==='function')return next();return {ok:true,json:async()=>next}}};
  vm.createContext(context);vm.runInContext(code,context);
- return {c:context,nodes,calls,copied,queue,run:x=>vm.runInContext(x,context)};
+ return {c:context,nodes,calls,copied,queue,setReduced:value=>{reduced=value},run:x=>vm.runInContext(x,context)};
 }
 const model=(id,provider='pool')=>({id,name:id.split('/').slice(1).join('/'),provider,providerName:provider,kind:provider==='group'?'group':'model'});
 (async()=>{
@@ -49,20 +52,20 @@ const model=(id,provider='pool')=>({id,name:id.split('/').slice(1).join('/'),pro
  const quiet=page();let firstRelease;
  quiet.queue.push(()=>new Promise(resolve=>firstRelease=resolve));
  let first=quiet.c.refreshGatewayAccess(false);await Promise.resolve();
- assert.equal(quiet.nodes['access-refresh'].textContent,'↻ 读取中…','initial load still shows progress');
+ assert.equal(quiet.nodes['access-refresh-label'].textContent,'读取中…','initial load still shows progress');
  assert.equal(quiet.nodes['access-refresh'].disabled,true);
  const inventory={ok:true,models:[model('pool/live')],observedAt:500};
  firstRelease({ok:true,json:async()=>inventory});await first;
- const refresh=quiet.nodes['access-refresh'],status=quiet.nodes['access-refresh-status'];
+ const refresh=quiet.nodes['access-refresh'],label=quiet.nodes['access-refresh-label'],status=quiet.nodes['access-refresh-status'];
  const mutations=[];
- for(const [node,key] of [[refresh,'textContent'],[refresh,'disabled'],[status,'textContent']]) {
+ for(const [node,key] of [[label,'textContent'],[refresh,'disabled'],[status,'textContent']]) {
   let value=node[key];Object.defineProperty(node,key,{get:()=>value,set:next=>{mutations.push([key,next]);value=next},configurable:true});
  }
  const listBefore=quiet.nodes['access-model-list'].children.slice();
  for(let i=0;i<3;i++) {
   let finish;quiet.queue.push(()=>new Promise(resolve=>finish=resolve));quiet.run('gatewayAccessLast=0');
   const pending=quiet.c.refreshGatewayAccess(false);await Promise.resolve();
-  assert.equal(refresh.textContent,'↻ 刷新');assert.equal(refresh.disabled,false);
+  assert.equal(label.textContent,'刷新');assert.equal(refresh.disabled,false);
   assert.equal(mutations.length,0,'silent in-flight polling does not mutate loading UI');
   finish({ok:true,json:async()=>({...inventory,observedAt:501+i})});await pending;
   assert(!mutations.some(([key,value])=>key==='disabled'||String(value).includes('读取中')||String(value).includes('核对当前')),'no transient loading states');
@@ -78,9 +81,41 @@ const model=(id,provider='pool')=>({id,name:id.split('/').slice(1).join('/'),pro
  finishQuiet({ok:true,json:async()=>inventory});await pendingQuiet;
  for(let i=0;i<12;i++)await Promise.resolve();
  assert.equal(quiet.calls.filter(x=>x.url==='/api/config').length,1,'coalesced manual refresh runs after polling');
- assert(mutations.some(([key,value])=>value==='↻ 正在刷新…'),'manual refresh still displays progress');
+ assert(mutations.some(([key,value])=>value==='刷新中…'),'manual refresh still displays progress');
  assert.equal(quiet.run('gatewayAccessRows.length'),0,'model removals still update during refresh');
  assert.equal(quiet.nodes['access-copy-all'].disabled,true);
+ assert.equal(quiet.nodes['access-refresh-light'].animations.length,1,'queued request sweeps only once');
+ const motion=page();
+ const modelA=model('pool/alpha'), modelB=model('pool/beta');
+ motion.queue.push({ok:true,models:[modelA]});await motion.c.refreshGatewayAccess(false);
+ let releaseRefresh;
+ motion.queue.push({providers:[]},()=>new Promise(resolve=>{releaseRefresh=resolve}));
+ const manual=motion.c.refreshGatewayAccess(true);
+ while(!releaseRefresh) await Promise.resolve();
+ const counts=['model','provider','group'].map(kind=>motion.nodes['access-'+kind+'-count']);
+ assert.deepEqual(counts.map(el=>el.textContent),['1','1','0'],'last confirmed counts stay visible while waiting');
+ assert.equal(motion.nodes['access-copy-all'].disabled,true,'old IDs cannot be copied while waiting');
+ assert.equal(motion.nodes['access-refresh'].attributes['aria-busy'],'true');
+ assert.equal(motion.nodes['access-refresh-light'].animations[0].options.duration,820);
+ releaseRefresh({ok:true,json:async()=>({ok:true,models:[modelA,modelB]})});await manual;
+ assert.deepEqual(counts.map(el=>el.textContent),['2','1','0']);
+ assert.deepEqual(counts.map(el=>el.animations.length),[1,0,0],'only changed counts animate');
+ assert.equal(motion.nodes['access-refresh-light'].animations[0].cancelled,undefined,'completion does not cut off a fast sweep');
+ assert.equal(motion.nodes['access-refresh'].attributes['aria-busy'],'false');
+ motion.queue.push({providers:[]},{ok:true,models:[modelB,modelA]});await motion.c.refreshGatewayAccess(true);
+ assert.match(motion.nodes['access-refresh-status'].textContent,/已核对 · 数据无变化/);
+ assert.deepEqual(counts.map(el=>el.animations.length),[1,0,0]);
+ motion.queue.push({providers:[{id:'workbuddy',keys:['test-only']}]},new Error('offline'),{ok:true,models:[modelB,modelA],unconfirmedCatalogs:true});
+ await motion.c.refreshGatewayAccess(true);
+ assert.match(motion.nodes['access-refresh-status'].textContent,/1 项上游目录同步失败/);
+ assert.equal(motion.nodes['access-refresh-status'].attributes['data-tone'],'partial');
+ motion.setReduced(true);
+ motion.queue.push({providers:[]},{ok:true,models:[]});await motion.c.refreshGatewayAccess(true);
+ assert.deepEqual(counts.map(el=>el.animations.length),[1,0,0],'reduced motion applies changes without animating');
+ assert.equal(motion.nodes['access-refresh-light'].animations.length,3);
+ motion.queue.push({providers:[]},new Error('offline'));await motion.c.refreshGatewayAccess(true);
+ assert.deepEqual(counts.map(el=>el.textContent),['—','—','—']);
+ assert.equal(motion.nodes['access-refresh-status'].attributes['data-tone'],'error');
  // Supplier strings are inserted as text, never HTML.
  p.queue.push({ok:true,models:[model('pool/<img src=x onerror=alert(1)>')],observedAt:456});p.run('gatewayAccessLast=0');await p.c.refreshGatewayAccess(false);
  assert.equal(p.run('gatewayAccessRows[0].id'),'pool/<img src=x onerror=alert(1)>');assert(!code.includes('innerHTML'));

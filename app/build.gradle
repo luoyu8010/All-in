@@ -15,8 +15,8 @@ android {
         applicationId 'com.gaeul.allin'
         minSdk 24
         targetSdk 34
-        versionCode 61
-        versionName '1.2.55-test'
+        versionCode 67
+        versionName '1.2.61-test'
         testInstrumentationRunner 'com.gaeul.allin.RepairInstrumentation'
     }
 

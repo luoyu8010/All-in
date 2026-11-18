@@ -6,6 +6,7 @@ const scripts=[
   "tests/dashboard-usage-hours.cjs",
   "tests/dashboard-usage-range.cjs",
   "tests/dashboard-dock-lens.cjs",
+  "tests/dashboard-glass-switch.cjs",
   "tests/dashboard-card-morph.cjs",
   "tests/dashboard-interaction-motion.cjs",
   "tests/dashboard-disclosure-motion.cjs",

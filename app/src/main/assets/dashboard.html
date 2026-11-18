@@ -1782,6 +1782,124 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
   .liquid-glass .glass-masthead .brand img {width:36px!important;height:36px!important}
   .liquid-glass .glass-masthead .gw-toggle {padding-inline:9px!important}
 }
+/* Gateway refresh feedback stays local to the card. */
+.liquid-glass #access-refresh {display:inline-flex;align-items:center;justify-content:center;gap:7px;width:108px;white-space:nowrap}
+#access-refresh > svg {width:15px;height:15px;flex:none}
+#access-refresh[aria-busy="true"] > svg {animation:access-refresh-spin 1.08s linear infinite}
+@keyframes access-refresh-spin {to {transform:rotate(360deg)}}
+.gateway-hero .access-metrics {position:relative}
+.access-refresh-light {position:absolute;inset:-1px 0 auto;height:2px;overflow:hidden;pointer-events:none}
+.access-refresh-light > i {
+  position:absolute;inset:0 auto 0 0;width:34%;opacity:0;border-radius:999px;
+  background:linear-gradient(90deg,transparent,#5d9ce5 47%,#a5d0ff 57%,transparent);
+}
+html[data-theme="dark"] .access-refresh-light > i {background:linear-gradient(90deg,transparent,#7bb3ff 46%,#d2e8ff 56%,transparent)}
+#access-refresh-status[data-tone="partial"] {color:var(--warning,#99601a)!important}
+#access-refresh-status[data-tone="error"] {color:var(--danger)!important}
+@media (prefers-reduced-motion: reduce) {
+  #access-refresh[aria-busy="true"] > svg {animation:none}
+}
+/* The native switch remains the input. The elevated lens refracts a copy of its track. */
+.glass-switch-shell {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 28px;
+  vertical-align: middle;
+  isolation: isolate;
+  --switch-track: linear-gradient(170deg,#c4c7ca,#afb3b8);
+  --switch-green: linear-gradient(160deg,#60c866,#4ab656 58%,#359a47);
+  --switch-on: 0;
+  --switch-x: 14px;
+  --switch-lift: 0;
+  --switch-extra-w: 0px;
+  --switch-extra-h: 0px;
+  --switch-reflect: 0px;
+}
+html[data-theme="dark"] .glass-switch-shell {
+  --switch-track: linear-gradient(170deg,#5c6066,#42454b);
+  --switch-green: linear-gradient(160deg,#5abd62,#40a64d 58%,#328940);
+}
+.glass-switch-shell:has(> input:checked):not([data-switch-motion]) {
+  --switch-on: 1;
+  --switch-x: 32px;
+}
+.liquid-glass input.glass-switch[type="checkbox"] {touch-action:pan-y pinch-zoom}
+.liquid-glass input.glass-switch[type="checkbox"]::after {width:22px;border-radius:999px}
+.liquid-glass input.glass-switch[type="checkbox"]:checked::after {transform:translateX(16px)}
+.liquid-glass .glass-switch-shell > input.glass-switch[type="checkbox"] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none;
+  z-index: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.glass-switch-shell > input.glass-switch[type="checkbox"]::after {content:none}
+.glass-switch-shell > input.glass-switch[type="checkbox"]:focus-visible {outline-offset:4px}
+.glass-switch-shell:has(> input:checked) + .switch-state {color:var(--accent)}
+.glass-switch-shell:has(> input:checked) + .switch-state::before {content:'已开启'}
+.glass-switch-shell:has(> input:disabled) > .glass-switch-visual {opacity:.45}
+.glass-switch-visual, .glass-switch-track, .glass-switch-reflection {
+  position:absolute;
+  inset:0;
+  border-radius:999px;
+  pointer-events:none;
+}
+:is(.glass-switch-track,.glass-switch-reflection) {
+  background:var(--switch-track);
+  box-shadow:inset 0 0 0 1px rgba(69,77,85,.15),inset 0 1px 2px rgba(17,24,31,.13);
+}
+:is(.glass-switch-track,.glass-switch-reflection)::before {
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:var(--switch-green);
+  opacity:var(--switch-on);
+}
+.glass-switch-track {inset:3px 0}
+.glass-switch-thumb {
+  position:absolute;
+  top:50%;left:0;
+  width:calc(24px + var(--switch-extra-w));
+  height:calc(19px + var(--switch-extra-h));
+  border-radius:999px;
+  transform:translate3d(calc(var(--switch-x) - 50%),-50%,0);
+}
+.glass-switch-solid,.glass-switch-glass,.glass-switch-glass::after {
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+}
+.glass-switch-solid {
+  background:linear-gradient(155deg,#fff,#f1f3f3);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.8),0 1px 2px rgba(23,29,34,.15);
+  opacity:calc(1 - var(--switch-lift));
+}
+.glass-switch-glass {
+  overflow:hidden;
+  opacity:var(--switch-lift);
+  background:linear-gradient(160deg,rgba(255,255,255,.30),rgba(235,242,248,.10));
+  box-shadow:0 3px 9px rgba(21,30,38,.25);
+}
+.glass-switch-reflection {
+  inset:50% auto auto 0;
+  width:46px;height:22px;
+  transform-origin:var(--switch-x) center;
+  transform:translate3d(var(--switch-reflect),-50%,0) scale(1.18);
+  opacity:.82;
+}
+.glass-switch-glass::after {
+  content:'';
+  border:1px solid rgba(246,255,252,.77);
+  background:linear-gradient(155deg,rgba(255,255,255,.48),transparent 33% 69%,rgba(227,248,244,.28));
+  box-shadow:inset 0 1px 2px rgba(255,255,255,.91),inset 0 -1px 3px rgba(255,255,255,.57);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-switch-glass {background:#eef1f2}
+  .glass-switch-reflection {display:none}
+}
 </style>
 </head>
 <body class="liquid-glass">
@@ -2076,15 +2194,15 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
         <div id="affinity-status" role="status" style="font-size:0.75rem;color:var(--text-muted);margin-top:8px"></div>
         </div>
       </section>
-      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.55-test</p>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin:8px 4px 16px;"><a href="licenses.html" style="color:#a5b4fc;">第三方开源许可</a> · 1.2.61-test</p>
       </div>
     </section>
 
     <section id="tab-gateway" class="tab-pane" aria-label="网关接入">
       <div class="gateway-hero">
         <div class="gateway-hero-top"><span class="gateway-eyebrow">网关接入</span><span id="access-running" class="access-state">读取状态中</span></div>
-        <div class="gateway-hero-heading"><div><h1>连接你的 AI 工具</h1><p>把已入池的模型带到你常用的 Agent。</p></div><button class="btn" id="access-refresh" onclick="refreshGatewayAccess(true)">↻ 刷新</button></div>
-        <div class="access-metrics"><div><strong id="access-model-count">—</strong><span>入池模型</span></div><div><strong id="access-provider-count">—</strong><span>供应商</span></div><div><strong id="access-group-count">—</strong><span>路由组</span></div></div>
+        <div class="gateway-hero-heading"><div><h1>连接你的 AI 工具</h1><p>把已入池的模型带到你常用的 Agent。</p></div><button class="btn" type="button" id="access-refresh" onclick="refreshGatewayAccess(true)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 8a7 7 0 0 1 12-1l2 5M4 12l2 5a7 7 0 0 0 12-1"/></svg><span id="access-refresh-label">刷新</span></button></div>
+        <div class="access-metrics"><span class="access-refresh-light" aria-hidden="true"><i id="access-refresh-light"></i></span><div><strong id="access-model-count">—</strong><span>入池模型</span></div><div><strong id="access-provider-count">—</strong><span>供应商</span></div><div><strong id="access-group-count">—</strong><span>路由组</span></div></div>
         <div id="access-refresh-status" class="access-note" role="status" aria-live="polite">进入本页后读取当前账号池</div>
       </div>
       <div class="card" id="card-credentials">
@@ -2644,11 +2762,11 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
           前一个调不动会自动换下一个，客户端看不到报错。
         </p>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:10px 12px; border:1px solid var(--card-border); border-radius:10px; background:rgba(255,255,255,0.02);">
-          <input type="checkbox" role="switch" id="groups-enabled" onchange="setGroupsEnabled(this.checked)">
+          <input type="checkbox" role="switch" id="groups-enabled" class="glass-switch" onchange="setGroupsEnabled(this.checked)">
           <label for="groups-enabled" style="font-size:0.78rem; color:var(--text); cursor:pointer;">启用路由组（默认关闭，建议按需再开）</label>
         </div>
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; padding:10px 12px; border:1px solid var(--card-border); border-radius:10px;">
-          <input type="checkbox" role="switch" id="bare-fallback" onchange="setBareFallback(this.checked)">
+          <input type="checkbox" role="switch" id="bare-fallback" class="glass-switch" onchange="setBareFallback(this.checked)">
           <label for="bare-fallback" style="font-size:0.78rem; color:var(--text); cursor:pointer;">允许裸模型兜底（默认关闭）</label>
         </div>
         <p style="font-size:0.75rem; color:var(--text-muted); line-height:1.6;">仅影响不带 provider/ 前缀的模型：找不到已列出的模型时，开启后尝试第一家配置了密钥的供应商。关闭时返回错误；provider/model 和 group/组id 的路由不受影响。</p>
@@ -2996,19 +3114,19 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
             <div id="privacy-state-desc" style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;line-height:1.5;"></div>
           </div>
           <label style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-            <input type="checkbox" role="switch" id="privacy-enabled" aria-label="脱敏总开关" onchange="togglePrivacy()">
+            <input type="checkbox" role="switch" id="privacy-enabled" class="glass-switch" aria-label="脱敏总开关" onchange="togglePrivacy()">
             <span class="switch-state" aria-hidden="true"></span>
           </label>
         </div>
         <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-top:4px;">
           <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px;">分类开关（总开关关闭时不生效）</div>
           <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px 10px;font-size:0.8rem;">
-            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-apikeys" onchange="togglePrivacy()"> API Key / Token</label>
-            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-emails" onchange="togglePrivacy()"> 邮箱地址</label>
-            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-phones" onchange="togglePrivacy()"> 手机号</label>
-            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-ids" onchange="togglePrivacy()"> 身份证</label>
-            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-bank" onchange="togglePrivacy()"> 银行卡(16-19位)</label>
-            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-tel" onchange="togglePrivacy()"> 座机</label>
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-apikeys" class="glass-switch" onchange="togglePrivacy()"> API Key / Token</label>
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-emails" class="glass-switch" onchange="togglePrivacy()"> 邮箱地址</label>
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-phones" class="glass-switch" onchange="togglePrivacy()"> 手机号</label>
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-ids" class="glass-switch" onchange="togglePrivacy()"> 身份证</label>
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-bank" class="glass-switch" onchange="togglePrivacy()"> 银行卡(16-19位)</label>
+            <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" role="switch" id="pm-tel" class="glass-switch" onchange="togglePrivacy()"> 座机</label>
           </div>
           <div style="margin-top:12px;">
             <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:5px;">
@@ -5521,6 +5639,15 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
       });
     }
 
+    function stepGlassSpring(spring, dt, stiffness, damping) {
+      spring.speed += ((spring.target - spring.value) * stiffness - spring.speed * damping) * dt;
+      spring.value += spring.speed * dt;
+      if (Math.abs(spring.target - spring.value) > .003 || Math.abs(spring.speed) > .025) return true;
+      spring.value = spring.target;
+      spring.speed = 0;
+      return false;
+    }
+
     let dockLens;
     function setupDockLens() {
       const nav = document.getElementById('bottom-nav');
@@ -5549,6 +5676,8 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
       let preview = -1;
       let centers = [], widths = [], dockWidth = 0, dockHeight = 0;
       let pointer = null, blockClick = false, frameId = 0, lastFrame = 0;
+      let lowerOnArrival = false, tapTravel = false, tappedIndex = -1;
+      const tapTravelRate = .8;
       const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
       function nearest(x) {
         return centers.reduce((best, center, index) => Math.abs(x - center) < Math.abs(x - centers[best]) ? index : best, 0);
@@ -5574,29 +5703,31 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
           preview = next;
         }
       }
-      function step(spring, dt, stiffness, damping) {
-        spring.speed += ((spring.target - spring.value) * stiffness - spring.speed * damping) * dt;
-        spring.value += spring.speed * dt;
-        if (Math.abs(spring.target - spring.value) > .003 || Math.abs(spring.speed) > .025) return true;
-        spring.value = spring.target;
-        spring.speed = 0;
-        return false;
-      }
       function tick(now) {
         frameId = 0;
         const dt = clamp((now - lastFrame) / 1000, .001, .032);
         lastFrame = now;
         let moving = false;
+        const travelStep = dt / 3 * (!pointer && tapTravel ? tapTravelRate : 1);
         for (let i = 0; i < 3; i++) {
-          const slide = step(position, dt / 3, pointer ? 760 : 380, pointer ? 49 : 26);
-          const grow = step(lift, dt / 3, 410, 28);
+          const slide = stepGlassSpring(position, travelStep, pointer ? 760 : 380, pointer ? 49 : 26);
+          const grow = stepGlassSpring(lift, dt / 3, 410, 28);
           moving = slide || grow;
+        }
+        // A quick tap can release before the first frame. Keep the glass raised
+        // until the lens has opened and slowed near its destination.
+        if (lowerOnArrival && lift.value >= .92 &&
+            Math.abs(position.target - position.value) <= 4 && Math.abs(position.speed) <= 60) {
+          lowerOnArrival = false;
+          lift.target = 0;
+          moving = true;
         }
         draw();
         if (moving) frameId = requestAnimationFrame(tick);
       }
       function update() {
         if (reducedMotion.matches) {
+          lowerOnArrival = false;
           position.value = position.target;
           position.speed = 0;
           lift.value = 0;
@@ -5627,11 +5758,19 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
         draw();
         nav.setAttribute('data-lens-ready', '');
       }
-      function select(index) {
-        selected = index;
-        if (!centers.length || pointer) return;
-        position.target = centers[index];
+      function travelToSelection(fromTap = false) {
+        tapTravel = fromTap;
+        position.target = centers[selected];
+        lowerOnArrival = !reducedMotion.matches;
+        lift.target = lowerOnArrival ? 1 : 0;
         update();
+      }
+      function select(index) {
+        const changed = selected !== index;
+        const fromTap = index === tappedIndex;
+        tappedIndex = -1;
+        selected = index;
+        if (changed && centers.length && !pointer) travelToSelection(fromTap);
       }
       function endGesture(commit, clientX) {
         if (!pointer) return;
@@ -5643,9 +5782,7 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
           // Reuse the actual tab button so navigation side effects follow the normal path.
           if (index !== selected) buttons[index].click();
         }
-        position.target = centers[selected];
-        lift.target = 0;
-        update();
+        travelToSelection();
       }
       nav.addEventListener('pointerdown', event => {
         if (pointer || !event.isPrimary || event.button !== 0 || !centers.length) return;
@@ -5658,6 +5795,7 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
         };
         try { button.setPointerCapture(event.pointerId); }
         catch (err) { pointer = null; return; }
+        lowerOnArrival = false;
         position.target = centers[buttons.indexOf(button)];
         lift.target = reducedMotion.matches ? 0 : 1;
         update();
@@ -5682,10 +5820,13 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
         });
       }
       nav.addEventListener('click', event => {
-        if (!blockClick || event.detail === 0) return;
-        blockClick = false;
-        event.stopImmediatePropagation();
-        event.preventDefault();
+        if (blockClick && event.detail !== 0) {
+          blockClick = false;
+          event.stopImmediatePropagation();
+          event.preventDefault();
+          return;
+        }
+        tappedIndex = event.detail > 0 ? buttons.indexOf(event.target.closest('.tab-btn')) : -1;
       }, true);
       window.addEventListener('blur', () => endGesture(false));
       reducedMotion.addEventListener('change', () => {
@@ -5705,6 +5846,154 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
     try { refreshThemeUI(); } catch (e) {}
     window.addEventListener('load', () => setTimeout(() => moveNavPill(document.querySelector('.tab-btn.active')), 30));
 
+
+    function setupGlassSwitches() {
+      const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      let suppressedClick = null;
+      window.addEventListener('pointerdown', () => { suppressedClick = null; }, true);
+      for (const input of document.querySelectorAll('input.glass-switch')) {
+        const shell = document.createElement('span');
+        shell.className = 'glass-switch-shell';
+        input.before(shell);
+        shell.append(input);
+        const visual = document.createElement('span');
+        visual.className = 'glass-switch-visual';
+        visual.setAttribute('aria-hidden', 'true');
+        visual.innerHTML = '<span class="glass-switch-track"></span><span class="glass-switch-thumb">' +
+          '<span class="glass-switch-solid"></span><span class="glass-switch-glass">' +
+          '<span class="glass-switch-reflection"></span></span></span>';
+        shell.append(visual);
+        if (!window.PointerEvent) continue;
+
+        const left = 14, right = 32;
+        const selectedCenter = () => input.checked ? right : left;
+        const position = {value: selectedCenter(), target: selectedCenter(), speed: 0};
+        const lift = {value: 0, target: 0, speed: 0};
+        let pointer = null, lowerOnArrival = false, frame = 0, lastFrame = 0;
+        function draw() {
+          const rise = reducedMotion.matches ? 0 : clamp(lift.value, 0, 1);
+          const stretch = Math.min(Math.abs(position.speed) / 310, 1) * rise;
+          const width = 24 + rise * 13 + stretch * 4;
+          const height = 19 + rise * 10 - stretch * 3;
+          const center = clamp(position.value, left - 2, right + 2);
+          const progress = clamp((center - left) / (right - left), 0, 1);
+          shell.style.setProperty('--switch-on', progress.toFixed(3));
+          shell.style.setProperty('--switch-x', center.toFixed(2) + 'px');
+          shell.style.setProperty('--switch-lift', rise.toFixed(3));
+          shell.style.setProperty('--switch-extra-w', (width - 24).toFixed(2) + 'px');
+          shell.style.setProperty('--switch-extra-h', (height - 19).toFixed(2) + 'px');
+          shell.style.setProperty('--switch-reflect', (width / 2 - center).toFixed(2) + 'px');
+        }
+        function clearMotion() {
+          if (frame) cancelAnimationFrame(frame);
+          frame = 0;
+          lowerOnArrival = false;
+          shell.removeAttribute('data-switch-motion');
+          for (const name of ['on', 'x', 'lift', 'extra-w', 'extra-h', 'reflect']) {
+            shell.style.removeProperty('--switch-' + name);
+          }
+        }
+        function tick(now) {
+          frame = 0;
+          const dt = clamp((now - lastFrame) / 1000, .001, .032) / 3;
+          lastFrame = now;
+          let sliding = false, lifting = false;
+          if (!pointer) position.target = selectedCenter();
+          for (let i = 0; i < 3; i++) {
+            sliding = stepGlassSpring(position, dt, pointer ? 760 : 255, pointer ? 49 : 22);
+            lifting = stepGlassSpring(lift, dt, 410, 28);
+          }
+          if (lowerOnArrival && lift.value >= .92 &&
+              Math.abs(position.target - position.value) < .65 && Math.abs(position.speed) < 9) {
+            lowerOnArrival = false;
+            lift.target = 0;
+            lifting = true;
+          }
+          draw();
+          if (sliding || lifting) frame = requestAnimationFrame(tick);
+          else if (!pointer && !lowerOnArrival) clearMotion();
+        }
+        function update() {
+          if (reducedMotion.matches) {
+            clearMotion();
+            return;
+          }
+          shell.setAttribute('data-switch-motion', '');
+          if (!frame) {
+            lastFrame = performance.now();
+            frame = requestAnimationFrame(tick);
+          }
+        }
+        function begin(center) {
+          if (shell.hasAttribute('data-switch-motion')) return;
+          position.value = position.target = center;
+          position.speed = lift.value = lift.speed = 0;
+          draw();
+        }
+        function settle() {
+          position.target = selectedCenter();
+          lowerOnArrival = true;
+          lift.target = 1;
+          update();
+        }
+        input.addEventListener('pointerdown', event => {
+          if (input.disabled || pointer || !event.isPrimary || event.button !== 0) return;
+          try { input.setPointerCapture(event.pointerId); } catch (err) { return; }
+          begin(selectedCenter());
+          pointer = {id:event.pointerId, x:event.clientX, y:event.clientY, center:position.value, dragging:false};
+          lowerOnArrival = false;
+          lift.target = 1;
+          update();
+        });
+        function dragTarget(gesture, clientX) {
+          return clamp(gesture.center + clientX - gesture.x, left, right);
+        }
+        input.addEventListener('pointermove', event => {
+          if (!pointer || event.pointerId !== pointer.id) return;
+          if (!pointer.dragging) {
+            const x = Math.abs(event.clientX - pointer.x);
+            const y = Math.abs(event.clientY - pointer.y);
+            if (x < 5 || x <= y) return;
+            pointer.dragging = true;
+          }
+          position.target = dragTarget(pointer, event.clientX);
+          update();
+        });
+        function end(commit, clientX) {
+          if (!pointer) return;
+          const gesture = pointer;
+          pointer = null;
+          if (!commit || gesture.dragging || input.disabled) suppressedClick = input;
+          if (commit && gesture.dragging && !input.disabled) {
+            const checked = dragTarget(gesture, clientX) >= (left + right) / 2;
+            if (input.checked !== checked) input.click();
+          }
+          settle();
+        }
+        input.addEventListener('pointerup', event => {
+          if (pointer?.id === event.pointerId) end(true, event.clientX);
+        });
+        for (const name of ['pointercancel', 'lostpointercapture']) {
+          input.addEventListener(name, event => {
+            if (pointer?.id === event.pointerId) end(false);
+          });
+        }
+        input.addEventListener('click', event => {
+          if (suppressedClick !== input || event.detail === 0) return;
+          suppressedClick = null;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }, true);
+        input.addEventListener('change', () => {
+          begin(input.checked ? left : right);
+          if (!pointer) settle();
+        });
+        window.addEventListener('blur', () => end(false));
+        reducedMotion.addEventListener('change', clearMotion);
+      }
+    }
+    setupGlassSwitches();
 
     const disclosureMotion = (() => {
       const active = new Map();
@@ -6162,10 +6451,67 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
       const node = document.getElementById('access-running');
       if (node) node.textContent = statusKnown ? (gatewayRunning ? '● 网关运行中' : '网关已停止') : '网关状态暂不可用';
     }
-    async function refreshGatewayAccess(syncUpstream) {
+    const gatewayAccessAnimations = new WeakMap();
+    function animateGatewayAccess(element, frames, duration, easing) {
+      if (!element?.animate || typeof matchMedia !== 'function' ||
+          matchMedia('(prefers-reduced-motion: reduce)').matches || !gatewayAccessVisible()) return;
+      gatewayAccessAnimations.get(element)?.cancel();
+      gatewayAccessAnimations.set(element, element.animate(frames, {duration, easing}));
+    }
+    function showGatewayAccessProgress(busy, manual, feedback = false) {
+      const button = document.getElementById('access-refresh');
+      const label = document.getElementById('access-refresh-label');
+      if (button) {
+        button.disabled = busy;
+        button.setAttribute('aria-busy', String(busy));
+      }
+      if (label) label.textContent = !busy ? '刷新' : manual ? '刷新中…' : '读取中…';
+      if (!feedback) return;
+      animateGatewayAccess(button, [
+        {transform:'scale(.94)'}, {transform:'scale(1.025)',offset:.63}, {transform:'scale(1)'}
+      ], 380, 'cubic-bezier(.21,.66,.35,1)');
+      animateGatewayAccess(document.getElementById('access-refresh-light'), [
+        {transform:'translateX(-105%)',opacity:0}, {transform:'translateX(-20%)',opacity:1,offset:.23},
+        {transform:'translateX(195%)',opacity:.85,offset:.69}, {transform:'translateX(300%)',opacity:0}
+      ], 820, 'cubic-bezier(.35,.1,.35,1)');
+    }
+    function setGatewayAccessNote(text, tone = 'normal') {
+      const note = document.getElementById('access-refresh-status');
+      if (!note) return;
+      note.textContent = text;
+      note.setAttribute('data-tone', tone);
+    }
+    function gatewayInventoryKey(rows) {
+      return JSON.stringify(rows.map(m => JSON.stringify([m.id,m.name,m.provider,m.providerName,m.kind])).sort());
+    }
+    function renderGatewayMetrics(animate = false) {
+      let models = 0, groups = 0;
+      const providers = new Set();
+      for (const row of gatewayAccessRows) {
+        if (row.kind === 'group') groups++;
+        else { models++; providers.add(row.provider); }
+      }
+      const counts = {model:models, provider:providers.size, group:groups};
+      for (const [kind, count] of Object.entries(counts)) {
+        const element = document.getElementById('access-' + kind + '-count');
+        if (!element) continue;
+        const value = gatewayAccessReady ? String(count) : '—';
+        if (element.textContent === value) continue;
+        element.textContent = value;
+        gatewayAccessAnimations.get(element)?.cancel();
+        if (animate) animateGatewayAccess(element, [
+          {opacity:0,transform:'translateY(5px)'}, {opacity:1,transform:'translateY(0)'}
+        ], 320, 'cubic-bezier(.2,.65,.28,1)');
+      }
+    }
+    async function refreshGatewayAccess(syncUpstream, feedbackStarted = false) {
       if (gatewayAccessBusy) {
         // A manual click during a silent read must still trigger an upstream refresh.
-        if (syncUpstream && !gatewayAccessSyncing) gatewayAccessRefreshPending = true;
+        if (syncUpstream && !gatewayAccessSyncing && !gatewayAccessRefreshPending) {
+          gatewayAccessRefreshPending = true;
+          showGatewayAccessProgress(true, true, true);
+          setGatewayAccessNote('正在核对账号池，随后同步模型目录…');
+        }
         return;
       }
       if (!syncUpstream && Date.now() - gatewayAccessLast < GATEWAY_ACCESS_POLL_MS) return;
@@ -6173,14 +6519,14 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
       gatewayAccessLast = Date.now(); // Throttle failed automatic reads as well.
       gatewayAccessBusy = true;
       gatewayAccessSyncing = !!syncUpstream;
-      const button = document.getElementById('access-refresh'), note = document.getElementById('access-refresh-status');
+      const previousInventory = syncUpstream && gatewayAccessReady ? gatewayInventoryKey(gatewayAccessRows) : null;
       const showProgress = !!syncUpstream || !gatewayAccessReady;
       // Once populated, periodic reads keep the refresh button and status steady.
       if (showProgress) {
-        if (button) { button.disabled = true; button.textContent = syncUpstream ? '↻ 正在刷新…' : '↻ 读取中…'; }
-        if (note) note.textContent = syncUpstream ? '正在同步已入池账号的模型目录…' : '正在核对当前账号池…';
+        showGatewayAccessProgress(true, syncUpstream, syncUpstream && !feedbackStarted);
+        setGatewayAccessNote(syncUpstream ? '正在同步已入池账号的模型目录…' : '正在核对当前账号池…');
       }
-      // An explicit refresh clears copyable old IDs until a new authoritative snapshot arrives.
+      // Keep the summary counts visible while invalidating old copyable IDs during a manual refresh.
       if (syncUpstream || !gatewayAccessReady) { gatewayAccessReady = false; gatewayAccessRows = []; renderGatewayModels(); }
       let failures = 0;
       try {
@@ -6219,22 +6565,33 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
           providers.forEach((name,id) => { const o = document.createElement('option'); o.value = id; o.textContent = name; filter.appendChild(o); });
           filter.value = providers.has(previous) ? previous : '';
         }
-        renderGatewayModels(); renderGatewayConnectionState();
+        renderGatewayModels();
+        renderGatewayMetrics(syncUpstream);
+        renderGatewayConnectionState();
         if (syncUpstream) gatewayAccessSyncFailures = failures;
-        if (note) note.textContent = '已更新 · ' + new Date(data.observedAt || Date.now()).toLocaleTimeString() + (gatewayAccessSyncFailures ? ' · ' + gatewayAccessSyncFailures + ' 项上游目录同步失败，按现有已入池目录筛选' : '') + (data.unconfirmedCatalogs ? ' · 部分账号目录暂未确认，未列出' : '');
+        if (!gatewayAccessRefreshPending) {
+          const partial = gatewayAccessSyncFailures > 0 || !!data.unconfirmedCatalogs;
+          const unchanged = syncUpstream && !partial && previousInventory === gatewayInventoryKey(gatewayAccessRows);
+          const time = new Date(data.observedAt || Date.now()).toLocaleTimeString();
+          const heading = partial ? '目录部分未确认' : unchanged ? '已核对 · 数据无变化' : '已更新';
+          const failed = gatewayAccessSyncFailures ? ' · ' + gatewayAccessSyncFailures + ' 项上游目录同步失败' : '';
+          const unconfirmed = data.unconfirmedCatalogs ? ' · 未确认的账号目录未列出' : '';
+          setGatewayAccessNote(heading + ' · ' + time + failed + unconfirmed, partial ? 'partial' : 'normal');
+        }
       } catch (_) {
         if (revision !== gatewayAccessRevision || policy !== gatewayAccessPolicyVersion) return;
         gatewayAccessReady = false; gatewayAccessRows = []; renderGatewayModels();
-        if (note) note.textContent = '刷新失败，当前模型列表已清空。请检查网关连接后重试。';
+        renderGatewayMetrics();
+        if (!gatewayAccessRefreshPending) setGatewayAccessNote('刷新失败，当前模型列表已清空。请检查网关连接后重试。', 'error');
       } finally {
         if (revision === gatewayAccessRevision) {
           gatewayAccessBusy = false; gatewayAccessSyncing = false;
-          if (showProgress && button) { button.disabled = false; button.textContent = '↻ 刷新'; }
+          if (showProgress && !gatewayAccessRefreshPending) showGatewayAccessProgress(false);
           if (gatewayAccessReadPending && !gatewayAccessRefreshPending) { gatewayAccessReadPending = false; gatewayAccessLast = 0; refreshGatewayAccess(false); }
           if (gatewayAccessRefreshPending) {
             gatewayAccessReadPending = false;
             gatewayAccessRefreshPending = false;
-            refreshGatewayAccess(true);
+            refreshGatewayAccess(true, true);
           }
         }
       }
@@ -6246,7 +6603,9 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
       return gatewayAccessRows.filter(m => (!provider || m.provider === provider) && (!query || [m.id,m.name,m.providerName].join(' ').toLowerCase().includes(query)));
     }
     function gatewayAccessPolicyChanged() {
-      gatewayAccessPolicyVersion++; gatewayAccessReady = false; gatewayAccessRows = []; gatewayAccessLast = 0; renderGatewayModels();
+      gatewayAccessPolicyVersion++; gatewayAccessReady = false; gatewayAccessRows = []; gatewayAccessLast = 0;
+      renderGatewayModels();
+      renderGatewayMetrics();
       if (gatewayAccessBusy) gatewayAccessReadPending = true; else refreshGatewayAccess(false);
     }
     function modelFilterValueSafe(id) { const el=document.getElementById(id); return el && typeof el.value==='string' ? el.value : ''; }
@@ -6264,10 +6623,6 @@ html[data-theme="dark"] .gw-dot-ripple {color:#69e7b2}
       gatewayAccessRenderSignature = signature;
       shown.forEach(m => { if (!groups.has(m.provider)) groups.set(m.provider,[]); groups.get(m.provider).push(m); });
       list.replaceChildren();
-      ['model','provider','group'].forEach(kind => {
-        const el = document.getElementById('access-' + kind + '-count'); if (!el) return;
-        el.textContent = !gatewayAccessReady ? '—' : String(kind === 'provider' ? new Set(gatewayAccessRows.filter(m => m.kind === 'model').map(m => m.provider)).size : gatewayAccessRows.filter(m => m.kind === kind).length);
-      });
       const summary = document.getElementById('access-model-summary');
       if (summary) summary.textContent = gatewayAccessReady ? '显示 ' + visible.length + ' / ' + gatewayAccessRows.length + ' 项 · 点击右侧复制完整 ID' : '等待最新账号池数据';
       const copy = document.getElementById('access-copy-all'); if (copy) { copy.disabled = visible.length === 0; copy.textContent = visible.length === gatewayAccessRows.length ? '复制全部 ID' : '复制筛选结果'; }
