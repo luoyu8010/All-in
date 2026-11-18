@@ -1704,12 +1704,59 @@ html[data-theme="dark"] .liquid-glass #checkin-run-all:disabled {
 .card-morph-surface {border:1px solid var(--glass-edge);box-shadow:var(--glass-shadow)}
 .card-morph-icon {display:grid;place-items:center}
 .card-morph-icon > * {margin:0}
+/* Keep the departing route visible and out of flow while the next one moves in. */
+#provider-catalog-route {display:flow-root}
+#setup-wizard {padding-top:max(18px,calc(var(--native-status-bar-inset,0px) + 12px))!important;scroll-behavior:auto;overflow-anchor:none}
+.setup-brand-icon {display:block;width:64px;height:64px;margin:0 auto;border-radius:17px;box-shadow:0 6px 18px #0002}
+.setup-steps {position:relative;overflow:clip}
+.setup-steps [data-setup-departing] {position:absolute;inset:0 0 auto;pointer-events:none}
+#setup-progress [id^="setup-dot-"] {transition:background-color .44s ease,color .44s ease,transform .48s cubic-bezier(.42,0,.35,1)}
+#setup-progress [aria-current="step"] {transform:scale(1.1)}
+#setup-wizard [id^="setup-step-"] > h2 {font-size:.95rem;line-height:1.4;margin:0 0 12px;color:var(--text)}
+#setup-wizard .setup-steps h2[tabindex="-1"]:focus, #glass-home-title[tabindex="-1"]:focus {outline:none}
+@media(prefers-reduced-motion:reduce){#setup-progress [id^="setup-dot-"] {transition:none;transform:none}}
+
+#tab-providers > [data-provider-departing] {
+  display:flow-root!important;position:fixed;z-index:6;pointer-events:none;
+}
+#tab-providers > [data-provider-arriving] {position:relative;z-index:7}
+.liquid-glass :is(#provider-add-button,#provider-back-button):not(:disabled):active {
+  transform:scale(.95);transition-duration:100ms;
+}
+#provider-add-heading {font-size:22px;line-height:1.4;margin:16px 2px 10px}
+#provider-add-heading + #provider-detail-info:empty {padding:0}
+#provider-add-heading:not([hidden]) + #provider-detail-info:not(:empty) {padding-top:0}
 #account-manage-modal[data-sheet] {align-items:flex-end!important;padding:8px 0 0!important;background:transparent!important}
 #account-manage-modal[data-sheet]::before {content:"";position:absolute;inset:0;background:rgba(0,0,0,.42);pointer-events:none}
 #account-manage-modal[data-sheet] > .account-sheet {position:relative;max-height:min(80dvh,720px)!important;border-radius:26px 26px 0 0!important;padding-bottom:env(safe-area-inset-bottom,0px)}
 .account-sheet-handle {touch-action:none;flex:none;display:grid;place-items:center;height:28px;cursor:grab}
 .account-sheet-handle::before {content:"";width:36px;height:4px;border-radius:5px;background:var(--text-faint);opacity:.65}
-.account-action-popover {position:fixed;z-index:99999;display:grid;gap:6px;padding:8px;min-width:132px;border:1px solid var(--card-border);border-radius:18px;background:var(--card-bg);box-shadow:0 10px 30px #0003;max-height:calc(100dvh - 16px);overflow:auto}
+.glass-menu-overlay {position:fixed;inset:0;z-index:110000;overscroll-behavior:contain}
+.glass-menu-frame {
+  position:absolute;border-radius:24px;background:#fff;color:#171719;
+  box-shadow:0 8px 29px #0002,inset 0 0 0 1px #16161b18;
+}
+html[data-theme="dark"] .glass-menu-frame {
+  background:#000;color:#f4f4f5;box-shadow:0 8px 29px #0007,inset 0 0 0 1px #ffffff38;
+}
+.glass-menu-options,.glass-menu-actions {
+  color:inherit;max-height:inherit;min-width:0;overflow:auto;overscroll-behavior:contain;
+  border-radius:inherit;padding:7px;outline:none;touch-action:pan-y;
+}
+.glass-menu-options .glass-menu-option,
+.liquid-glass .glass-menu-actions .btn {
+  display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;
+  width:100%;padding:8px 11px;border:0!important;border-radius:14px!important;
+  background:transparent!important;color:inherit!important;text-align:start;font:inherit;
+  box-shadow:none;white-space:normal;overflow-wrap:anywhere;cursor:pointer;
+}
+.glass-menu-option[aria-selected="true"],.glass-menu-option:focus-visible,
+.liquid-glass .glass-menu-actions .btn:focus-visible {background:#77777726!important;outline:2px solid transparent}
+.glass-menu-option[aria-disabled="true"],.glass-menu-actions .btn:disabled {opacity:.56;cursor:default}
+.glass-menu-option[aria-selected="true"]::after {content:"✓";color:#005fc7;font-weight:750;flex:none}
+html[data-theme="dark"] .glass-menu-option[aria-selected="true"]::after {color:#82beff}
+.liquid-glass .glass-menu-actions .account-remove-button:not(:disabled) {color:var(--danger)!important}
+.glass-menu-options .glass-menu-group {padding:8px 11px 2px;color:inherit;opacity:.64;font-size:.8em}
 .account-action-popover[hidden] {display:none}
 [data-copy-feedback] {position:relative}
 [data-copy-feedback]::after {content:attr(data-copy-feedback);position:absolute;inset:0;display:grid;place-items:center;border-radius:inherit;background:var(--card-bg);color:var(--text);pointer-events:none;font-weight:650}
@@ -2300,8 +2347,9 @@ html[data-theme="dark"] .glass-switch-shell {
     </section>
 
     <section id="tab-providers" class="tab-pane">
-      <div id="provider-list-view"><div class="provider-list-heading"><h2>已接入供应商</h2><p>管理已导入的账号和 API Key，选择允许网关使用的供应商。</p></div><div class="provider-toolbar"><label for="provider-search">搜索供应商</label><input id="provider-search" type="search" placeholder="名称或供应商 ID" oninput="renderProviderList()"><button class="btn btn-outline" onclick="showProviderView('add')">添加供应商</button></div><div id="provider-status" role="status"></div><div id="provider-list"></div></div>
-      <div id="provider-subview" hidden><button class="btn btn-outline" onclick="showProviderView('list')">← 返回已接入</button><div id="provider-detail-info"></div></div>
+      <div id="provider-list-view"><div class="provider-list-heading"><h2>已接入供应商</h2><p>管理已导入的账号和 API Key，选择允许网关使用的供应商。</p></div><div class="provider-toolbar"><label for="provider-search">搜索供应商</label><input id="provider-search" type="search" placeholder="名称或供应商 ID" oninput="renderProviderList()"><button id="provider-add-button" class="btn btn-outline" type="button" onclick="showProviderView('add')">添加供应商</button></div><div id="provider-status" role="status"></div><div id="provider-list"></div></div>
+      <div id="provider-catalog-route" hidden>
+      <div id="provider-subview" hidden><button id="provider-back-button" type="button" class="btn btn-outline" onclick="showProviderView('list')">← 返回已接入</button><h2 id="provider-add-heading" tabindex="-1" hidden>添加供应商</h2><div id="provider-detail-info"></div></div>
       <div id="provider-catalog" hidden>
       <div id="provider-catalog-heading" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
         <div>
@@ -2745,6 +2793,7 @@ html[data-theme="dark"] .glass-switch-shell {
           <div id="commercial-keys-container"></div>
         </div>
       </details>
+      </div>
       </div>
     </section>
 
@@ -6376,12 +6425,14 @@ html[data-theme="dark"] .glass-switch-shell {
         shift.onfinish = () => { if (transition && transition.animations[0] === shift) reset(); };
       }
       window.addEventListener('resize', reset);
-      return {capture, play, settling: () => transition?.settled};
+      return {capture, play, finish:reset, settling: () => transition?.settled};
     })();
 
     function switchTab(tabId, el, preserveScroll) {
       if (typeof cancelStreamPing === 'function') cancelStreamPing('已切换操作，旧流式测试已取消');
       if (typeof cardMorph !== 'undefined') cardMorph.cancel();
+      if (typeof providerRouteMotion !== 'undefined') providerRouteMotion.cancel();
+      if (typeof glassMenu !== 'undefined') glassMenu.dismiss(false, false);
       if (typeof disclosureMotion !== 'undefined') disclosureMotion.finishAll();
       if (typeof checkinVisible === 'function' && checkinVisible()) showCheckinCenter(false, true, true);
       const advanced = document.getElementById('gateway-advanced-view');
@@ -7321,8 +7372,92 @@ html[data-theme="dark"] .glass-switch-shell {
     }
     function providerConfigured(p) { const c = providerCounts(p); return c.keys > 0 || c.accounts > 0; }
     function providerEnabled(p) { return p.enabled !== false; }
+    const providerRouteMotion = (() => {
+      const preference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+      const slideEase = 'cubic-bezier(.33,.02,.15,1)';
+      let running;
+
+      function cancel() {
+        if (!running) return;
+        const {outgoing, incoming, animations} = running;
+        running = null;
+        animations.forEach(animation => animation.cancel());
+        outgoing.removeAttribute('data-provider-departing');
+        incoming.removeAttribute('data-provider-arriving');
+        outgoing.inert = false;
+        for (const property of ['top', 'left', 'width']) outgoing.style.removeProperty(property);
+        if (outgoing.id === 'provider-catalog-route' && outgoing.hidden) {
+          document.getElementById('provider-subview').hidden = true;
+          document.getElementById('provider-catalog').hidden = true;
+        }
+      }
+
+      function frame(node) {
+        return {rect:node.getBoundingClientRect(), opacity:Number(getComputedStyle(node).opacity)};
+      }
+
+      function prepare(from, to) {
+        const forward = from === 'list' && to === 'add';
+        const back = from === 'add' && to === 'list';
+        const section = document.getElementById('tab-providers');
+        const list = document.getElementById('provider-list-view');
+        const catalog = document.getElementById('provider-catalog-route');
+        if ((!forward && !back) || !section?.classList?.contains('active') || !list?.animate || !catalog?.animate || preference?.matches) {
+          cancel();
+          return null;
+        }
+        if (typeof tabMotion !== 'undefined') tabMotion.finish();
+        const outgoing = forward ? list : catalog;
+        const incoming = forward ? catalog : list;
+        const fromFrame = frame(outgoing);
+        const resume = running?.outgoing === incoming ? frame(incoming) : null;
+        cancel();
+        if (!fromFrame.rect.width) return null;
+        // The outgoing view keeps its visual position even when the next view restores a different scroll offset.
+        const originX = section.getBoundingClientRect().left;
+        outgoing.style.top = fromFrame.rect.top + 'px';
+        outgoing.style.left = originX + 'px';
+        outgoing.style.width = fromFrame.rect.width + 'px';
+        outgoing.setAttribute('data-provider-departing', '');
+        outgoing.inert = true;
+        return {outgoing, incoming, fromFrame, resume, originX, forward};
+      }
+
+      function play(route) {
+        const {outgoing, incoming, fromFrame, resume, originX, forward} = route;
+        incoming.setAttribute('data-provider-arriving', '');
+        const distance = Math.min(112, fromFrame.rect.width * .25);
+        const direction = forward ? 1 : -1;
+        const fromX = fromFrame.rect.left - originX;
+        const targetX = resume ? resume.rect.left - incoming.getBoundingClientRect().left : direction * distance;
+        const duration = resume ? 300 : forward ? 450 : 395;
+        const timing = {duration, fill:'both'};
+        const move = (node, start, end) => node.animate([
+          {transform:`translate3d(${start}px,0,0)`}, {transform:`translate3d(${end}px,0,0)`}
+        ], {...timing, easing:slideEase});
+        const outOpacity = fromFrame.opacity;
+        const inOpacity = resume?.opacity ?? 0;
+        const animations = [
+          move(outgoing, fromX, -direction * distance),
+          move(incoming, targetX, 0),
+          outgoing.animate([{opacity:outOpacity}, {opacity:outOpacity * .83, offset:.18}, {opacity:0, offset:.65}, {opacity:0}], timing),
+          incoming.animate([{opacity:inOpacity}, {opacity:inOpacity, offset:.10, easing:'ease-out'}, {opacity:1, offset:.60}, {opacity:1}], timing)
+        ];
+        const transition = running = {outgoing, incoming, animations};
+        Promise.all(animations.map(animation => animation.finished)).then(() => {
+          if (running === transition) cancel();
+        }, () => {});
+      }
+
+      window.addEventListener?.('resize', cancel);
+      preference?.addEventListener?.('change', () => { if (preference.matches) cancel(); });
+      return {prepare, play, cancel};
+    })();
+
     function showProviderView(view, id, sourceCard) {
       const previousView = providerView;
+      const routeMotion = typeof providerRouteMotion === 'undefined' ? null : providerRouteMotion;
+      const route = routeMotion?.prepare(previousView, view);
       const previousId = providerDetail;
       const opening = previousView === 'list' && view === 'detail' && !!sourceCard;
       const closing = previousView === 'detail' && view === 'list';
@@ -7342,7 +7477,11 @@ html[data-theme="dark"] .glass-switch-shell {
           const row = Array.from(document.querySelectorAll('.provider-compact-main')).find(button => button.dataset.providerFocus === 'row:' + previousId);
           destination = row?.closest('.provider-compact');
           focus = row || document.getElementById('provider-search');
+        } else if (previousView === 'add') {
+          focus = document.getElementById('provider-add-button');
         }
+      } else if (view === 'add') {
+        focus = document.getElementById('provider-add-heading');
       } else if (view === 'detail' && morph) {
         destination = detailCard();
         focus = destination?.querySelector('h3');
@@ -7350,8 +7489,9 @@ html[data-theme="dark"] .glass-switch-shell {
       const top = view === 'list' ? providerListScroll : 0;
       if (morph) window.scrollTo({top, behavior: 'instant'});
       else window.scrollTo(0, top);
-      if (focus && morph) focus.focus({preventScroll: true});
+      if (focus) focus.focus({preventScroll: true});
       if (morph) morph.start(before, destination);
+      if (route) routeMotion.play(route);
     }
     // Android system back must unwind in-page navigation before leaving the activity.
     window.allInHandleBack = function () {
@@ -7361,6 +7501,7 @@ html[data-theme="dark"] .glass-switch-shell {
       };
       if (visible('dup-account-modal')) { closeDupModal(); return true; }
       if (visible('inapp-login-modal')) { closeInAppLogin(); return true; }
+      if (typeof glassMenu !== 'undefined' && glassMenu.dismiss()) return true;
       if (typeof closeAccountActions === 'function' && closeAccountActions()) return true;
       if (visible('account-manage-modal')) { closeAccountModal(true); return true; }
       const gateway = document.getElementById('tab-gateway');
@@ -7384,8 +7525,15 @@ html[data-theme="dark"] .glass-switch-shell {
     function applyProviderView() {
       const list = document.getElementById('provider-list-view'), sub = document.getElementById('provider-subview'), catalog = document.getElementById('provider-catalog');
       if (!list || !sub || !catalog) return;
-      list.hidden = providerView !== 'list'; sub.hidden = providerView === 'list'; catalog.hidden = providerView === 'list';
+      const catalogRoute = document.getElementById('provider-catalog-route');
+      const atList = providerView === 'list';
+      list.hidden = !atList;
+      if (catalogRoute) catalogRoute.hidden = atList;
+      if (atList && catalogRoute?.hasAttribute?.('data-provider-departing')) return;
+      sub.hidden = atList;
+      catalog.hidden = atList;
       const headingEl = document.getElementById('provider-catalog-heading'); if (headingEl) headingEl.hidden = providerView !== 'add';
+      const addHeading = document.getElementById('provider-add-heading'); if (addHeading) addHeading.hidden = providerView !== 'add';
       const cards = document.getElementById('all-providers-cards-container');
       const commercial = document.getElementById('commercial-keys-container');
       const details = commercial && commercial.closest('details');
@@ -7400,7 +7548,7 @@ html[data-theme="dark"] .glass-switch-shell {
       if (details) { details.hidden = !Array.from(commercial.children).some(x => !x.hidden); if (providerView === 'detail' && !details.hidden) details.open = true; }
       const info = document.getElementById('provider-detail-info'); if (!info) return;
       info.replaceChildren();
-      if (providerView === 'add') { info.textContent = '添加供应商'; const available = (cards && Array.from(cards.children).some(x => !x.hidden)) || (commercial && Array.from(commercial.children).some(x => !x.hidden)); if (!available) { const note = document.createElement('p'); note.textContent = '暂无可添加的供应商'; info.appendChild(note); } return; }
+      if (providerView === 'add') { const available = (cards && Array.from(cards.children).some(x => !x.hidden)) || (commercial && Array.from(commercial.children).some(x => !x.hidden)); if (!available) { const note = document.createElement('p'); note.textContent = '暂无可添加的供应商'; info.appendChild(note); } return; }
       const p = providers.find(x => x.id === providerDetail); if (!p) return;
       const hero = document.createElement('div');
       hero.className = 'card provider-detail-heading';
@@ -9056,10 +9204,130 @@ html[data-theme="dark"] .glass-switch-shell {
       bar.appendChild(line);
     }
 
+    const setupMotion = (() => {
+      const get = id => document.getElementById(id);
+      const reduced = () => window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+      const ease = 'cubic-bezier(.42,0,.35,1)';
+      const stepDuration = 480;
+      let step = 0, running, entrance = [];
+
+      function settle() {
+        if (!running) return;
+        const {from, animations, observer, heightAnimation} = running;
+        running = null;
+        observer?.disconnect();
+        heightAnimation?.cancel();
+        from.style.display = 'none';
+        from.removeAttribute('data-setup-departing');
+        from.inert = false;
+        animations.forEach(animation => animation.cancel());
+      }
+
+      function reset() {
+        settle();
+        entrance.forEach(animation => animation.cancel());
+        entrance = [];
+        step = 0;
+      }
+
+      function capture(next) {
+        if (!step || step === next || running || reduced()) return null;
+        const from = get('setup-step-' + step);
+        const stage = get('setup-steps');
+        if (!stage?.animate || !from?.getBoundingClientRect) return null;
+        return {from, stage, direction:next > step ? 1 : -1, height:stage.getBoundingClientRect().height};
+      }
+
+      function play(change, next) {
+        const stepChanged = step !== next;
+        step = next;
+        const to = get('setup-step-' + next);
+        if (stepChanged) to?.querySelector?.('h2')?.focus({preventScroll:true});
+        if (!change || !to) { settle(); return; }
+        const {from, stage, direction, height} = change;
+        const wizard = get('setup-wizard');
+        if (wizard.scrollTop && stage.getBoundingClientRect().top < 90) {
+          wizard.scrollTop = Math.max(0, wizard.scrollTop + stage.getBoundingClientRect().top - 90);
+        }
+        from.setAttribute('data-setup-departing','');
+        from.inert = true;
+        const timing = {duration:stepDuration, fill:'both'};
+        const move = (pane, start, end) => pane.animate([
+          {transform:`translateX(${start}px)`}, {transform:`translateX(${end}px)`}
+        ], {...timing, easing:ease});
+        const fade = (pane, frames) => pane.animate(frames, timing);
+        const animations = [
+          move(from, 0, -direction * 20), move(to, direction * 20, 0),
+          fade(from, [{opacity:1}, {opacity:1, offset:.07, easing:'ease-in-out'}, {opacity:0, offset:.72}, {opacity:0}]),
+          fade(to, [{opacity:0}, {opacity:0, offset:.10, easing:'ease-in-out'}, {opacity:1, offset:.87}, {opacity:1}])
+        ];
+        const transition = running = {from, animations, heightAnimation:null, observer:null};
+        const panelsDone = Promise.all(animations.map(animation => animation.finished));
+        let targetHeight;
+
+        function moveHeight(start, duration) {
+          targetHeight = to.getBoundingClientRect().height;
+          transition.heightAnimation?.cancel();
+          const resize = transition.heightAnimation = stage.animate([
+            {height:start + 'px'}, {height:targetHeight + 'px'}
+          ], {duration, easing:ease, fill:'both'});
+          Promise.all([panelsDone, resize.finished]).then(() => {
+            if (running === transition && transition.heightAnimation === resize) settle();
+          }, () => {});
+        }
+
+        moveHeight(height, stepDuration);
+        if (typeof ResizeObserver === 'function') {
+          transition.observer = new ResizeObserver(() => {
+            if (running !== transition || Math.abs(to.getBoundingClientRect().height - targetHeight) < 1) return;
+            // Permission and keepalive responses can arrive during the transition.
+            // Continue from the visible height instead of jumping to a stale endpoint.
+            const elapsed = Number(animations[0].currentTime) || 0;
+            moveHeight(stage.getBoundingClientRect().height, Math.max(150, stepDuration - elapsed));
+          });
+          transition.observer.observe(to);
+        }
+      }
+
+      function enter() {
+        if (reduced()) return;
+        entrance = [get('setup-brand'),get('setup-progress'),get('setup-steps')].flatMap((node, index) => node?.animate ? [node.animate([
+          {opacity:0,transform:'translateY(12px)'}, {opacity:1,transform:'none'}
+        ], {duration:510,delay:index * 52,easing:ease,fill:'backwards'})] : []);
+      }
+
+      async function leave() {
+        const wizard = get('setup-wizard');
+        reset();
+        if (!wizard) return;
+        const title = get('glass-home-title');
+        const home = [document.querySelector?.('.glass-masthead'), title?.closest?.('.glass-hero'), get('bottom-nav')];
+        const animations = [];
+        if (wizard.animate && !reduced()) {
+          home.forEach((node, index) => {
+            if (!node?.animate) return;
+            animations.push(node.animate([{opacity:.46,translate:'0 12px'}, {opacity:1,translate:'none'}],
+              {duration:420,delay:68 * index,easing:ease,fill:'backwards'}));
+          });
+          const curtain = wizard.animate([{opacity:1,easing:ease}, {opacity:.86,offset:.20,easing:ease}, {opacity:0}], {duration:570,fill:'forwards'});
+          animations.push(curtain);
+          await curtain.finished.catch(() => {});
+        }
+        wizard.style.display = 'none';
+        animations.forEach(animation => animation.cancel());
+        if (title) { title.tabIndex = -1; title.focus({preventScroll:true}); }
+      }
+
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.addEventListener?.('change', settle);
+      return {reset, capture, play, enter, leave, moving:() => !!running};
+    })();
+
     function openSetupWizard(existingKey) {
       const w = document.getElementById('setup-wizard');
       if (!w) return;
+      setupMotion.reset();
       w.style.display = 'block';
+      w.scrollTop = 0;
       setupState.step = 1;
       setupState.keepCurrent = false;
       setupState.appliedKey = null;
@@ -9068,17 +9336,21 @@ html[data-theme="dark"] .glass-switch-shell {
       const tip = document.getElementById('setup-key-tip');
       if (tip) tip.innerText = existingKey ? '这是当前已应用的口令。修改后点击应用，保存成功才生效。' : '请先复制记下口令，点击应用并保存成功后才生效。';
       setupRenderStep();
+      setupMotion.enter();
     }
 
     function setupRenderStep() {
       const n = setupState.step;
+      const change = setupMotion.capture(n);
       ['1', '2', '3'].forEach(i => {
         const pane = document.getElementById('setup-step-' + i);
-        if (pane) pane.style.display = (String(n) === i) ? 'block' : 'none';
+        if (pane) pane.style.display = (String(n) === i || pane === change?.from) ? 'block' : 'none';
         const dot = document.getElementById('setup-dot-' + i);
         if (dot) {
           const on = String(n) === i;
           const past = Number(i) < n;
+          if (on) dot.setAttribute?.('aria-current','step');
+          else dot.removeAttribute?.('aria-current');
           dot.style.background = on ? 'rgba(99,102,241,0.9)'
             : (past ? 'rgba(16,185,129,0.85)' : 'rgba(255,255,255,0.12)');
           dot.style.color = (on || past) ? '#fff' : 'var(--text-muted)';
@@ -9088,10 +9360,9 @@ html[data-theme="dark"] .glass-switch-shell {
       const next = document.getElementById('setup-btn-next');
       if (back) back.style.visibility = (n === 1) ? 'hidden' : 'visible';
       if (next) next.innerText = n === 1 ? '应用密钥，下一步' : (n === 3 ? '完成，进入面板' : '下一步');
-      const title = document.getElementById('setup-step-title');
-      if (title) title.innerText = n === 1 ? '① 设置网关口令' : (n === 2 ? '② 放行必要权限' : '③ 选择保活方式');
       if (n === 2) setupRefreshPerms();
       if (n === 3) setupRefreshKeepalive();
+      setupMotion.play(change, n);
     }
 
     function setupSetBusy(busy) {
@@ -9108,7 +9379,7 @@ html[data-theme="dark"] .glass-switch-shell {
     }
 
     async function setupNext() {
-      if (setupState.busy) return;
+      if (setupState.busy || setupMotion.moving()) return;
       if (setupState.step === 1) {
         const inp = document.getElementById('setup-key');
         const v = inp ? inp.value.trim() : '';
@@ -9160,7 +9431,7 @@ html[data-theme="dark"] .glass-switch-shell {
     }
 
     function setupBack() {
-      if (!setupState.busy && setupState.step > 1) { setupState.step -= 1; setupRenderStep(); }
+      if (!setupState.busy && !setupMotion.moving() && setupState.step > 1) { setupState.step -= 1; setupRenderStep(); }
     }
 
     function setupRegen() {
@@ -9414,13 +9685,12 @@ html[data-theme="dark"] .glass-switch-shell {
           authKeyKnown = true;
           try { sessionStorage.setItem('magpieAuthKey', AUTH_KEY); } catch (e) {}
         }
-        const w = document.getElementById('setup-wizard');
-        if (w) w.style.display = 'none';
         setupState.data = d;
-        showToast('✅ 设置完成');
         try { renderCredentials(); } catch (e) {}
         try { loadConfig(); } catch (e) {}
         if (d.authKeyMigrationRequired || d.authKeyIsDefault) showWeakKeyBanner();
+        await setupMotion.leave();
+        showToast('✅ 设置完成');
       } catch (e) {
         showToast('保存失败：' + e.message);
       } finally {
@@ -9769,9 +10039,7 @@ html[data-theme="dark"] .glass-switch-shell {
     // 第一版用的是扁平 <select>，40+ 个模型挤在一个原生下拉里，手机上展开就是一长条，
     // 看不出属于哪家、也不知道哪家根本没登录。现在拆两级。
     //
-    // 用原生 <select> 而不是自定义胶囊/卡片：WebView 里动态创建并 append 的 div/button
-    // 点击命中不稳定（accessibility 报 clickable 但 ACTION_CLICK 与坐标触摸都不触发），
-    // 原生下拉是系统控件，最可靠。数据都取自 appConfig，状态与真实可测模型始终一致。
+    // 原生 select 保存选项和变更事件，共用菜单负责展现和触摸选择。
 
 
     let pingSelectedProvider = null;   // 当前选中的供应商/路由组 id
@@ -10996,48 +11264,210 @@ html[data-theme="dark"] .glass-switch-shell {
       manageProviderAccounts(providerId);
     }
 
-    let accountSheetMotion, accountSheetOrigin, activeAccountActions;
+    const glassMenu = (() => {
+      const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const keys = ['ArrowDown','ArrowUp','Home','End'];
+      let current;
+
+      function remove(state) {
+        if (current !== state) return;
+        current = null;
+        state.animations.forEach(animation => animation.cancel());
+        if (state.origin) {
+          state.content.hidden = true;
+          state.content.classList.remove('glass-menu-actions');
+          if (state.origin.isConnected) state.origin.appendChild(state.content);
+        }
+        state.overlay.remove();
+      }
+
+      function dismiss(restore = true, animated = true) {
+        const state = current;
+        if (!state) return false;
+        if (state.closing && animated) return true;
+        const {source, frame, content, start} = state;
+        state.closing = true;
+        source.setAttribute('aria-expanded', 'false');
+        content.inert = true;
+        if (restore && source.isConnected) source.focus({preventScroll:true});
+        if (!animated || motion.matches || !frame.animate || !source.isConnected) {
+          remove(state);
+          content.inert = false;
+          return true;
+        }
+        const opening = state.animations.some(animation => animation.playState !== 'finished');
+        const transform = getComputedStyle(frame).transform;
+        const radius = getComputedStyle(frame).borderRadius;
+        const opacity = getComputedStyle(content).opacity;
+        state.animations.forEach(animation => animation.cancel());
+        const surface = frame.animate([
+          {transform, borderRadius:radius},
+          ...(opening ? [] : [{transform:'translateY(4px) scale(.98)', borderRadius:'26px', offset:.16, easing:'cubic-bezier(.34,0,.25,1)'}]),
+          {...start, opacity:1, offset:.79, easing:'ease-in'},
+          {...start, opacity:0}
+        ], {duration:500, fill:'both'});
+        state.animations = [surface, content.animate([{opacity}, {opacity:0, offset:.30}, {opacity:0}], {duration:500, fill:'both'})];
+        surface.finished.then(() => { if (current === state) { remove(state); content.inert = false; } }, () => {});
+        return true;
+      }
+
+      function open(source, content, actions = false) {
+        if (current?.source === source && !current.closing) return dismiss();
+        dismiss(false, false);
+        const root = source.closest('#account-manage-modal') || document.body;
+        const overlay = document.createElement('div');
+        overlay.className = 'glass-menu-overlay';
+        const frame = document.createElement('div');
+        frame.className = 'glass-menu-frame';
+        const origin = actions ? content.parentElement : null;
+        if (actions) content.classList.add('glass-menu-actions');
+        content.hidden = false;
+        content.inert = false;
+        frame.appendChild(content);
+        overlay.appendChild(frame);
+        root.appendChild(overlay);
+        const anchor = source.getBoundingClientRect();
+        const bounds = overlay.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const width = viewport?.width || bounds.width;
+        const height = viewport?.height || bounds.height;
+        const visibleX = viewport?.offsetLeft || 0;
+        const visibleY = viewport?.offsetTop || 0;
+        const margin = 16;
+        const panelWidth = Math.min(width - margin * 2, actions ? 210 : Math.max(238, Math.min(352, anchor.width)));
+        const maxHeight = Math.max(48, Math.min(414, height - margin * 2));
+        frame.style.width = panelWidth + 'px';
+        frame.style.maxHeight = maxHeight + 'px';
+        const panelHeight = frame.offsetHeight;
+        const left = Math.max(visibleX + margin, Math.min(anchor.right - panelWidth, visibleX + width - panelWidth - margin));
+        const desiredTop = anchor.top + panelHeight - 8 < visibleY + height - margin ? anchor.top + 8 : anchor.bottom - panelHeight - 8;
+        const top = Math.max(visibleY + margin, Math.min(desiredTop, visibleY + height - panelHeight - margin));
+        frame.style.left = left - bounds.left + 'px';
+        frame.style.top = top - bounds.top + 'px';
+        const x = anchor.left + anchor.width / 2 - left - panelWidth / 2;
+        const y = anchor.top + anchor.height / 2 - top - panelHeight / 2;
+        const start = {transform:`translate3d(${x}px,${y}px,0) scale(${Math.min(1, anchor.width / panelWidth)},${Math.min(1, anchor.height / panelHeight)})`, borderRadius:'50%'};
+        const state = current = {source, overlay, frame, content, start, origin, animations:[]};
+        source.setAttribute('aria-expanded', 'true');
+        overlay.onclick = event => { if (event.target === overlay) dismiss(); };
+        if (!motion.matches && frame.animate) {
+          const timing = {duration:450, fill:'both'};
+          state.animations = [frame.animate([
+            {...start, opacity:.70, easing:'cubic-bezier(.19,.69,.30,1)'},
+            {transform:'translate3d(0,0,0) scale(1.033)', borderRadius:'27px', opacity:1, offset:.59, easing:'ease-out'},
+            {transform:'none', borderRadius:'24px', opacity:1}
+          ], timing), content.animate([
+            {opacity:0, filter:'blur(4px)'}, {opacity:0, filter:'blur(4px)', offset:.17},
+            {opacity:1, filter:'blur(0px)', offset:.57}, {opacity:1, filter:'none'}
+          ], timing)];
+          Promise.all(state.animations.map(animation => animation.finished)).then(() => {
+            if (current === state && !state.closing) { state.animations.forEach(animation => animation.cancel()); state.animations = []; }
+          }, () => {});
+        }
+        const enabled = 'button:not(:disabled):not([aria-disabled="true"])';
+        const focus = content.querySelector(enabled + '[aria-selected="true"]') || content.querySelector(enabled);
+        (focus || content).focus({preventScroll:true});
+        const selected = content.querySelector('[aria-selected="true"]');
+        if (selected && selected.offsetTop + selected.offsetHeight > content.clientHeight) content.scrollTop = selected.offsetTop - 7;
+        return true;
+      }
+
+      function openSelect(source) {
+        const content = document.createElement('div');
+        content.className = 'glass-menu-options';
+        content.tabIndex = -1;
+        content.setAttribute('role', 'listbox');
+        content.setAttribute('aria-label', source.getAttribute('aria-label') || source.labels?.[0]?.textContent.trim() || '选项');
+        let lastGroup;
+        Array.from(source.options).forEach(option => {
+          const group = option.parentElement instanceof HTMLOptGroupElement ? option.parentElement : null;
+          if (option.hidden || group?.hidden) return;
+          if (group && group !== lastGroup) {
+            const title = document.createElement('div');
+            title.className = 'glass-menu-group';
+            title.textContent = group.label;
+            content.appendChild(title);
+          }
+          lastGroup = group;
+          const row = document.createElement('button');
+          row.className = 'glass-menu-option';
+          row.type = 'button';
+          row.setAttribute('role', 'option');
+          row.setAttribute('aria-selected', String(option.selected));
+          const disabled = option.disabled || !!group?.disabled;
+          row.setAttribute('aria-disabled', String(disabled));
+          if (disabled) row.tabIndex = -1;
+          row.textContent = option.label;
+          row.onclick = () => {
+            if (!source.contains(option) || source.matches(':disabled')) return dismiss();
+            if (option.disabled || option.parentElement?.matches('optgroup:disabled')) return;
+            const changed = source.selectedIndex !== option.index;
+            dismiss();
+            if (!changed) return;
+            source.selectedIndex = option.index;
+            source.dispatchEvent(new Event('input', {bubbles:true}));
+            source.dispatchEvent(new Event('change', {bubbles:true}));
+          };
+          content.appendChild(row);
+        });
+        if (content.childElementCount) open(source, content);
+      }
+
+      function selectAt(event) {
+        const node = event.target.closest?.('select');
+        return node && !node.multiple && node.size <= 1 && !node.matches(':disabled') ? node : null;
+      }
+      document.addEventListener('mousedown', event => {
+        if (event.button === 0 && selectAt(event)) event.preventDefault();
+      }, true);
+      document.addEventListener('click', event => {
+        const source = selectAt(event);
+        if (!source) return;
+        event.preventDefault();
+        openSelect(source);
+      }, true);
+      document.addEventListener('keydown', event => {
+        const state = current;
+        if (state && event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          dismiss();
+        } else if (state && !state.closing && state.content.contains(event.target) && [...keys, 'Tab'].includes(event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const choices = Array.from(state.content.querySelectorAll('button:not(:disabled):not([aria-disabled="true"])'));
+          const index = choices.indexOf(document.activeElement);
+          const step = event.key === 'ArrowUp' || event.shiftKey ? -1 : 1;
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? choices.length - 1 : (index + step + choices.length) % choices.length;
+          choices[next]?.focus();
+        } else if ((!state || state.closing) && [' ', 'Enter', ...keys].includes(event.key)) {
+          const source = selectAt(event);
+          if (!source) return;
+          event.preventDefault();
+          if (!event.repeat) openSelect(source);
+        }
+      }, true);
+      window.addEventListener('resize', () => dismiss(true, false));
+      window.visualViewport?.addEventListener('resize', () => dismiss(true, false));
+      motion.addEventListener?.('change', () => { if (motion.matches) dismiss(true, false); });
+      document.addEventListener('scroll', event => {
+        if (current && !current.overlay.contains(event.target)) dismiss(true, false);
+      }, true);
+      return {open, dismiss, isActionOpen: () => !!current?.origin};
+    })();
+
+    let accountSheetMotion, accountSheetOrigin;
     let accountModalSignature;
     function closeAccountActions(restore = true) {
-      if (!activeAccountActions) return false;
-      const {panel, trigger, animation} = activeAccountActions;
-      activeAccountActions = null;
-      trigger.setAttribute('aria-expanded', 'false');
-      panel.inert = true;
-      if (restore) trigger.focus({preventScroll:true});
-      if (animation && restore && animation.playState !== 'paused') {
-        if (animation.playState === 'finished') animation.currentTime = animation.effect.getTiming().duration;
-        animation.playbackRate = -1.7;
-        animation.onfinish = () => { if (activeAccountActions?.panel !== panel) panel.hidden = true; animation.cancel(); };
-        animation.play();
-      } else {
-        if (animation) animation.cancel();
-        panel.hidden = true;
-      }
-      return true;
+      return glassMenu.isActionOpen() && glassMenu.dismiss(restore, restore);
     }
     function bindAccountActions(trigger, panel) {
       panel.hidden = true;
+      panel.setAttribute('role', 'group');
+      panel.setAttribute('aria-label', '账号操作');
       trigger.onclick = () => {
-        if (activeAccountActions?.trigger === trigger) { closeAccountActions(); return; }
-        closeAccountActions(false);
         if (accountSheetMotion?.playState === 'running') accountSheetMotion.finish();
-        panel.getAnimations?.().forEach(animation => animation.cancel());
-        panel.inert = false;
-        panel.hidden = false;
-        const anchor = trigger.getBoundingClientRect();
-        const left = Math.max(8, Math.min(anchor.right - panel.offsetWidth, innerWidth - panel.offsetWidth - 8));
-        const below = anchor.bottom + panel.offsetHeight + 12 < innerHeight;
-        panel.style.left = left + 'px';
-        panel.style.top = Math.max(8, below ? anchor.bottom + 6 : anchor.top - panel.offsetHeight - 6) + 'px';
-        panel.style.transformOrigin = 'right ' + (below ? 'top' : 'bottom');
-        const animation = panel.animate && !matchMedia('(prefers-reduced-motion: reduce)').matches ? panel.animate([
-          {opacity:0, transform:'scale(.82) translateY(' + (below ? -6 : 6) + 'px)'},
-          {opacity:1, transform:'scale(1.025)',offset:.78}, {opacity:1,transform:'scale(1)'}
-        ], {duration:370,easing:'cubic-bezier(.24,.64,.3,1)',fill:'both'}) : null;
-        activeAccountActions = {panel, trigger, animation};
-        trigger.setAttribute('aria-expanded','true');
-        panel.querySelector('button:not(:disabled)')?.focus({preventScroll:true});
+        glassMenu.open(trigger, panel, true);
       };
     }
     function setupAccountSheet(modal, sheet) {
@@ -11072,11 +11502,6 @@ html[data-theme="dark"] .glass-switch-shell {
       handle.addEventListener('pointercancel', event => finish(event,false));
       handle.addEventListener('lostpointercapture', event => finish(event,false));
       modal.addEventListener('click', event => { if (event.target === modal) closeAccountModal(true); });
-      modal.addEventListener('pointerdown', event => {
-        const menu = activeAccountActions;
-        if (menu && !menu.panel.contains(event.target) && !menu.trigger.contains(event.target)) closeAccountActions(false);
-      });
-      modal.addEventListener('scroll', () => closeAccountActions(false),true);
       modal.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
           event.preventDefault();
@@ -11143,7 +11568,7 @@ html[data-theme="dark"] .glass-switch-shell {
         trigger.setAttribute('aria-expanded', 'false');
         const actions = document.createElement('div');
         actions.className = 'account-action-popover';
-        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-outline account-note-button'; edit.textContent = '备注'; edit.style.cssText = 'font-size:.74rem;padding:6px 12px;border-radius:16px;'; edit.disabled = !acc.id || providerWrites.has(providerId); edit.onclick = () => editAccountLabel(providerId,acc.id,item); actions.appendChild(edit);
+        const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'btn btn-outline account-note-button'; edit.textContent = '备注'; edit.style.cssText = 'font-size:.74rem;padding:6px 12px;border-radius:16px;'; edit.disabled = !acc.id || providerWrites.has(providerId); edit.onclick = () => { closeAccountActions(); editAccountLabel(providerId,acc.id,item); }; actions.appendChild(edit);
         const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline account-remove-button'; remove.textContent = '移除'; remove.style.cssText = 'color:#ef4444;border-color:rgba(239,68,68,.3);background:rgba(239,68,68,.06);font-size:.74rem;padding:6px 12px;border-radius:16px;'; remove.disabled = !acc.id || providerWrites.has(providerId); remove.onclick = () => { closeAccountActions(); return removeProviderAccount(providerId,acc.id); }; actions.appendChild(remove); item.appendChild(actions);
         item.appendChild(trigger);
         bindAccountActions(trigger, actions);
@@ -11153,7 +11578,6 @@ html[data-theme="dark"] .glass-switch-shell {
     }
 
     function editAccountLabel(providerId, accId, item) {
-      closeAccountActions(false);
       const motion = typeof disclosureMotion === 'undefined' ? null : disclosureMotion;
       const existing = item.querySelector('.account-label-editor');
       if (existing) {
@@ -11443,17 +11867,17 @@ html[data-theme="dark"] .glass-switch-shell {
     </div>
   </div>
   <!-- 首启向导：口令 → 权限 → 保活方式 -->
-  <div id="setup-wizard" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+  <div id="setup-wizard" role="dialog" aria-modal="true" aria-labelledby="setup-brand-title" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
        background:#090a0f; z-index:100000; overflow-y:auto; padding:18px 16px 32px;">
     <div style="max-width:520px; margin:0 auto;">
 
-      <div style="text-align:center; margin:8px 0 16px;">
-        <div style="font-size:1.8rem; line-height:1;">🦅</div>
-        <b style="display:block; color:#fff; font-size:1.05rem; margin-top:8px;">首次设置</b>
+      <div id="setup-brand" style="text-align:center; margin:8px 0 16px;">
+        <img class="setup-brand-icon" src="icon.png" width="64" height="64" alt="All In">
+        <b id="setup-brand-title" style="display:block; color:var(--text); font-size:1.05rem; margin-top:8px;">首次设置</b>
         <span style="color:var(--text-muted); font-size:0.74rem;">三步，之后这台手机就能当网关用了</span>
       </div>
 
-      <div style="display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:18px;">
+      <div id="setup-progress" aria-label="设置进度" style="display:flex; align-items:center; justify-content:center; gap:6px; margin-bottom:18px;">
         <span id="setup-dot-1" style="width:24px; height:24px; border-radius:50%; background:rgba(99,102,241,0.9);
               color:#fff; font-size:0.72rem; display:flex; align-items:center; justify-content:center;">1</span>
         <span style="width:22px; height:1px; background:rgba(255,255,255,0.16);"></span>
@@ -11465,10 +11889,11 @@ html[data-theme="dark"] .glass-switch-shell {
       </div>
 
       <div style="background:#131622; border:1px solid var(--card-border); border-radius:16px; padding:18px 18px 16px;">
-        <b id="setup-step-title" style="display:block; color:#fff; font-size:0.95rem; margin-bottom:12px;">① 设置网关口令</b>
+        <div id="setup-steps" class="setup-steps">
 
         <!-- 第 1 步：口令 -->
         <div id="setup-step-1" style="display:none;">
+          <h2 tabindex="-1">设置网关口令</h2>
           <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.7; margin-bottom:12px;">
             客户端（Claude Code / Cursor / Codex）要用这个口令访问你的网关。
             网关默认监听 <code>0.0.0.0:3425</code>，口令太弱等于把池子里的账号额度对同一个 WiFi 的人开放。
@@ -11495,6 +11920,7 @@ html[data-theme="dark"] .glass-switch-shell {
 
         <!-- 第 2 步：权限 -->
         <div id="setup-step-2" style="display:none;">
+          <h2 tabindex="-1">放行必要权限</h2>
           <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.7; margin-bottom:10px;">
             请检查通知与后台设置。部分厂商选项无法自动读取，手动确认不等于系统验证。
           </div>
@@ -11506,6 +11932,7 @@ html[data-theme="dark"] .glass-switch-shell {
 
         <!-- 第 3 步：保活 -->
         <div id="setup-step-3" style="display:none;">
+          <h2 tabindex="-1">选择保活方式</h2>
           <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.7; margin-bottom:10px;">
             系统定时自检请求间隔约 15 分钟，系统可能延迟执行；进程内自检间隔约 30 秒，冻结期间线程也不运行。无法保证所有 ROM 永不掉线。
           </div>
@@ -11517,6 +11944,7 @@ html[data-theme="dark"] .glass-switch-shell {
                    color:#34d399; border-color:rgba(16,185,129,0.35);">⚡ 立即自检一次</button>
         </div>
 
+        </div>
         <div style="display:flex; gap:10px; margin-top:18px;">
           <button id="setup-btn-back" class="btn btn-outline" onclick="setupBack()"
             style="flex:0 0 92px; justify-content:center; font-size:0.78rem; padding:10px 0; border-radius:20px;

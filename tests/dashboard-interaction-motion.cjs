@@ -12,7 +12,7 @@ function part(first, last) {
 }
 const css = source.slice(0, source.indexOf('</head>')).match(/<style[^>]*>[\s\S]*?<\/style>/g).join('\n');
 const tabs = part('    const tabMotion =', '    // Gateway access inventory');
-const sheet = part('    let accountSheetMotion', '    function renderAccountModalList(');
+const sheet = part('    const glassMenu =', '    function renderAccountModalList(');
 const dismiss = part('    function closeAccountModal()', '    async function mutateProviderAccount(');
 const copy = part('    const copyFeedback', '    function startEditAuthKey(');
 const billing = part('    const providerBillingCache', '    function renderProviderList(');
