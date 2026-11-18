@@ -5,9 +5,15 @@ const path = require('node:path');
 const {dom} = require('./browser-fixture.cjs');
 process.env.ALLIN_TEST_TMP ||= path.resolve('build');
 const source = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/dashboard.html'), 'utf8');
-const css = source.match(/\/\* The native switch remains[\s\S]*?(?=<\/style>)/)[0];
+const css = [...source.slice(0, source.indexOf('</head>')).matchAll(/<style[^>]*>[\s\S]*?<\/style>/g)].map(match => match[0]).join('\n');
 const helper = source.slice(source.indexOf('    function stepGlassSpring('), source.indexOf('    let dockLens;'));
 const script = source.slice(source.indexOf('    function setupGlassSwitches('), source.indexOf('    const disclosureMotion'));
+const piece = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start) + 1));
+const providerRendering = piece('    function providerCounts(', '    const providerRouteMotion') +
+  piece('    function renderProviderList()', '    function renderProviderStatus()') +
+  piece('    function visibleProviders(', '    function renderWbAccounts(');
+const providers = JSON.parse(fs.readFileSync(path.join(__dirname, '../app/src/main/assets/default_config.json'), 'utf8')).providers
+  .map(({id, name}, index) => ({id, name, enabled: index % 2 === 0, accounts: [{token: 'fixture'}]}));
 const controls = source.match(/<input[^>]*class="glass-switch"[^>]*>/g);
 assert.equal(controls.length, 9);
 const scenario = `
@@ -74,6 +80,39 @@ function exercise() {
     input.disabled = true;
     pointer('pointerdown', 32); pointer('pointerup', 32); input.click(); advance(16);
     check(changes === 2 && isResting(true), 'disabled switch animated or changed');
+    const list = document.querySelector('#provider-list');
+    const search = document.querySelector('#provider-search');
+    const inputFor = id => Array.from(list.querySelectorAll('input.provider-switch')).find(s => s.dataset.providerFocus === 'switch:' + id);
+    renderProviderList();
+    check(list.querySelectorAll('input.provider-switch').length === appConfig.providers.length, 'not every provider has a switch');
+    for (const p of appConfig.providers) {
+      const sw = inputFor(p.id);
+      const providerShell = sw.parentElement;
+      check(providerShell.matches('.glass-switch-shell') && !providerShell.querySelector('.glass-switch-shell') && sw.getAttribute('role') === 'switch' && sw.getAttribute('aria-label').includes(p.name || p.id), 'missing shared switch or label: ' + p.id);
+      const rail = providerShell.querySelector('.glass-switch-track');
+      const inputStyle = getComputedStyle(sw);
+      check(inputStyle.backgroundColor === 'rgba(0, 0, 0, 0)' && inputStyle.width === getComputedStyle(input).width && getComputedStyle(sw, '::after').content === 'none', 'legacy checkbox styling showed through: ' + p.id);
+      check(sw.checked === p.enabled && opacity(providerShell.querySelector('.glass-switch-solid')) === 1 && Number(getComputedStyle(rail, '::before').opacity) === Number(p.enabled), 'wrong settled provider appearance: ' + p.id);
+    }
+    const switchedProvider = appConfig.providers[0];
+    const sw = inputFor(switchedProvider.id);
+    const send = (type, x) => sw.dispatchEvent(new PointerEvent(type,{bubbles:true,pointerId:17,isPrimary:true,button:0,clientX:x}));
+    send('pointerdown', 32); send('pointermove', 14); advance(42);
+    check(changes === 2 && sw.checked, 'provider drag wrote before release');
+    if (!reduce) check(opacity(sw.parentElement.querySelector('.glass-switch-glass')) > .95, 'provider drag did not raise glass');
+    send('pointerup', 14);
+    sw.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1})); advance(72);
+    check(changes === 3 && !inputFor(switchedProvider.id).checked && inputFor(switchedProvider.id).closest('details').open, 'provider drag did not commit once and move to disabled section');
+    check(!pending.size, 'removed provider switch retained an animation');
+    const nextProvider = appConfig.providers[2];
+    const next = inputFor(nextProvider.id);
+    next.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:18,isPrimary:true,button:0,clientX:32}));
+    search.value = '__nothing_matches__'; renderProviderList();
+    check(!pending.size && !list.querySelector('.glass-switch-shell'), 'filtering did not dispose animated switches');
+    search.value = ''; providerUnknown.add(nextProvider.id); renderProviderList();
+    const locked = inputFor(nextProvider.id);
+    locked.click();
+    check(locked.disabled && locked.checked && changes === 3 && opacity(locked.parentElement.querySelector('.glass-switch-visual')) === .45, 'unconfirmed provider could still be toggled');
     document.querySelector('#result').textContent = 'PASS';
   } catch (error) {
     document.querySelector('#result').textContent = 'FAIL ' + error.message;
@@ -81,7 +120,20 @@ function exercise() {
 }
 for (const [theme, reduce] of [['light', false], ['dark', false], ['light', true]]) {
   const media = reduce ? `window.matchMedia = () => ({matches:true,addEventListener(){}});` : '';
-  const html = `<!doctype html><html data-theme="${theme}"><head><style>${css}</style></head><body class="liquid-glass">${controls.join(' ')}<pre id="result">WAIT</pre><script>${media}${scenario}${helper}${script}(${exercise.toString()})();</script></body></html>`;
+  const supplierFixture = `
+    const appConfig = {providers:${JSON.stringify(providers)}};
+    const providerWrites = new Set(), providerUnknown = new Set();
+    let providerListSig = '', providerExpandDisabled = true;
+    function renderProviderStatus() {}
+    function providerLogo() { return ''; }
+    function setProviderEnabled(id, enabled) {
+      changes++;
+      appConfig.providers.find(p => p.id === id).enabled = enabled;
+      providerExpandDisabled = true;
+      renderProviderList();
+    }
+  `;
+  const html = `<!doctype html><html class="glass-ui" data-theme="${theme}"><head>${css}</head><body class="liquid-glass">${controls.join(' ')}<input id="provider-search"><div id="provider-list"></div><pre id="result">WAIT</pre><script>${media}${scenario}${helper}${script}${supplierFixture}${providerRendering}(${exercise.toString()})();</script></body></html>`;
   assert.equal(dom(html,1000).match(/id="result"[^>]*>([^<]+)/)?.[1], 'PASS', `${theme} reduced=${reduce}`);
 }
-console.log('Nine glass switches: raised hold, drag preview, release, cancellation, tap, and reduced motion verified.');
+console.log('Shared glass switches: nine settings and all ' + providers.length + ' provider rows passed in both themes.');

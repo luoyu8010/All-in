@@ -1,7 +1,7 @@
 const fs = require('fs'), vm = require('vm'), assert = require('assert'), path = require('path');
 const html = fs.readFileSync(path.join(__dirname, '../app/src/main/assets/dashboard.html'), 'utf8');
 function slice(a,b) { const start=html.indexOf(a), end=html.indexOf(b,start); assert(start>=0 && end>start); return html.slice(start,end); }
-const source = [slice('    function updateProviderKeys(', '    // 隐藏已取消'), slice('    let providerConfigRequest', '    async function loadConfig()'), slice('    let authKeyRevision = 0;', '    function toggleKeyVisible()'), slice('    let gatewayIp =', '    /** 从服务端拉当前口令 */'), slice('    async function loadConfig()', '    // 记住上一次'), slice('    async function saveProviders()', '    function testMaskSandbox()'), slice('    let setupState =', '    // 页面启动初始化')].join('\n');
+const source = ['const glassSwitches = {mount(){}, unmount(){}};', slice('    function updateProviderKeys(', '    // 隐藏已取消'), slice('    let providerConfigRequest', '    async function loadConfig()'), slice('    let authKeyRevision = 0;', '    function toggleKeyVisible()'), slice('    let gatewayIp =', '    /** 从服务端拉当前口令 */'), slice('    async function loadConfig()', '    // 记住上一次'), slice('    async function saveProviders()', '    function testMaskSandbox()'), slice('    let setupState =', '    // 页面启动初始化')].join('\n');
 const response = data => ({ok:true,json:async()=>JSON.parse(JSON.stringify(data))});
 function createServer() {
  const server={key:'magpie',disk:'magpie',done:false,requests:[],delayed:{},fail:false};
@@ -21,7 +21,7 @@ function createServer() {
  return server;
 }
 function page(server) {
- const elements={}; const document={getElementById(id){return elements[id] || (elements[id]={value:'',innerText:'',innerHTML:'',style:{},replaceChildren(){},appendChild(){},querySelector(){return null},querySelectorAll(){return []},focus(){},select(){},setSelectionRange(){}})},createElement(){return {style:{},appendChild(){}}},body:{appendChild(){}}};
+ const elements={}; const document={getElementById(id){return elements[id] || (elements[id]={value:'',innerText:'',innerHTML:'',style:{},children:[],replaceChildren(){},appendChild(){},querySelector(){return null},querySelectorAll(){return []},closest(){return null},focus(){},select(){},setSelectionRange(){}})},createElement(){return {style:{},appendChild(){}}},body:{appendChild(){}}};
  const context={document,window:{crypto:{getRandomValues(buf){buf.fill(9)}},zcodeGiftLoaded:true},Uint8Array,Math,JSON,location:{hostname:'127.0.0.1',port:'3425'},API_BASE:'',AUTH_KEY:'magpie',currentAuthKey:'',authKeyVisible:false,appConfig:null,lastConfigSig:'',renderDirty:false,fetch:server.fetch,sessionStorage:{setItem(){}},navigator:{},console,setTimeout,showToast(message){context.toasts.push(message)},toasts:[],alerts:[],gatewayBaseUrl:()=> 'http://host:3425',renderCredentials(){},autoSyncAfterLogin(){},visibleProviders(p){return p || []},renderCommercialKeys(){},renderGroups(){},bindGroupEvents(){},renderWbAccounts(){},renderWbModelTags(){},renderAllProvidersCards(){},refreshProviderBadges(){},applyPlaceholderGuard(){},renderMiddleware(){},renderPingProviders(){},renderAllModelsTags(){},loadZCodeGift(){},alert(message){context.alerts.push(message)}};
  vm.createContext(context); vm.runInContext(source,context); return {c:context,e:elements};
 }

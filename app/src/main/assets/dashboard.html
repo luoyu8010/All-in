@@ -5899,9 +5899,14 @@ html[data-theme="dark"] .glass-switch-shell {
     function setupGlassSwitches() {
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
       const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      const switches = new WeakMap();
+      const active = new Set();
       let suppressedClick = null;
       window.addEventListener('pointerdown', () => { suppressedClick = null; }, true);
-      for (const input of document.querySelectorAll('input.glass-switch')) {
+      window.addEventListener('blur', () => active.forEach(control => control.cancel()));
+      reducedMotion.addEventListener('change', () => active.forEach(control => control.clear()));
+      function mount(input) {
+        if (switches.has(input)) return;
         const shell = document.createElement('span');
         shell.className = 'glass-switch-shell';
         input.before(shell);
@@ -5913,13 +5918,17 @@ html[data-theme="dark"] .glass-switch-shell {
           '<span class="glass-switch-solid"></span><span class="glass-switch-glass">' +
           '<span class="glass-switch-reflection"></span></span></span>';
         shell.append(visual);
-        if (!window.PointerEvent) continue;
+        if (!window.PointerEvent) {
+          switches.set(input, null);
+          return;
+        }
 
         const left = 14, right = 32;
         const selectedCenter = () => input.checked ? right : left;
         const position = {value: selectedCenter(), target: selectedCenter(), speed: 0};
         const lift = {value: 0, target: 0, speed: 0};
         let pointer = null, lowerOnArrival = false, frame = 0, lastFrame = 0;
+        let disposed = false;
         function draw() {
           const rise = reducedMotion.matches ? 0 : clamp(lift.value, 0, 1);
           const stretch = Math.min(Math.abs(position.speed) / 310, 1) * rise;
@@ -5935,6 +5944,7 @@ html[data-theme="dark"] .glass-switch-shell {
           shell.style.setProperty('--switch-reflect', (width / 2 - center).toFixed(2) + 'px');
         }
         function clearMotion() {
+          if (!pointer) active.delete(control);
           if (frame) cancelAnimationFrame(frame);
           frame = 0;
           lowerOnArrival = false;
@@ -5964,6 +5974,8 @@ html[data-theme="dark"] .glass-switch-shell {
           else if (!pointer && !lowerOnArrival) clearMotion();
         }
         function update() {
+          if (disposed) return;
+          active.add(control);
           if (reducedMotion.matches) {
             clearMotion();
             return;
@@ -6038,11 +6050,25 @@ html[data-theme="dark"] .glass-switch-shell {
           begin(input.checked ? left : right);
           if (!pointer) settle();
         });
-        window.addEventListener('blur', () => end(false));
-        reducedMotion.addEventListener('change', clearMotion);
+        const control = {
+          cancel: () => end(false),
+          clear: clearMotion,
+          dispose() {
+            disposed = true;
+            pointer = null;
+            clearMotion();
+          }
+        };
+        switches.set(input, control);
       }
+      function unmount(input) {
+        switches.get(input)?.dispose();
+        switches.delete(input);
+      }
+      document.querySelectorAll('input.glass-switch').forEach(mount);
+      return {mount, unmount};
     }
-    setupGlassSwitches();
+    const glassSwitches = setupGlassSwitches();
 
     const disclosureMotion = (() => {
       const active = new Map();
@@ -6377,15 +6403,22 @@ html[data-theme="dark"] .glass-switch-shell {
         const {old, animations, resolve} = transition;
         transition = null;
         animations.forEach(animation => animation.cancel());
-        old.removeAttribute('data-tab-departing');
-        old.removeAttribute('aria-hidden');
-        old.inert = false;
-        for (const name of ['top', 'left', 'width', 'max-height']) old.style.removeProperty(name);
+        if (old) {
+          old.removeAttribute('data-tab-departing');
+          old.removeAttribute('aria-hidden');
+          old.inert = false;
+          for (const name of ['top', 'left', 'width', 'max-height']) old.style.removeProperty(name);
+        }
         resolve();
       }
-      function capture(old, next) {
-        if (!old || !next || old === next) return null;
-        scrollByTab.set(old, window.scrollY);
+      function capture(old, next, dockSwitch) {
+        if (!next || old === next) return null;
+        if (old) scrollByTab.set(old, window.scrollY);
+        if (dockSwitch) {
+          reset();
+          return null;
+        }
+        if (!old) return null;
         const from = old.getBoundingClientRect();
         const fromOpacity = Number(getComputedStyle(old).opacity);
         const resting = old.parentElement.getBoundingClientRect();
@@ -6419,13 +6452,28 @@ html[data-theme="dark"] .glass-switch-shell {
         const retire = old.animate([
           move(departingX, fromOpacity, 0, 'cubic-bezier(.25,.45,.35,1)'), move(-distance * direction, 0, .78), move(-distance * direction, 0, 1)
         ], timing);
+        track(shift, {old, animations:[shift, retire], inset});
+      }
+      function track(animation, state) {
         let resolve;
         const settled = new Promise(done => { resolve = done; });
-        transition = {old, animations:[shift, retire], inset, settled, resolve};
-        shift.onfinish = () => { if (transition && transition.animations[0] === shift) reset(); };
+        transition = {...state, settled, resolve};
+        animation.onfinish = animation.oncancel = () => {
+          if (transition?.animations[0] === animation) reset();
+        };
+      }
+      function playDock(next, direction, preserveScroll) {
+        if (!preserveScroll) window.scrollTo({top:scrollByTab.get(next) || 0, behavior:'instant'});
+        if (!next.animate || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        // The dock already provides the main motion. Move only the incoming pane.
+        const shift = next.animate([
+          {transform:`translate3d(${18 * direction}px,0,0)`, opacity:.82},
+          {transform:'translate3d(0,0,0)', opacity:1}
+        ], {duration:240, easing:'cubic-bezier(.2,.68,.25,1)'});
+        track(shift, {animations:[shift]});
       }
       window.addEventListener('resize', reset);
-      return {capture, play, finish:reset, settling: () => transition?.settled};
+      return {capture, play, playDock, finish:reset, settling: () => transition?.settled};
     })();
 
     function switchTab(tabId, el, preserveScroll) {
@@ -6445,7 +6493,9 @@ html[data-theme="dark"] .glass-switch-shell {
         const target = document.getElementById('tab-' + tabId);
         const old = Array.from(panes).find(pane => pane.classList.contains('active'));
         const index = Array.from(panes).indexOf(target);
-        const state = typeof tabMotion !== 'undefined' ? tabMotion.capture(old, target) : null;
+        const dockSwitch = !!el?.closest?.('#bottom-nav');
+        const direction = index < Array.from(panes).indexOf(old) ? -1 : 1;
+        const state = typeof tabMotion !== 'undefined' ? tabMotion.capture(old, target, dockSwitch) : null;
         btns.forEach(b => b.classList.remove('active'));
         panes.forEach(p => p.classList.remove('active'));
 
@@ -6461,7 +6511,10 @@ html[data-theme="dark"] .glass-switch-shell {
         if (target) {
           target.classList.add('active');
           if (typeof tabMotion !== 'undefined') {
-            if (old !== target) tabMotion.play(state, target, index < Array.from(panes).indexOf(old) ? -1 : 1, preserveScroll);
+            if (old !== target) {
+              if (dockSwitch) tabMotion.playDock(target, direction, preserveScroll);
+              else tabMotion.play(state, target, direction, preserveScroll);
+            }
           } else if (!preserveScroll) window.scrollTo({top:0, behavior:'auto'});
         }
         moveNavPill(document.querySelector('.tab-btn.active'));
@@ -7732,7 +7785,10 @@ html[data-theme="dark"] .glass-switch-shell {
       const providers = visibleProviders(appConfig && appConfig.providers).filter(p => p && typeof p === 'object' && typeof p.id === 'string' && providerConfigured(p) && (String(p.name || '').toLowerCase().includes(query) || String(p.id || '').toLowerCase().includes(query)));
       const sig = JSON.stringify([query, providers.map(p => [p.id,p.name,providerEnabled(p),providerCounts(p),providerWrites.has(p.id),providerUnknown.has(p.id)])]); if (sig === providerListSig) return; providerListSig = sig;
       const active = document.activeElement; const focusId = active && active.dataset && active.dataset.providerFocus; const scroll = window.scrollY || 0;
-      const disabledOpen = providerExpandDisabled || !!box.querySelector('details[open]'); providerExpandDisabled = false; box.replaceChildren();
+      const disabledOpen = providerExpandDisabled || !!box.querySelector('details[open]');
+      providerExpandDisabled = false;
+      box.querySelectorAll('input.provider-switch').forEach(glassSwitches.unmount);
+      box.replaceChildren();
       function row(p, parent) {
         const wrap = document.createElement('div'); wrap.className = 'provider-compact';
         const b = document.createElement('button'); b.type = 'button'; b.className = 'provider-compact-main'; b.onclick = () => showProviderView('detail', p.id, wrap);
@@ -7746,7 +7802,18 @@ html[data-theme="dark"] .glass-switch-shell {
         const counts = []; if (c.accounts) counts.push(c.accounts + ' 个账号'); if (c.keys) counts.push(c.keys + ' 把 Key'); counts.push(c.models + ' 个模型');
         small.textContent = counts.join(' · ') + (providerUnknown.has(p.id) ? ' · 状态待确认' : '');
         text.appendChild(title); text.appendChild(small); b.appendChild(text); wrap.appendChild(b);
-        const sw = document.createElement('input'); sw.type = 'checkbox'; sw.className = 'provider-switch'; sw.setAttribute('role','switch'); sw.setAttribute('aria-label', (p.name || p.id) + '启用'); sw.dataset.providerFocus = 'switch:' + p.id; sw.checked = providerEnabled(p); sw.disabled = providerWrites.has(p.id) || providerUnknown.has(p.id); sw.onchange = () => setProviderEnabled(p.id, sw.checked); wrap.appendChild(sw); parent.appendChild(wrap);
+        const sw = document.createElement('input');
+        sw.type = 'checkbox';
+        sw.className = 'provider-switch glass-switch';
+        sw.setAttribute('role', 'switch');
+        sw.setAttribute('aria-label', (p.name || p.id) + '启用');
+        sw.dataset.providerFocus = 'switch:' + p.id;
+        sw.checked = providerEnabled(p);
+        sw.disabled = providerWrites.has(p.id) || providerUnknown.has(p.id);
+        sw.onchange = () => setProviderEnabled(p.id, sw.checked);
+        wrap.appendChild(sw);
+        glassSwitches.mount(sw);
+        parent.appendChild(wrap);
       }
       providers.filter(providerEnabled).forEach(p => row(p,box)); const disabled = providers.filter(p => !providerEnabled(p));
       if (disabled.length) { const d = document.createElement('details'); d.open = disabledOpen; const summary = document.createElement('summary'); summary.textContent = '已停用（' + disabled.length + '）'; d.appendChild(summary); disabled.forEach(p => row(p,d)); box.appendChild(d); }

@@ -36,6 +36,21 @@ async function checks() {
     reduced = true; await switchTab('providers'); await switchTab('overview');
     check(!a.getAnimations().length && !b.inert && !b.hasAttribute('data-tab-departing'), 'motion preference or transition cleanup');
     reduced = false;
+    const dockA = $('#dock-overview'), dockB = $('#dock-providers');
+    window.scrollTo({top:205, behavior:'instant'});
+    await switchTab('providers', dockB);
+    const dockIncoming = b.getAnimations()[0];
+    check(b.classList.contains('active') && window.scrollY === 0, 'dock navigation or incoming scroll');
+    check(dockIncoming?.effect.getTiming().duration === 240 && !a.getAnimations().length && !a.hasAttribute('data-tab-departing'), 'dock animated the outgoing page');
+    await switchTab('overview', dockA);
+    check(window.scrollY === 205 && !b.getAnimations().length && dockIncoming.playState === 'idle', 'dock retarget did not restore scroll or cancel the old animation');
+    const settled = tabMotion.settling();
+    a.getAnimations()[0].finish();
+    await settled;
+    check(!tabMotion.settling() && !a.getAnimations().length, 'dock settling did not clear the animation');
+    reduced = true; await switchTab('providers', dockB);
+    check(!b.getAnimations().length && !tabMotion.settling(), 'dock ignored reduced motion');
+    reduced = false;
     $('#launcher').focus(); manageProviderAccounts('fixture');
     const drawer = $('.account-sheet'), modal = $('#account-manage-modal');
     check(modal.style.display === 'flex' && getComputedStyle(modal).alignItems === 'flex-end', 'drawer placement');
@@ -61,7 +76,7 @@ async function checks() {
     result.textContent = 'PASS';
   } catch (error) { result.textContent = 'FAIL ' + error.message; }
 }
-const page = `<!doctype html><html class="glass-ui"><head>${css}<style>html{scroll-behavior:auto}.tab-pane{height:900px}#launcher{position:fixed;bottom:12px}</style></head><body class="liquid-glass"><main><section class="tab-pane active" id="tab-overview">首页</section><section class="tab-pane" id="tab-providers">供应商</section></main><button id="launcher">管理账号</button><button id="copy">复制 ID</button><div id="copy-live-status"></div><div id="provider-billing-panel"></div>${markup}<pre id="result">WAIT</pre><script>
+const page = `<!doctype html><html class="glass-ui"><head>${css}<style>html{scroll-behavior:auto}.tab-pane{height:900px}#launcher{position:fixed;bottom:12px}</style></head><body class="liquid-glass"><main><section class="tab-pane active" id="tab-overview">首页</section><section class="tab-pane" id="tab-providers">供应商</section></main><button id="launcher">管理账号</button><nav id="bottom-nav" class="nav-tabs"><button id="dock-overview" class="tab-btn"></button><button id="dock-providers" class="tab-btn"></button></nav><button id="copy">复制 ID</button><div id="copy-live-status"></div><div id="provider-billing-panel"></div>${markup}<pre id="result">WAIT</pre><script>
 let reduced=false,currentModalProviderId=null,providerView='detail',providerDetail='fixture',fetches=0,resolveBilling;
 const API_BASE=''; window.matchMedia=()=>({get matches(){return reduced}});
 function moveNavPill(){} function loadConfig(){return Promise.resolve()} function renderAllModelsTags(){} function showToast(){} function billingAllowanceText(a){return String(a.remaining ?? '')}

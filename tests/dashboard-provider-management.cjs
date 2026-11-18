@@ -7,7 +7,8 @@ const js = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(x => x[1
 new vm.Script(js);
 const start = js.indexOf('    let providerConfigRequest');
 const end = js.indexOf('    async function loadConfig()', start);
-const code = fileTransferCode + js.slice(start, end);
+// The shared switch DOM and gestures are exercised in dashboard-glass-switch.cjs.
+const code = 'const glassSwitches = {mount(){}, unmount(){}};' + fileTransferCode + js.slice(start, end);
 const context = vm.createContext({ Set, JSON, Array, String, document: {}, window: {}, fetch:()=>{}, showToast:()=>{}, visibleProviders: x => Array.isArray(x) ? x : [], appConfig: {providers: []} });
 vm.runInContext(code, context);
 function counts(p) { return JSON.parse(JSON.stringify(context.providerCounts(p))); }
